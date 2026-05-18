@@ -529,9 +529,6 @@ async def do_logout(response: Response):
 
 @app.get("/", response_class=HTMLResponse)
 async def frontend(request: Request):
-    # Redirect to setup wizard on first run
-    if not _is_setup_complete():
-        return RedirectResponse("/setup")
     html_path = Path("frontend/index.html")
     if html_path.exists():
         return HTMLResponse(html_path.read_text(encoding="utf-8"))
