@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check imports resolve
+        run: |
+          python -c "import config; print('config OK')"
+          python -c "import database; print('database OK')"
+          python -c "import security; print('security OK')"
+        env:
+          SECRET_KEY: test-key-for-ci-only
+          ENCRYPTION_KEY: ""
+          META_APP_ID: test
+          META_APP_SECRET: test
+          ANTHROPIC_API_KEY: test
+
+      - name: Verify startup config
+        run: python -c "from config import settings; print('BASE_URL:', settings.BASE_URL)"
+        env:
+          SECRET_KEY: test-key-for-ci-only

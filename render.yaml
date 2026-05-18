@@ -1,0 +1,69 @@
+# ── Render Blueprint — Uplinx Meta Manager ─────────────────────────────────
+# Deploy: render.com → New → Blueprint → connect this repo → done.
+# IMPORTANT: Keep this repo PRIVATE (contains pre-set credentials).
+#
+# After first deploy, go to the web service → Environment and set:
+#   BASE_URL = https://uplinx-meta-manager.onrender.com  (your actual URL)
+#   ANTHROPIC_API_KEY  (or OPENAI_API_KEY / GROQ_API_KEY)
+#   LOGIN_PASSWORD     (team password — optional but recommended)
+#   META_APP_ID + META_APP_SECRET (if you use OAuth login, not token paste)
+# That's it. Everything else is pre-configured.
+
+services:
+  - type: web
+    name: uplinx-meta-manager
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      # ── Database (Supabase PostgreSQL — free, persistent forever) ──────────
+      - key: DATABASE_URL
+        value: postgresql+asyncpg://uplinx_app:UplinxMeta2026DB9k@db.hkwirofdkgdamqnlcjqf.supabase.co:5432/postgres
+
+      # ── Security (pre-generated — do not change after first deploy) ────────
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        value: BYWRkzFgN6PVnzSPxnmCqHplj-d21orOrizY5OQuQu4=
+
+      # ── Your API keys — set these in Render dashboard after deploy ─────────
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: claude
+
+      # ── Team login password (optional — leave blank to skip login screen) ──
+      - key: LOGIN_PASSWORD
+        sync: false
+
+      # ── Meta credentials ────────────────────────────────────────────────────
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_REDIRECT_URI
+        sync: false
+      - key: META_API_VERSION
+        value: v21.0
+
+      # ── Google (optional) ───────────────────────────────────────────────────
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+
+      # ── App settings ────────────────────────────────────────────────────────
+      - key: BASE_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "100"

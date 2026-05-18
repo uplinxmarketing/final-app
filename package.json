@@ -1,0 +1,12 @@
+{
+  "name": "ad-management--main",
+  "version": "1.0.0",
+  "description": "An AI-powered Meta (Facebook/Instagram) advertising co-pilot. Manage campaigns, upload creatives, schedule posts, and pull analytics — all through a conversational chat interface.",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

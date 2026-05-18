@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Uplinx Meta Manager</title>
+<meta name="theme-color" content="#DC2626">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: linear-gradient(135deg, #fff5f5 0%, #fef2f2 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.card {
+  background: #ffffff;
+  border: 1px solid #fca5a5;
+  border-radius: 20px;
+  padding: 48px 40px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 12px 40px rgba(220,38,38,0.10), 0 2px 8px rgba(0,0,0,0.04);
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 36px;
+  justify-content: center;
+}
+.logo-icon {
+  width: 46px;
+  height: 46px;
+  background: #dc2626;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(220,38,38,0.35);
+  flex-shrink: 0;
+}
+.logo-text {
+  font-family: 'Syne', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a1a1a;
+  letter-spacing: 1px;
+}
+.logo-text span {
+  display: block;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  color: #9ca3af;
+  margin-top: 1px;
+  letter-spacing: 0;
+}
+h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 6px;
+  text-align: center;
+}
+.sub {
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+  margin-bottom: 28px;
+  line-height: 1.5;
+}
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+input[type="password"] {
+  width: 100%;
+  background: #fff5f5;
+  border: 1px solid #fca5a5;
+  border-radius: 9px;
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #1a1a1a;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  margin-bottom: 18px;
+}
+input[type="password"]:focus {
+  border-color: #dc2626;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(220,38,38,0.08);
+}
+input[type="password"]::placeholder { color: #d1d5db; }
+button {
+  width: 100%;
+  padding: 13px;
+  background: #dc2626;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(220,38,38,0.30);
+  letter-spacing: 0.2px;
+}
+button:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(220,38,38,0.35);
+}
+button:active { transform: translateY(0); }
+button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.err {
+  color: #dc2626;
+  font-size: 12px;
+  margin-top: 10px;
+  text-align: center;
+  display: none;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.footer {
+  font-size: 11px;
+  color: #d1d5db;
+  text-align: center;
+  margin-top: 28px;
+}
+@media (max-width: 440px) {
+  .card { padding: 36px 24px; }
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="white"/>
+      </svg>
+    </div>
+    <div class="logo-text">UPLINX<span>Meta Manager</span></div>
+  </div>
+  <h2>Team Login</h2>
+  <p class="sub">Enter the team password to access the workspace.</p>
+  <form onsubmit="doLogin(event)">
+    <label>Password</label>
+    <input type="password" id="pw" placeholder="Enter team password…" autofocus autocomplete="current-password">
+    <button type="submit" id="btn">Sign In →</button>
+    <div class="err" id="err"></div>
+  </form>
+  <p class="footer">Uplinx Meta Manager · Team Workspace</p>
+</div>
+<script>
+async function doLogin(e) {
+  e.preventDefault();
+  const pw = document.getElementById('pw').value.trim();
+  if (!pw) return;
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('err');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  err.style.display = 'none';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Incorrect password');
+    window.location.href = '/';
+  } catch(ex) {
+    err.textContent = ex.message;
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Sign In →';
+  }
+}
+</script>
+</body>
+</html>

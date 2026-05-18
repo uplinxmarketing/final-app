@@ -1,0 +1,46 @@
+# Secrets — never commit these
+.env
+*.env.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Uploads (user content)
+uploads/
+
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.egg
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node (in case frontend tooling is added later)
+node_modules/
+
+# Alembic generated
+alembic/versions/*.pyc

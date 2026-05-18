@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uplinx Meta Manager</title>
+<meta name="description" content="AI-powered Meta advertising management — create campaigns, upload creatives, pull analytics and schedule posts through a conversational interface.">
+<meta name="theme-color" content="#DC2626">
+<link rel="manifest" href="/frontend/manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-primary:#ffffff;--bg-secondary:#fff5f5;--bg-tertiary:#fef2f2;--bg-hover:#fee2e2;--bg-deep:#fecaca;
+  --border:#fca5a5;--accent:#dc2626;--accent-hover:#b91c1c;--accent-soft:rgba(220,38,38,0.08);
+  --success:#16a34a;--warning:#d97706;--error:#b91c1c;
+  --text-primary:#1a1a1a;--text-secondary:#6b7280;--text-dim:#9ca3af;
+  --font-ui:'DM Sans',sans-serif;--font-heading:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;
+  --radius:8px;--radius-lg:12px;--radius-pill:100px;--transition:150ms ease;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-ui);font-size:14px}
+button{cursor:pointer;border:none;background:none;color:inherit;font:inherit}
+input,textarea,select{font:inherit;color:inherit;background:none;border:none;outline:none}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* ── Layout ── */
+#app{display:flex;height:100vh;overflow:hidden}
+#connect-screen{display:none;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:24px;background:var(--bg-primary)}
+#connect-screen.visible{display:flex}
+#app.hidden{display:none}
+
+/* ── Left Sidebar ── */
+#sidebar{width:240px;min-width:240px;background:var(--bg-secondary);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:16px;border-bottom:1px solid var(--border)}
+.sidebar-logo{font-family:var(--font-heading);font-size:18px;font-weight:700;color:var(--accent);letter-spacing:1px}
+.sidebar-logo span{display:block;font-family:var(--font-ui);font-size:11px;font-weight:400;color:var(--text-dim);letter-spacing:0;margin-top:2px}
+.sidebar-search{padding:10px 12px;border-bottom:1px solid var(--border)}
+.sidebar-search input{width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;font-size:13px;color:var(--text-secondary)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+.sidebar-new-btn{margin:10px 12px;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);border:1px dashed var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition);width:calc(100% - 24px)}
+.sidebar-new-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.sidebar-clients{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-section-label{padding:6px 14px;font-size:10px;font-weight:600;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase}
+.client-item{padding:0}
+.client-header{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;transition:var(--transition);border-radius:0}
+.client-header:hover{background:var(--bg-hover)}
+.client-header.active{background:var(--accent-soft)}
+.client-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.client-name{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.client-chevron{font-size:10px;color:var(--text-dim);transition:var(--transition);flex-shrink:0}
+.client-chevron.open{transform:rotate(90deg)}
+.client-children{display:none;padding-left:20px}
+.client-children.open{display:block}
+.ad-account-item{padding:0}
+.ad-account-header{display:flex;align-items:center;gap:6px;padding:5px 12px;cursor:pointer;color:var(--text-secondary);font-size:12px;transition:var(--transition)}
+.ad-account-header:hover{color:var(--text-primary);background:var(--bg-hover)}
+.ad-account-children{display:none;padding-left:16px}
+.ad-account-children.open{display:block}
+.conv-item{display:flex;align-items:center;gap:6px;padding:5px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary);border-left:2px solid transparent;transition:var(--transition);border-radius:0 var(--radius) var(--radius) 0}
+.conv-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.conv-item.active{border-left-color:var(--accent);color:var(--text-primary);background:var(--accent-soft)}
+.conv-item.pinned::before{content:'📌';font-size:10px}
+.sidebar-bottom{border-top:1px solid var(--border);padding:8px}
+.sidebar-nav{display:flex;flex-direction:column;gap:2px}
+.sidebar-nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);color:var(--text-secondary);font-size:13px;cursor:pointer;transition:var(--transition)}
+.sidebar-nav-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.sidebar-new-conv{margin:8px 12px 4px;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius);background:var(--accent);color:#fff;font-size:13px;font-weight:500;transition:var(--transition);justify-content:center}
+.sidebar-new-conv:hover{background:var(--accent-hover)}
+
+/* ── Center Chat ── */
+#chat-area{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-primary)}
+.chat-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);flex-shrink:0}
+.chat-title{font-family:var(--font-heading);font-size:16px;font-weight:600}
+.chat-breadcrumb{font-size:12px;color:var(--text-dim);margin-top:2px}
+.chat-header-menu{padding:6px 8px;border-radius:var(--radius);color:var(--text-secondary);transition:var(--transition)}
+.chat-header-menu:hover{background:var(--bg-hover);color:var(--text-primary)}
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text-secondary)}
+.welcome h2{font-family:var(--font-heading);font-size:22px;color:var(--text-primary)}
+.welcome p{font-size:13px;text-align:center;max-width:400px;line-height:1.6}
+.msg{display:flex;flex-direction:column;max-width:80%}
+.msg.user{align-self:flex-end;align-items:flex-end}
+.msg.assistant{align-self:flex-start;align-items:flex-start}
+.msg-bubble{padding:12px 16px;border-radius:var(--radius-lg);line-height:1.6;font-size:14px}
+.msg.user .msg-bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.msg.assistant .msg-bubble{background:var(--bg-tertiary);color:var(--text-primary);border-bottom-left-radius:4px;border:1px solid var(--border)}
+.msg-meta{font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;align-items:center;gap:8px}
+.msg-copy{opacity:0;transition:var(--transition);cursor:pointer;padding:2px 6px;border-radius:4px;background:var(--bg-hover)}
+.msg:hover .msg-copy{opacity:1}
+.tool-step{font-size:12px;color:var(--text-dim);padding:4px 0;display:flex;align-items:center;gap:6px;font-family:var(--font-mono)}
+.tool-step::before{content:'▸';color:var(--accent)}
+.tool-step.done::before{content:'✓';color:var(--success)}
+.msg-bubble pre{background:#f8f9fa;border:1px solid #e5e7eb;border-radius:var(--radius);padding:12px;margin:8px 0;overflow-x:auto;font-family:var(--font-mono);font-size:12px}
+.msg-bubble code{font-family:var(--font-mono);font-size:12px;background:#f8f9fa;padding:1px 5px;border-radius:4px;color:#374151}
+.typing-indicator{display:flex;gap:4px;align-items:center;padding:4px 0}
+.typing-dot{width:6px;height:6px;border-radius:50%;background:var(--text-dim);animation:bounce 1.2s infinite}
+.typing-dot:nth-child(2){animation-delay:.2s}
+.typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+.chat-input-area{padding:16px 20px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0}
+.chat-input-box{display:flex;align-items:flex-end;gap:10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:10px 14px;transition:var(--transition)}
+.chat-input-box:focus-within{border-color:var(--accent)}
+.chat-attach{color:var(--text-secondary);padding:4px;transition:var(--transition);flex-shrink:0}
+.chat-attach:hover{color:var(--accent)}
+#chat-input{flex:1;resize:none;max-height:160px;overflow-y:auto;line-height:1.5;color:var(--text-primary);font-size:14px;background:transparent}
+#chat-input::placeholder{color:var(--text-dim)}
+.chat-send{background:var(--accent);color:#fff;padding:6px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;transition:var(--transition);flex-shrink:0}
+.chat-send:hover{background:var(--accent-hover)}
+.chat-send:disabled{opacity:0.4;cursor:not-allowed}
+.chat-hints{font-size:11px;color:var(--text-dim);margin-top:8px;display:flex;gap:12px}
+.chat-hints span{cursor:pointer;transition:var(--transition)}
+.chat-hints span:hover{color:var(--accent)}
+.chat-input-wrapper{position:relative}
+
+/* ── Right Panel ── */
+#context-panel{width:280px;min-width:280px;background:var(--bg-secondary);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.panel-section{padding:14px;border-bottom:1px solid var(--border)}
+.panel-label{font-size:10px;font-weight:600;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;margin-bottom:10px}
+.panel-field{margin-bottom:10px}
+.panel-field label{font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px}
+.panel-select{width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:7px 10px;font-size:13px;color:var(--text-primary);cursor:pointer}
+.panel-select:focus{border-color:var(--accent);outline:none}
+.panel-btn{width:100%;padding:7px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:12px;margin-top:4px;transition:var(--transition);background:transparent}
+.panel-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.panel-btn-row{display:flex;gap:6px}
+.panel-btn-row .panel-btn{flex:1}
+.api-bar-wrap{background:var(--bg-tertiary);border-radius:var(--radius);height:6px;margin:8px 0 4px;overflow:hidden}
+.api-bar{height:100%;border-radius:var(--radius);background:var(--success);transition:width .3s ease}
+.api-bar.warn{background:var(--warning)}
+.api-bar.danger{background:var(--error)}
+.api-count{font-size:11px;color:var(--text-secondary)}
+.upload-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.upload-item:last-child{border-bottom:none}
+.upload-icon{font-size:14px}
+.upload-name{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upload-remove{color:var(--text-dim);font-size:16px;line-height:1;transition:var(--transition);flex-shrink:0}
+.upload-remove:hover{color:var(--error)}
+.skill-item{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:12px}
+.skill-status{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.panel-link{font-size:12px;color:var(--accent);cursor:pointer;transition:var(--transition)}
+.panel-link:hover{color:var(--accent-hover)}
+
+/* ── Modals ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(2px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.12)}
+.modal-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-family:var(--font-heading);font-size:16px;font-weight:600}
+.modal-close{color:var(--text-dim);font-size:20px;transition:var(--transition);padding:4px}
+.modal-close:hover{color:var(--text-primary)}
+.modal-body{padding:24px}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+.form-input{width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:14px;color:var(--text-primary);transition:var(--transition)}
+.form-input:focus{border-color:var(--accent);outline:none}
+.form-select{width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:14px;color:var(--text-primary)}
+.btn-primary{background:var(--accent);color:#fff;padding:9px 20px;border-radius:var(--radius);font-size:14px;font-weight:500;transition:var(--transition)}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-secondary{background:transparent;color:var(--text-secondary);padding:9px 20px;border-radius:var(--radius);font-size:14px;border:1px solid var(--border);transition:var(--transition)}
+.btn-secondary:hover{border-color:var(--text-secondary);color:var(--text-primary)}
+.color-picker{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.color-swatch{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:var(--transition)}
+.color-swatch.selected,.color-swatch:hover{border-color:#fff;transform:scale(1.15)}
+.conn-item{display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px}
+.conn-status{display:flex;align-items:center;gap:8px;font-size:13px}
+.conn-dot{width:8px;height:8px;border-radius:50%;background:var(--error)}
+.conn-dot.connected{background:var(--success)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:var(--radius-pill);font-size:11px;font-weight:500}
+.badge-success{background:rgba(34,197,94,.15);color:var(--success)}
+.badge-warn{background:rgba(245,158,11,.15);color:var(--warning)}
+.badge-error{background:rgba(239,68,68,.15);color:var(--error)}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--bg-primary);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius);padding:12px 16px;font-size:13px;color:var(--text-primary);box-shadow:0 8px 24px rgba(0,0,0,.10);z-index:9999;transform:translateY(8px);opacity:0;transition:all .25s ease;max-width:320px}
+.toast.show{transform:translateY(0);opacity:1}
+.drag-over{border:2px dashed var(--accent)!important;background:var(--accent-soft)!important}
+
+/* ── Mobile hamburger button ── */
+.mobile-menu-btn{display:none;align-items:center;justify-content:center;padding:6px;border-radius:var(--radius);color:var(--text-secondary);cursor:pointer;transition:var(--transition)}
+.mobile-menu-btn:hover{background:var(--bg-hover);color:var(--text-primary)}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;backdrop-filter:blur(2px)}
+.sidebar-overlay.open{display:block}
+
+/* ── Mobile responsive ── */
+@media (max-width:900px){
+  #context-panel{display:none}
+}
+@media (max-width:600px){
+  #sidebar{position:fixed;z-index:100;height:100%;transform:translateX(-100%);transition:transform .25s ease}
+  #sidebar.mobile-open{transform:translateX(0)}
+  #chat-area{width:100%}
+  .mobile-menu-btn{display:flex}
+  .msg{max-width:95%}
+  .chat-input-area{padding:10px 12px}
+  .messages{padding:12px}
+  .modal{width:95vw!important;max-width:95vw!important}
+  .chat-header{padding:10px 14px}
+}
+@media (min-width:601px){
+  .sidebar-overlay{display:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- Connect screen (shown when not authenticated) -->
+<div id="connect-screen">
+  <div style="font-family:var(--font-heading);font-size:32px;font-weight:700;color:var(--accent)">UPLINX</div>
+  <div style="color:var(--text-secondary);font-size:14px;margin-bottom:8px">Meta Manager — connect your Meta account to get started</div>
+
+  <!-- Option A: Direct token -->
+  <div style="width:100%;max-width:420px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+    <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🔑 Paste Access Token</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Use a Meta system user token or any long-lived access token. No domain verification needed.</div>
+    <input type="password" id="direct-token-input" placeholder="EAAxxxxxx..." autocomplete="off"
+      style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-primary);font-size:13px;margin-bottom:10px;outline:none"
+      onkeydown="if(event.key==='Enter') connectWithToken()">
+    <button onclick="connectWithToken()" id="connect-token-btn"
+      style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+      Connect with Token
+    </button>
+    <div id="token-error" style="color:var(--error);font-size:12px;margin-top:8px;display:none"></div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">
+      Get a token: Meta Business Suite → Settings → System Users → Generate Token<br>
+      Or: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" style="color:var(--accent)">Graph API Explorer</a> → Generate User Token
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <div style="display:flex;align-items:center;gap:12px;width:100%;max-width:420px">
+    <div style="flex:1;height:1px;background:var(--border)"></div>
+    <div style="color:var(--text-dim);font-size:12px">or use OAuth login</div>
+    <div style="flex:1;height:1px;background:var(--border)"></div>
+  </div>
+
+  <!-- Option B: OAuth -->
+  <a href="/auth/meta" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none"
+    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+    🔷 Login with Facebook (requires app domain)
+  </a>
+</div>
+
+<!-- Sidebar overlay for mobile -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
+<!-- Main app (hidden until authenticated) -->
+<div id="app" class="hidden">
+
+  <!-- LEFT SIDEBAR -->
+  <nav id="sidebar">
+    <div class="sidebar-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 3px 10px rgba(220,38,38,0.30)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="white"/></svg>
+        </div>
+        <div class="sidebar-logo">UPLINX<span>Meta Manager</span></div>
+      </div>
+    </div>
+    <div class="sidebar-search">
+      <input type="text" id="client-search" placeholder="Search clients..." oninput="filterClients(this.value)">
+    </div>
+    <button class="sidebar-new-btn" onclick="openNewClientModal()">+ New Client</button>
+    <div class="sidebar-clients" id="client-list">
+      <div class="sidebar-section-label">CLIENTS</div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding:6px 12px">
+      <button class="sidebar-new-conv" onclick="newConversation()">+ New Conversation</button>
+    </div>
+    <!-- Status indicators -->
+    <div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11px;color:var(--text-dim)">AI</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="status-ai" style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px">
+            <span id="status-ai-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-dim);display:inline-block"></span>
+            <span id="status-ai-label">—</span>
+          </span>
+          <button title="Refresh status" onclick="updateStatusIndicators();loadProviderStatus()" style="background:none;border:none;color:var(--text-dim);font-size:12px;cursor:pointer;padding:1px 3px;border-radius:4px;line-height:1;transition:var(--transition)" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11px;color:var(--text-dim)">Meta</span>
+        <span id="status-meta" style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px">
+          <span id="status-meta-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-dim);display:inline-block"></span>
+          <span id="status-meta-label">Not connected</span>
+        </span>
+      </div>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="sidebar-nav">
+        <div class="sidebar-nav-item" onclick="openModal('connections-modal')">🔗 Connections</div>
+        <div class="sidebar-nav-item" onclick="openModal('skills-modal')">📋 Skills</div>
+        <div class="sidebar-nav-item" onclick="openModal('settings-modal')">⚙️ Settings</div>
+        <div class="sidebar-nav-item" id="sidebar-update-btn" onclick="sidebarCheckUpdate()" style="color:var(--text-dim)">⬇ Check for Updates</div>
+        <div class="sidebar-nav-item" onclick="doLogout()" style="color:var(--text-dim)">↩ Logout</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- CENTER CHAT -->
+  <main id="chat-area">
+    <div class="chat-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="mobile-menu-btn" onclick="openMobileSidebar()" title="Menu">☰</button>
+        <div>
+          <div class="chat-title" id="conv-title">Select or create a conversation</div>
+          <div class="chat-breadcrumb" id="conv-breadcrumb">No client selected</div>
+        </div>
+      </div>
+      <button class="chat-header-menu" title="Options">⋮</button>
+    </div>
+    <div class="messages" id="messages">
+      <div class="welcome" id="welcome-msg">
+        <div style="width:64px;height:64px;background:var(--accent);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;box-shadow:0 8px 24px rgba(220,38,38,0.25)">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="white"/></svg>
+        </div>
+        <h2>Uplinx Meta Manager</h2>
+        <p>Select a conversation or create a new one to start managing your Meta campaigns with AI.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px">
+          <span onclick="quickPrompt('Show campaign performance for this week')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">📊 Campaign performance</span>
+          <span onclick="quickPrompt('Create a new campaign')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">🚀 New campaign</span>
+          <span onclick="quickPrompt('Upload and pair creative assets')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">🖼️ Upload creatives</span>
+          <span onclick="quickPrompt('Schedule a post for today')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">📅 Schedule post</span>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <div class="chat-input-box" id="drop-zone">
+          <button class="chat-attach" title="Attach file" onclick="document.getElementById('file-input').click()">📎</button>
+          <textarea id="chat-input" placeholder="Type a message…" rows="1"
+            oninput="autoResize(this);handleInput(this)"
+            onkeydown="handleKeydown(event)"></textarea>
+          <button class="chat-send" id="send-btn" onclick="sendMessage()" disabled>Send →</button>
+        </div>
+      </div>
+      <div class="chat-hints">
+        <span onclick="document.getElementById('file-input').click()">📎 Attach file</span>
+        <span style="color:var(--text-dim)">Enter to send · Shift+Enter for new line</span>
+        <span id="skills-hint" onclick="openModal('skills-modal')">Skills: 0 active</span>
+      </div>
+      <input type="file" id="file-input" style="display:none" multiple onchange="handleFileSelect(this.files)" accept=".jpg,.jpeg,.png,.gif,.mp4,.mov,.pdf,.md">
+    </div>
+  </main>
+
+  <!-- RIGHT CONTEXT PANEL -->
+  <aside id="context-panel">
+    <div class="panel-section">
+      <div class="panel-label">Active Context</div>
+      <div id="panel-client-name" style="font-size:13px;font-weight:500;margin-bottom:10px;color:var(--text-secondary)">No client selected</div>
+      <div class="panel-field">
+        <label>Ad Account</label>
+        <select class="panel-select" id="ctx-ad-account" onchange="updateContext('selected_ad_account_id',this.value);loadAccountAssets(this.value)">
+          <option value="">Select ad account…</option>
+        </select>
+      </div>
+      <div class="panel-field">
+        <label>Page</label>
+        <select class="panel-select" id="ctx-page" onchange="updateContext('selected_page_id',this.value)">
+          <option value="">Select page…</option>
+        </select>
+      </div>
+      <div class="panel-field">
+        <label>Pixel</label>
+        <select class="panel-select" id="ctx-pixel" onchange="updateContext('selected_pixel_id',this.value)">
+          <option value="">Select pixel…</option>
+        </select>
+      </div>
+      <div class="panel-field">
+        <label>Instagram</label>
+        <select class="panel-select" id="ctx-instagram" onchange="updateContext('selected_instagram_id',this.value)">
+          <option value="">Select account…</option>
+        </select>
+      </div>
+      <div class="panel-field">
+        <label>Timezone</label>
+        <select class="panel-select" id="ctx-timezone" onchange="updateContext('selected_timezone',this.value)">
+          <option value="UTC">UTC</option>
+          <option value="Europe/Madrid">Europe/Madrid</option>
+          <option value="Europe/Rome">Europe/Rome</option>
+          <option value="Europe/Paris">Europe/Paris</option>
+          <option value="Europe/London">Europe/London</option>
+          <option value="America/New_York">America/New_York</option>
+          <option value="America/Los_Angeles">America/Los_Angeles</option>
+        </select>
+      </div>
+      <div class="panel-btn-row">
+        <button class="panel-btn" onclick="refreshAssets()">↻ Refresh</button>
+        <button class="panel-btn" onclick="resetContext()">Reset</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">AI Model</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px" id="panel-provider-btns">
+        <button onclick="selectProvider('claude')"  id="panel-btn-claude"  style="flex:1;padding:6px 4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s">Claude</button>
+        <button onclick="selectProvider('openai')"  id="panel-btn-openai"  style="flex:1;padding:6px 4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s">ChatGPT</button>
+        <button onclick="selectProvider('groq')"    id="panel-btn-groq"    style="flex:1;padding:6px 4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s">Groq</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="panel-model-select" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;cursor:pointer"></select>
+        <button onclick="applyProviderAndModel()" style="padding:6px 10px;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;border:none;white-space:nowrap">Apply</button>
+      </div>
+      <div id="panel-provider-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Meta API Calls (last hour)</div>
+      <div class="api-bar-wrap"><div class="api-bar" id="api-bar" style="width:0%"></div></div>
+      <div class="api-count" id="api-count">0 / 200 calls</div>
+      <div id="api-pause-msg" style="display:none;font-size:11px;color:var(--warning);margin-top:4px">⚠️ Rate limit approached — auto-throttled</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">AI Token Usage</div>
+      <div id="ai-token-provider" style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:6px">—</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px">
+        <div style="background:var(--bg-deep);border-radius:6px;padding:6px 8px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--text)" id="ai-token-in">0</div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:1px">input</div>
+        </div>
+        <div style="background:var(--bg-deep);border-radius:6px;padding:6px 8px;text-align:center">
+          <div style="font-size:18px;font-weight:700;color:var(--text)" id="ai-token-out">0</div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:1px">output</div>
+        </div>
+      </div>
+      <div class="api-count" id="ai-token-total">0 tokens this session</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px" id="ai-token-alltime"></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Uploaded Files</div>
+      <div id="upload-list"><div style="font-size:12px;color:var(--text-dim)">No files uploaded</div></div>
+      <button class="panel-btn" style="margin-top:8px" onclick="document.getElementById('file-input').click()">+ Upload Files</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Skills Active</div>
+      <div id="skills-list"><div style="font-size:12px;color:var(--text-dim)">No skills loaded</div></div>
+      <div class="panel-link" style="margin-top:8px;display:block" onclick="openModal('skills-modal')">Manage Skills →</div>
+    </div>
+  </aside>
+</div>
+
+<!-- ── MODALS ── -->
+
+<!-- New Client Modal -->
+<div class="modal-overlay" id="new-client-modal">
+  <div class="modal" style="width:540px">
+    <div class="modal-header">
+      <div class="modal-title">New Client</div>
+      <button class="modal-close" onclick="closeModal('new-client-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Client Name *</label>
+        <input type="text" class="form-input" id="new-client-name" placeholder="e.g. Minci Delice">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Industry</label>
+          <select class="form-select" id="new-client-industry">
+            <option value="">Select industry…</option>
+            <option>Health</option><option>Fashion</option><option>Tech</option>
+            <option>Food</option><option>Finance</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Website</label>
+          <input type="url" class="form-input" id="new-client-website" placeholder="https://example.com">
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin:16px 0 10px">Meta Assets <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(optional)</span></div>
+
+      <div class="form-group">
+        <label>Ad Account</label>
+        <select class="form-select" id="new-client-ad-account" onchange="onNewClientAdAccountChange(this.value)">
+          <option value="">Select ad account…</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Default Page</label>
+          <select class="form-select" id="new-client-page">
+            <option value="">Select page…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Default Pixel</label>
+          <select class="form-select" id="new-client-pixel">
+            <option value="">Select pixel…</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Color</label>
+        <div class="color-picker" id="color-picker"></div>
+        <input type="hidden" id="new-client-color" value="#6c63ff">
+      </div>
+      <div id="new-client-err" style="color:var(--error);font-size:12px;display:none;margin-top:4px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('new-client-modal')">Cancel</button>
+      <button class="btn-primary" id="create-client-btn" onclick="createClient()">Create Client</button>
+    </div>
+  </div>
+</div>
+
+<!-- Connections Modal -->
+<div class="modal-overlay" id="connections-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🔗 Connections</div>
+      <button class="modal-close" onclick="closeModal('connections-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="conn-item">
+        <div class="conn-status">
+          <div class="conn-dot" id="meta-conn-dot"></div>
+          <div>
+            <div style="font-weight:500">Meta / Facebook</div>
+            <div style="font-size:12px;color:var(--text-dim)" id="meta-conn-info">Not connected</div>
+          </div>
+        </div>
+        <a href="/auth/meta" class="btn-primary" style="font-size:12px;padding:6px 14px" id="meta-conn-btn">OAuth</a>
+      </div>
+      <div style="margin-top:10px;padding:14px;background:var(--bg-primary);border:1px solid var(--accent);border-radius:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">🔑 Connect with Access Token</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Paste your Meta User Access Token or System User Token here. This is the recommended way to connect without a custom domain.</div>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="modal-token-input" placeholder="EAAxxxxxx…" autocomplete="off"
+            style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-primary);font-size:13px;outline:none"
+            onkeydown="if(event.key==='Enter') connectTokenFromModal()">
+          <button id="modal-token-btn" onclick="connectTokenFromModal()"
+            style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+        </div>
+        <div id="modal-token-err" style="color:var(--error);font-size:11px;margin-top:6px;display:none"></div>
+      </div>
+      <div class="conn-item">
+        <div class="conn-status">
+          <div class="conn-dot" id="google-conn-dot"></div>
+          <div>
+            <div style="font-weight:500">Google (Drive / Docs)</div>
+            <div style="font-size:12px;color:var(--text-dim)" id="google-conn-info">Not connected</div>
+          </div>
+        </div>
+        <a href="/auth/google" class="btn-primary" style="font-size:12px;padding:6px 14px" id="google-conn-btn">Connect</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Skills Modal -->
+<div class="modal-overlay" id="skills-modal">
+  <div class="modal" style="width:560px">
+    <div class="modal-header">
+      <div class="modal-title">📋 Skills</div>
+      <button class="modal-close" onclick="closeModal('skills-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="skills-modal-list" style="display:flex;flex-direction:column;gap:10px"></div>
+      <button class="btn-secondary" style="margin-top:16px;width:100%" onclick="openNewSkillForm()">+ Upload / Create Skill</button>
+      <div id="new-skill-form" style="display:none;margin-top:16px">
+        <div class="form-group"><label>Skill Name</label><input class="form-input" id="skill-name" placeholder="e.g. Brand Voice"></div>
+        <div class="form-group"><label>Description</label><input class="form-input" id="skill-desc" placeholder="What does this skill do?"></div>
+        <div class="form-group"><label>Content (Markdown)</label><textarea class="form-input" id="skill-content" rows="6" style="resize:vertical;font-family:var(--font-mono);font-size:12px"></textarea></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn-secondary" onclick="document.getElementById('new-skill-form').style.display='none'">Cancel</button>
+          <button class="btn-primary" onclick="createSkill()">Save Skill</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⚙️ Settings</div>
+      <button class="modal-close" onclick="closeModal('settings-modal')">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- AI Provider -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">AI Assistant</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px" id="provider-btns">
+          <button onclick="selectProvider('claude')" id="btn-claude" style="flex:1;min-width:90px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s">Claude</button>
+          <button onclick="selectProvider('openai')" id="btn-openai" style="flex:1;min-width:90px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s">ChatGPT</button>
+          <button onclick="selectProvider('groq')"  id="btn-groq"  style="flex:1;min-width:90px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s">Groq</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <select id="model-select" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px;cursor:pointer"></select>
+          <button onclick="applyProviderAndModel()" style="padding:8px 16px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;border:none;white-space:nowrap">Apply</button>
+        </div>
+        <div id="provider-status" style="font-size:12px;color:var(--text-secondary)"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Meta Connection -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Meta Account</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div id="settings-meta-conn-dot" style="width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0"></div>
+            <span id="settings-meta-conn-label" style="font-size:13px;color:var(--text-secondary)">Not connected</span>
+          </div>
+          <button onclick="closeModal('settings-modal');openModal('connections-modal')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Connect Account →</button>
+        </div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">Meta App Credentials <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — for OAuth login only)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">App ID</label>
+            <input type="text" id="settings-meta-app-id" class="form-input" placeholder="123456789…" style="font-size:13px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">App Secret</label>
+            <input type="password" id="settings-meta-app-secret" class="form-input" placeholder="••••••••" autocomplete="off" style="font-size:13px">
+          </div>
+        </div>
+        <button onclick="saveMetaCredentials()" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Save App Credentials</button>
+        <span id="settings-meta-status" style="font-size:12px;margin-left:10px;color:var(--text-dim)"></span>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- API Keys inline update -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">API Keys</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Claude (Anthropic) API Key</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="settings-anthropic-key" class="form-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1;font-size:13px">
+              <button onclick="saveApiKey('anthropic')" style="padding:7px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+              <button id="clear-anthropic-btn" onclick="clearApiKey('anthropic')" style="display:none;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;white-space:nowrap" title="Remove this key">✕</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">OpenAI (ChatGPT) API Key</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="settings-openai-key" class="form-input" placeholder="sk-…" autocomplete="off" style="flex:1;font-size:13px">
+              <button onclick="saveApiKey('openai')" style="padding:7px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+              <button id="clear-openai-btn" onclick="clearApiKey('openai')" style="display:none;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;white-space:nowrap" title="Remove this key">✕</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Groq API Key</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="settings-groq-key" class="form-input" placeholder="gsk_…" autocomplete="off" style="flex:1;font-size:13px">
+              <button onclick="saveApiKey('groq')" style="padding:7px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+              <button id="clear-groq-btn" onclick="clearApiKey('groq')" style="display:none;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;white-space:nowrap" title="Remove this key">✕</button>
+            </div>
+          </div>
+        </div>
+        <div id="settings-apikey-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Custom Instructions -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:6px">Custom Instructions</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Tell the AI how to behave, what tone to use, or add any context it should always know. These are injected into every conversation above all other instructions.</div>
+        <textarea id="settings-custom-instructions"
+          placeholder="Examples:&#10;- Always respond in English, even if I write in another language&#10;- Keep responses concise and bullet-pointed&#10;- I work with e-commerce brands — budgets are usually small&#10;- Never suggest broad audiences; I prefer tight interest targeting"
+          style="width:100%;min-height:120px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box;line-height:1.5"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <button onclick="saveCustomInstructions()" style="padding:8px 16px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;border:none">Save Instructions</button>
+          <button onclick="clearCustomInstructions()" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Clear</button>
+          <span id="settings-ci-status" style="font-size:12px;color:var(--text-dim)"></span>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Software Update -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Software Update</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:12px;color:var(--text-dim)">Current version</div>
+            <div id="update-current-ver" style="font-size:13px;color:var(--text);font-weight:600;font-family:monospace">—</div>
+          </div>
+          <button onclick="checkForUpdates()" id="btn-check-update"
+            style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+            Check for Updates
+          </button>
+        </div>
+        <div id="update-status" style="display:none;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px"></div>
+        <button onclick="applyUpdate()" id="btn-apply-update"
+          style="display:none;width:100%;padding:10px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer;border:none">
+          ⬇ Download &amp; Apply Update
+        </button>
+        <div id="update-progress" style="display:none;font-size:12px;color:var(--text-dim);margin-top:8px;text-align:center">Applying update… please wait</div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <div style="color:var(--text-secondary);font-size:12px;line-height:1.6">
+        App running at <code style="background:var(--bg-primary);padding:2px 6px;border-radius:4px">http://localhost:8000</code>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  clients: [], conversations: [], activeConvId: null,
+  activeClientId: null, uploads: [],
+  skills: [], metaConnected: false, googleConnected: false,
+};
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  if (r.status === 401) { showConnectScreen(); return null; }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderLeftColor = type==='error'?'var(--error)':type==='success'?'var(--success)':'var(--accent)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function quickPrompt(text) {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  input.value = text;
+  autoResize(input);
+  handleInput(input);
+  input.focus();
+}
+
+async function doLogout() {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  window.location.href = '/login';
+}
+
+// ── Auth / screen ──────────────────────────────────────────────────────────
+function showConnectScreen() {
+  document.getElementById('connect-screen').classList.add('visible');
+  document.getElementById('app').classList.add('hidden');
+}
+function showApp() {
+  document.getElementById('connect-screen').classList.remove('visible');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+async function connectWithToken() {
+  const input = document.getElementById('direct-token-input');
+  const btn = document.getElementById('connect-token-btn');
+  const err = document.getElementById('token-error');
+  const token = input.value.trim();
+  if (!token) { err.textContent = 'Please paste your access token.'; err.style.display='block'; return; }
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  try {
+    const r = await fetch('/api/accounts/meta/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: token }),
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = {}; }
+    if (!r.ok) throw new Error(data.detail || r.statusText || 'Server error — check token and try again');
+    showApp();
+    await Promise.all([loadClients(), loadConnectionStatus(), refreshApiUsage(), loadProviderStatus(), updateStatusIndicators(), loadAccountDropdowns()]);
+    toast('Connected as ' + (data.user_name || data.user_id), 'success');
+  } catch(e) {
+    err.textContent = e.message;
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Connect with Token';
+  }
+}
+
+// ── Clients ────────────────────────────────────────────────────────────────
+async function loadClients() {
+  const data = await api('GET', '/api/clients');
+  if (!data) return;
+  state.clients = data;
+  renderClients();
+}
+
+function renderClients(filter='') {
+  const el = document.getElementById('client-list');
+  const clients = state.clients.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()));
+  let html = '<div class="sidebar-section-label">CLIENTS</div>';
+  for (const c of clients) {
+    const isActive = c.id === state.activeClientId;
+    html += `<div class="client-item">
+      <div class="client-header${isActive?' active':''}" onclick="toggleClient(${c.id})">
+        <div class="client-dot" style="background:${c.color_tag||'#6c63ff'}"></div>
+        <div class="client-name">${c.name}</div>
+        <div class="client-chevron" id="chevron-${c.id}">▶</div>
+      </div>
+      <div class="client-children" id="client-children-${c.id}">`;
+    for (const aa of (c.ad_accounts||[])) {
+      html += `<div class="ad-account-item">
+        <div class="ad-account-header" onclick="selectAdAccount(${c.id},${aa.id},'${aa.nickname}')">
+          📁 ${aa.nickname}
+        </div>
+        <div class="ad-account-children" id="aa-convs-${aa.id}"></div>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function filterClients(v) { renderClients(v); }
+
+function toggleClient(clientId) {
+  const ch = document.getElementById(`client-children-${clientId}`);
+  const chev = document.getElementById(`chevron-${clientId}`);
+  const isOpen = ch.classList.contains('open');
+  ch.classList.toggle('open', !isOpen);
+  chev.classList.toggle('open', !isOpen);
+  if (!isOpen) { state.activeClientId = clientId; renderClients(); loadConversations(clientId); }
+}
+
+async function selectAdAccount(clientId, adAccountId, nickname) {
+  state.activeClientId = clientId;
+  document.getElementById('panel-client-name').textContent = nickname;
+  await loadConversations(clientId, adAccountId);
+  loadAccountDropdowns();
+}
+
+async function loadConversations(clientId, adAccountId) {
+  const data = await api('GET', `/api/conversations?client_id=${clientId}`);
+  if (!data) return;
+  state.conversations = data;
+  const container = adAccountId ? document.getElementById(`aa-convs-${adAccountId}`) : null;
+  if (container) {
+    container.classList.add('open');
+    container.innerHTML = data.map(c => `
+      <div class="conv-item${c.id===state.activeConvId?' active':''}${c.is_pinned?' pinned':''}" onclick="openConversation(${c.id})">
+        💬 ${c.title}
+      </div>`).join('');
+  }
+}
+
+// ── Conversations ──────────────────────────────────────────────────────────
+async function newConversation() {
+  const data = await api('POST', '/api/conversations', { title: 'New Conversation', client_id: state.activeClientId });
+  if (!data) return;
+  await openConversation(data.id);
+  if (state.activeClientId) loadConversations(state.activeClientId);
+}
+
+async function openConversation(convId) {
+  state.activeConvId = convId;
+  document.getElementById('send-btn').disabled = false;
+  const data = await api('GET', `/api/conversations/${convId}`);
+  if (!data) return;
+  document.getElementById('conv-title').textContent = data.title;
+  const msgs = document.getElementById('messages');
+  document.getElementById('welcome-msg').style.display = 'none';
+  msgs.innerHTML = '';
+  for (const m of (data.messages||[])) appendMessage(m.role, m.content);
+  msgs.scrollTop = msgs.scrollHeight;
+  loadContext(convId);
+  loadSkills();
+  refreshApiUsage();
+}
+
+function renderMarkdown(text) {
+  if (typeof marked === 'undefined') {
+    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/```([\s\S]*?)```/g,'<pre><code>$1</code></pre>')
+      .replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>');
+  }
+  return marked.parse(text, { breaks: true, gfm: true });
+}
+
+function appendMessage(role, content) {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const rawText = content || '';
+  const rendered = role === 'assistant' ? renderMarkdown(rawText) : rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  div.innerHTML = `<div class="msg-bubble">${rendered}</div>
+    <div class="msg-meta">
+      ${role==='user'?'You':'🔷 Uplinx'}
+      <span class="msg-copy">Copy</span>
+    </div>`;
+  div.querySelector('.msg-copy').addEventListener('click', () => {
+    navigator.clipboard.writeText(rawText).then(() => toast('Copied!', 'success'));
+  });
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function addTypingIndicator() {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant'; div.id = 'typing-indicator';
+  div.innerHTML = '<div class="msg-bubble"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+  msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+// ── Chat / streaming ───────────────────────────────────────────────────────
+let _streamAbort = null;
+
+function stopStreaming() {
+  if (_streamAbort) { _streamAbort.abort(); _streamAbort = null; }
+}
+
+function _setSendState(streaming) {
+  const btn = document.getElementById('send-btn');
+  if (streaming) {
+    btn.textContent = '■ Stop';
+    btn.onclick = stopStreaming;
+    btn.disabled = false;
+    btn.style.background = 'var(--error)';
+  } else {
+    btn.textContent = 'Send →';
+    btn.onclick = sendMessage;
+    btn.disabled = !state.activeConvId;
+    btn.style.background = '';
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !state.activeConvId) return;
+  input.value = ''; autoResize(input);
+  appendMessage('user', text);
+  _setSendState(true);
+  const typing = addTypingIndicator();
+  let aiDiv = null;
+  let bubble = null;
+  let accumulatedText = '';
+  let renderTimer = null;
+
+  function flushRender() {
+    if (bubble && accumulatedText) {
+      bubble.innerHTML = renderMarkdown(accumulatedText);
+      bubble.closest('.messages').scrollTop = 99999;
+    }
+  }
+
+  _streamAbort = new AbortController();
+
+  try {
+    const resp = await fetch(`/api/chat/${state.activeConvId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, attachments: state.uploads.map(u=>u.path) }),
+      signal: _streamAbort.signal,
+    });
+    if (resp.status === 401) { showConnectScreen(); return; }
+    typing.remove();
+
+    aiDiv = document.createElement('div');
+    aiDiv.className = 'msg assistant';
+    aiDiv.innerHTML = `<div class="msg-bubble"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>
+      <div class="msg-meta">🔷 Uplinx <span class="msg-copy">Copy</span></div>`;
+    document.getElementById('messages').appendChild(aiDiv);
+    bubble = aiDiv.querySelector('.msg-bubble');
+
+    const errorMsg = await handleStream(resp, bubble, (chunk) => {
+      accumulatedText += chunk;
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(flushRender, 30);
+    });
+
+    clearTimeout(renderTimer);
+    if (accumulatedText) {
+      bubble.innerHTML = renderMarkdown(accumulatedText);
+      if (errorMsg) {
+        bubble.innerHTML += `<div style="color:var(--warning);font-size:12px;margin-top:8px;padding:6px 10px;background:rgba(245,158,11,0.1);border-radius:6px;border-left:3px solid var(--warning)">⚠️ ${errorMsg}</div>`;
+      }
+    } else if (errorMsg) {
+      bubble.innerHTML = `<div style="color:var(--error);font-size:13px;padding:4px 0">⚠️ ${errorMsg}</div>`;
+    } else {
+      bubble.innerHTML = '<em style="color:var(--text-dim);font-size:13px">No response received. Please try again.</em>';
+    }
+    bubble.closest('.messages').scrollTop = 99999;
+
+    const copyBtn = aiDiv.querySelector('.msg-copy');
+    if (copyBtn) copyBtn.addEventListener('click', () =>
+      navigator.clipboard.writeText(accumulatedText).then(()=>toast('Copied!','success')));
+
+  } catch(e) {
+    typing.remove();
+    if (e.name === 'AbortError') {
+      if (aiDiv) {
+        clearTimeout(renderTimer);
+        if (accumulatedText) {
+          bubble.innerHTML = renderMarkdown(accumulatedText) + '<em style="color:var(--text-dim);font-size:11px;display:block;margin-top:6px">[stopped]</em>';
+        } else {
+          aiDiv.remove();
+        }
+      }
+    } else {
+      if (aiDiv) { aiDiv.remove(); }
+      appendMessage('assistant', `Sorry, I couldn't reach the server. Please check your connection and try again.\n\nError: ${e.message}`);
+      console.error('Chat error:', e);
+    }
+  } finally {
+    _streamAbort = null;
+    _setSendState(false);
+    refreshApiUsage();
+  }
+}
+
+async function handleStream(response, container, onText) {
+  const reader = response.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  const msgs = document.getElementById('messages');
+  const toolSteps = {};
+  let lastError = null;
+  let firstChunk = true;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (raw === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(raw);
+        if (evt.type === 'text') {
+          if (firstChunk) { container.innerHTML = ''; firstChunk = false; }
+          onText(evt.text || '');
+          msgs.scrollTop = 99999;
+        } else if (evt.type === 'tool_start') {
+          if (firstChunk) { container.innerHTML = ''; firstChunk = false; }
+          const stepEl = document.createElement('div');
+          stepEl.className = 'tool-step';
+          stepEl.textContent = (evt.name || 'tool').replace(/_/g, ' ') + '…';
+          container.appendChild(stepEl);
+          toolSteps[evt.name] = stepEl;
+          msgs.scrollTop = 99999;
+        } else if (evt.type === 'tool_result') {
+          const stepEl = toolSteps[evt.name];
+          if (stepEl) { stepEl.classList.add('done'); stepEl.textContent = (evt.name||'tool').replace(/_/g,' ') + ' ✓'; }
+        } else if (evt.type === 'usage') {
+          updateAiTokens(evt.input_tokens || 0, evt.output_tokens || 0,
+                         evt.provider, evt.model);
+        } else if (evt.type === 'error') {
+          lastError = evt.message || 'An unexpected error occurred';
+          console.error('Agent error:', lastError);
+        }
+      } catch { /* malformed SSE line — ignore */ }
+    }
+  }
+  return lastError;
+}
+
+// ── Input helpers ──────────────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function handleInput(el) {
+  document.getElementById('send-btn').disabled = !el.value.trim() || !state.activeConvId;
+}
+
+// ── File uploads ───────────────────────────────────────────────────────────
+async function handleFileSelect(files) {
+  for (const file of files) {
+    const fd = new FormData(); fd.append('file', file);
+    try {
+      const r = await fetch('/api/upload', { method: 'POST', body: fd });
+      if (!r.ok) { toast('Upload failed: ' + file.name, 'error'); continue; }
+      const data = await r.json();
+      state.uploads.push(data);
+      renderUploads();
+      toast('Uploaded: ' + file.name, 'success');
+    } catch(e) { toast('Upload error: ' + e.message, 'error'); }
+  }
+}
+
+function renderUploads() {
+  const el = document.getElementById('upload-list');
+  if (!state.uploads.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No files uploaded</div>'; return; }
+  const icons = { image:'🖼', video:'🎬', pdf:'📄', markdown:'📝' };
+  el.innerHTML = state.uploads.map((u,i)=>`<div class="upload-item">
+    <span class="upload-icon">${icons[u.type]||'📎'}</span>
+    <span class="upload-name" title="${u.name}">${u.name}</span>
+    <button class="upload-remove" onclick="removeUpload(${i})">×</button>
+  </div>`).join('');
+}
+
+async function removeUpload(i) {
+  const u = state.uploads[i];
+  await fetch(`/api/uploads/${u.file_id}`, { method: 'DELETE' });
+  state.uploads.splice(i, 1);
+  renderUploads();
+}
+
+// Drag and drop
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFileSelect(e.dataTransfer.files); });
+
+// ── Context panel ──────────────────────────────────────────────────────────
+async function loadContext(convId) {
+  const data = await api('GET', `/api/conversations/${convId}/context`);
+  if (!data) return;
+  setSelectVal('ctx-ad-account', data.selected_ad_account_id);
+  setSelectVal('ctx-page', data.selected_page_id);
+  setSelectVal('ctx-pixel', data.selected_pixel_id);
+  setSelectVal('ctx-instagram', data.selected_instagram_id);
+  setSelectVal('ctx-timezone', data.selected_timezone || 'UTC');
+}
+
+function setSelectVal(id, val) { if (val) document.getElementById(id).value = val; }
+
+async function updateContext(field, value) {
+  if (!state.activeConvId) return;
+  await api('PUT', `/api/conversations/${state.activeConvId}/context`, { [field]: value });
+}
+
+async function loadAccountDropdowns() {
+  const [adAccounts, pages] = await Promise.all([
+    api('GET', '/api/meta/ad-accounts'),
+    api('GET', '/api/meta/pages'),
+  ]);
+  if (adAccounts) populateSelect('ctx-ad-account', (adAccounts.data||[]).map(a=>({value:a.id,label:a.name||a.account_id})));
+  if (pages) populateSelect('ctx-page', (pages.data||[]).map(p=>({value:p.id,label:p.name})));
+}
+
+async function loadAccountAssets(adAccountId) {
+  if (!adAccountId) return;
+  const [pixels, pageId] = await Promise.all([
+    api('GET', `/api/meta/pixels/${adAccountId}`),
+    Promise.resolve(document.getElementById('ctx-page').value),
+  ]);
+  if (pixels) populateSelect('ctx-pixel', (pixels.data||[]).map(p=>({value:p.id,label:p.name})));
+  if (pageId) {
+    const ig = await api('GET', `/api/meta/instagram/${pageId}`);
+    if (ig) populateSelect('ctx-instagram', (ig.data||[]).map(a=>({value:a.id,label:a.username||a.id})));
+  }
+}
+
+function populateSelect(id, options) {
+  const el = document.getElementById(id);
+  const current = el.value;
+  el.innerHTML = '<option value="">Select…</option>' + options.map(o=>`<option value="${o.value}">${o.label}</option>`).join('');
+  if (current) el.value = current;
+}
+
+async function refreshAssets() { await loadAccountDropdowns(); toast('Assets refreshed', 'success'); }
+async function resetContext() {
+  if (!state.activeConvId) return;
+  await api('PUT', `/api/conversations/${state.activeConvId}/context`, { selected_ad_account_id: null, selected_page_id: null, selected_pixel_id: null, selected_instagram_id: null });
+  toast('Context reset', 'success');
+}
+
+// ── Software update ────────────────────────────────────────────────────────
+async function checkForUpdates() {
+  const btn    = document.getElementById('btn-check-update');
+  const status = document.getElementById('update-status');
+  const applyBtn = document.getElementById('btn-apply-update');
+  btn.textContent = 'Checking…';
+  btn.disabled = true;
+  status.style.display = 'none';
+  applyBtn.style.display = 'none';
+
+  try {
+    const r2 = await fetch('/api/update/check?t=' + Date.now(), { cache: 'no-store' });
+    const data = await r2.json();
+    document.getElementById('update-current-ver').textContent = data.current_version || '—';
+    if (data.fetch_error) {
+      status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25)';
+      status.textContent = `✗ Could not reach GitHub: ${data.fetch_error}`;
+    } else if (data.has_update) {
+      status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.25)';
+      status.innerHTML = `⬆ New version available: <strong>${data.latest_version}</strong> (you have ${data.current_version})`;
+      applyBtn.style.display = 'block';
+    } else {
+      status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:var(--bg-primary);color:var(--text-dim);border:1px solid var(--border)';
+      status.textContent = `✓ You are on the latest version (${data.current_version}).`;
+    }
+  } catch(e) {
+    status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25)';
+    status.textContent = '✗ Could not check for updates: ' + e.message;
+  }
+
+  btn.textContent = 'Check for Updates';
+  btn.disabled = false;
+}
+
+async function applyUpdate() {
+  const applyBtn  = document.getElementById('btn-apply-update');
+  const progress  = document.getElementById('update-progress');
+  const status    = document.getElementById('update-status');
+  applyBtn.style.display = 'none';
+  progress.style.display = 'block';
+  status.style.display   = 'none';
+
+  try {
+    const data = await api('POST', '/api/update/apply');
+    progress.style.display = 'none';
+    status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.25)';
+    status.innerHTML = `✓ <strong>Update applied!</strong><br><span style="font-size:12px;opacity:0.85">${data.message}</span>`;
+    toast('Update applied — please restart the app', 'success');
+  } catch(e) {
+    progress.style.display = 'none';
+    applyBtn.style.display = 'block';
+    status.style.cssText = 'display:block;padding:12px;border-radius:8px;font-size:13px;margin-bottom:10px;background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25)';
+    status.textContent = '✗ Update failed: ' + e.message;
+  }
+}
+
+// ── AI token usage ─────────────────────────────────────────────────────────
+const _aiTokens = { input: 0, output: 0 };
+
+function updateAiTokens(inputDelta, outputDelta, provider, model) {
+  _aiTokens.input  += inputDelta;
+  _aiTokens.output += outputDelta;
+  const total = _aiTokens.input + _aiTokens.output;
+  document.getElementById('ai-token-in').textContent  = _aiTokens.input.toLocaleString();
+  document.getElementById('ai-token-out').textContent = _aiTokens.output.toLocaleString();
+  document.getElementById('ai-token-total').textContent = `${total.toLocaleString()} tokens this session`;
+  if (provider && model) {
+    document.getElementById('ai-token-provider').textContent =
+      provider.charAt(0).toUpperCase() + provider.slice(1) + ' / ' + model;
+  }
+}
+
+async function refreshAiUsage() {
+  const data = await api('GET', '/api/ai-usage').catch(() => null);
+  if (!data) return;
+  if (data.provider && data.model) {
+    document.getElementById('ai-token-provider').textContent =
+      data.provider.charAt(0).toUpperCase() + data.provider.slice(1) + ' / ' + data.model;
+  }
+  if (data.alltime_total) {
+    document.getElementById('ai-token-alltime').textContent =
+      `All-time: ${data.alltime_total.toLocaleString()} tokens`;
+  }
+}
+
+// ── API usage ──────────────────────────────────────────────────────────────
+async function refreshApiUsage() {
+  const data = await api('GET', '/api/api-usage').catch(() => null);
+  if (!data) return;
+  const pct = Math.min(100, (data.calls_used / data.calls_limit) * 100);
+  const bar = document.getElementById('api-bar');
+  bar.style.width = pct + '%';
+  bar.className = 'api-bar' + (pct >= 85 ? ' danger' : pct >= 50 ? ' warn' : '');
+  document.getElementById('api-count').textContent =
+    `${data.calls_used} / ${data.calls_limit} calls this hour`;
+  const pause = document.getElementById('api-pause-msg');
+  if (pause) pause.style.display = data.is_paused ? 'block' : 'none';
+}
+
+// ── Skills ─────────────────────────────────────────────────────────────────
+async function loadSkills() {
+  const data = await api('GET', '/api/skills');
+  if (!data) return;
+  state.skills = data;
+  const active = data.filter(s=>s.is_active);
+  document.getElementById('skills-hint').textContent = `Skills: ${active.length} active`;
+  const el = document.getElementById('skills-list');
+  el.innerHTML = active.length ? active.map(s=>`<div class="skill-item"><div style="display:flex;align-items:center;gap:6px"><div class="skill-status"></div>${s.name}</div></div>`).join('') : '<div style="font-size:12px;color:var(--text-dim)">No skills active</div>';
+  renderSkillsModal(data);
+}
+
+function renderSkillsModal(skills) {
+  document.getElementById('skills-modal-list').innerHTML = skills.map(s=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius)">
+      <div><div style="font-weight:500;font-size:13px">${s.name}</div><div style="font-size:11px;color:var(--text-dim)">${s.description||''} · ${s.client_id?'Client':'Global'}</div></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px">
+          <input type="checkbox" ${s.is_active?'checked':''} onchange="toggleSkill(${s.id},this.checked)"> Active
+        </label>
+        <button style="color:var(--error);font-size:18px;padding:2px 6px" onclick="deleteSkill(${s.id})">×</button>
+      </div>
+    </div>`).join('');
+}
+
+function openNewSkillForm() { document.getElementById('new-skill-form').style.display='block'; }
+
+async function createSkill() {
+  const name = document.getElementById('skill-name').value.trim();
+  const content = document.getElementById('skill-content').value.trim();
+  if (!name || !content) { toast('Name and content required','error'); return; }
+  const r = await api('POST', '/api/skills', { name, description: document.getElementById('skill-desc').value, content });
+  if (r) { toast('Skill created!','success'); document.getElementById('new-skill-form').style.display='none'; loadSkills(); }
+}
+
+async function toggleSkill(id, active) {
+  await api('PATCH', `/api/skills/${id}/toggle`, { is_active: active });
+  loadSkills();
+}
+
+async function deleteSkill(id) {
+  if (!confirm('Delete this skill?')) return;
+  await api('DELETE', `/api/skills/${id}`);
+  loadSkills();
+}
+
+// ── API key save/clear from Settings modal ─────────────────────────────────
+async function saveApiKey(provider) {
+  const inputMap = { anthropic: 'settings-anthropic-key', openai: 'settings-openai-key', groq: 'settings-groq-key' };
+  const fieldMap = { anthropic: 'anthropic_api_key', openai: 'openai_api_key', groq: 'groq_api_key' };
+  const input = document.getElementById(inputMap[provider]);
+  const key = input.value.trim();
+  const status = document.getElementById('settings-apikey-status');
+  if (!key) { status.textContent = 'Please enter a key first.'; status.style.color = 'var(--error)'; return; }
+  status.textContent = 'Saving…'; status.style.color = 'var(--text-dim)';
+  try {
+    await api('POST', '/api/setup/save', { [fieldMap[provider]]: key });
+    input.value = '';
+    input.placeholder = '(already set — leave blank to keep)';
+    document.getElementById('clear-' + provider + '-btn').style.display = '';
+    status.textContent = provider.charAt(0).toUpperCase() + provider.slice(1) + ' key saved.';
+    status.style.color = 'var(--success)';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+    toast(provider.charAt(0).toUpperCase() + provider.slice(1) + ' API key updated', 'success');
+    updateStatusIndicators();
+    loadProviderStatus();
+  } catch(e) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--error)'; }
+}
+
+// ── Custom Instructions ────────────────────────────────────────────────────
+async function loadCustomInstructions() {
+  try {
+    const d = await api('GET', '/api/setup/user-settings');
+    if (d) document.getElementById('settings-custom-instructions').value = d.custom_instructions || '';
+  } catch(e) {}
+}
+
+async function saveCustomInstructions() {
+  const text = document.getElementById('settings-custom-instructions').value.trim();
+  const status = document.getElementById('settings-ci-status');
+  status.textContent = 'Saving…'; status.style.color = 'var(--text-dim)';
+  try {
+    await api('POST', '/api/setup/user-settings', { custom_instructions: text });
+    status.textContent = '✓ Saved — active from next message';
+    status.style.color = 'var(--success)';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+    toast('Custom instructions saved', 'success');
+  } catch(e) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--error)'; }
+}
+
+async function clearCustomInstructions() {
+  if (!document.getElementById('settings-custom-instructions').value.trim()) return;
+  if (!confirm('Clear all custom instructions?')) return;
+  document.getElementById('settings-custom-instructions').value = '';
+  await saveCustomInstructions();
+}
+
+async function clearApiKey(provider) {
+  if (!confirm('Remove the ' + provider + ' API key? The provider will become unavailable until you add a new key.')) return;
+  const inputMap = { anthropic: 'settings-anthropic-key', openai: 'settings-openai-key', groq: 'settings-groq-key' };
+  const status = document.getElementById('settings-apikey-status');
+  try {
+    await api('DELETE', '/api/setup/key/' + provider);
+    document.getElementById(inputMap[provider]).placeholder = 'Not set';
+    document.getElementById('clear-' + provider + '-btn').style.display = 'none';
+    status.textContent = provider.charAt(0).toUpperCase() + provider.slice(1) + ' key removed.';
+    status.style.color = 'var(--text-dim)';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+    toast(provider + ' API key removed', 'success');
+    updateStatusIndicators();
+    loadProviderStatus();
+  } catch(e) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--error)'; }
+}
+
+// ── Connections status ──────────────────────────────────────────────────────
+async function loadConnectionStatus() {
+  const [meta, google] = await Promise.all([
+    api('GET', '/api/accounts/meta').catch(()=>null),
+    api('GET', '/api/accounts/google').catch(()=>null),
+  ]);
+  if (meta && meta.length) {
+    const acc = meta.find(a=>a.is_current) || meta[0];
+    document.getElementById('meta-conn-dot').classList.add('connected');
+    document.getElementById('meta-conn-info').textContent = acc.user_name || acc.user_email || 'Connected';
+    document.getElementById('meta-conn-btn').textContent = 'Reconnect';
+    state.metaConnected = true;
+  }
+  if (google && google.length) {
+    const acc = google.find(a=>a.is_current) || google[0];
+    document.getElementById('google-conn-dot').classList.add('connected');
+    document.getElementById('google-conn-info').textContent = acc.user_name || acc.user_email || 'Connected';
+    document.getElementById('google-conn-btn').textContent = 'Reconnect';
+    state.googleConnected = true;
+  }
+}
+
+// ── Clients (create) ────────────────────────────────────────────────────────
+const COLORS = ['#6c63ff','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#f97316','#ec4899','#10b981','#3b82f6','#8b5cf6','#e11d48'];
+function openNewClientModal() {
+  const picker = document.getElementById('color-picker');
+  picker.innerHTML = COLORS.map(c=>`<div class="color-swatch${c==='#6c63ff'?' selected':''}" style="background:${c}" onclick="selectColor('${c}',this)" title="${c}"></div>`).join('');
+  // Populate ad account select from already-loaded meta accounts
+  const adSel = document.getElementById('new-client-ad-account');
+  const pageSel = document.getElementById('new-client-page');
+  adSel.innerHTML = '<option value="">Select ad account…</option>';
+  pageSel.innerHTML = '<option value="">Select page…</option>';
+  document.getElementById('new-client-pixel').innerHTML = '<option value="">Select pixel…</option>';
+  // Copy options from context panel if already loaded
+  const ctxSel = document.getElementById('ctx-ad-account');
+  Array.from(ctxSel.options).forEach(o => {
+    if (o.value) adSel.add(new Option(o.text, o.value));
+  });
+  const ctxPage = document.getElementById('ctx-page');
+  Array.from(ctxPage.options).forEach(o => {
+    if (o.value) pageSel.add(new Option(o.text, o.value));
+  });
+  document.getElementById('new-client-err').style.display = 'none';
+  openModal('new-client-modal');
+}
+
+async function onNewClientAdAccountChange(adAccountId) {
+  const pixelSel = document.getElementById('new-client-pixel');
+  pixelSel.innerHTML = '<option value="">Loading…</option>';
+  if (!adAccountId) { pixelSel.innerHTML = '<option value="">Select pixel…</option>'; return; }
+  try {
+    const data = await api('GET', `/api/meta/pixels/${adAccountId}`);
+    pixelSel.innerHTML = '<option value="">Select pixel…</option>';
+    if (data && data.data) data.data.forEach(p => pixelSel.add(new Option(p.name||p.id, p.id)));
+  } catch { pixelSel.innerHTML = '<option value="">No pixels found</option>'; }
+}
+
+function selectColor(hex, el) {
+  document.getElementById('new-client-color').value = hex;
+  document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function createClient() {
+  const name = document.getElementById('new-client-name').value.trim();
+  const errEl = document.getElementById('new-client-err');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = 'Client name is required'; errEl.style.display='block'; return; }
+  const btn = document.getElementById('create-client-btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const r = await api('POST', '/api/clients', {
+      name, industry: document.getElementById('new-client-industry').value,
+      website: document.getElementById('new-client-website').value,
+      color_tag: document.getElementById('new-client-color').value,
+    });
+    if (!r) return;
+    // If an ad account was selected, link it to the client
+    const adAccountId = document.getElementById('new-client-ad-account').value;
+    if (adAccountId && r.id) {
+      const adSel = document.getElementById('new-client-ad-account');
+      const nickname = adSel.options[adSel.selectedIndex].text || name;
+      const pageId = document.getElementById('new-client-page').value;
+      const pageSel = document.getElementById('new-client-page');
+      const pageName = pageId ? (pageSel.options[pageSel.selectedIndex].text || '') : '';
+      const pixelId = document.getElementById('new-client-pixel').value;
+      const pixelSel = document.getElementById('new-client-pixel');
+      const pixelName = pixelId ? (pixelSel.options[pixelSel.selectedIndex].text || '') : '';
+      await api('POST', `/api/clients/${r.id}/ad-accounts`, {
+        nickname, meta_account_id: adAccountId,
+        default_page_id: pageId || null, default_page_name: pageName || null,
+        default_pixel_id: pixelId || null, default_pixel_name: pixelName || null,
+      }).catch(()=>{});
+    }
+    toast('Client created!', 'success');
+    closeModal('new-client-modal');
+    document.getElementById('new-client-name').value = '';
+    loadClients();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create Client';
+  }
+}
+
+async function saveMetaCredentials() {
+  const appId = document.getElementById('settings-meta-app-id').value.trim();
+  const appSecret = document.getElementById('settings-meta-app-secret').value.trim();
+  const status = document.getElementById('settings-meta-status');
+  if (!appId && !appSecret) { status.textContent = 'Enter App ID and/or Secret to update'; status.style.color='var(--warning)'; return; }
+  status.textContent = 'Saving…'; status.style.color = 'var(--text-dim)';
+  try {
+    await api('POST', '/api/setup/save', { meta_app_id: appId, meta_app_secret: appSecret });
+    status.textContent = '✓ Saved'; status.style.color = 'var(--success)';
+    toast('Meta credentials saved', 'success');
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message; status.style.color = 'var(--error)';
+  }
+}
+
+// ── Modals ─────────────────────────────────────────────────────────────────
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if(e.target===m) m.classList.remove('open'); }));
+
+// ── AI Provider ────────────────────────────────────────────────────────────
+const PROVIDER_MODELS = {
+  claude: [
+    {id:'claude-opus-4-7',        label:'Claude Opus 4.7 — most capable'},
+    {id:'claude-sonnet-4-6',      label:'Claude Sonnet 4.6 — balanced'},
+    {id:'claude-haiku-4-5-20251001', label:'Claude Haiku 4.5 — fastest'},
+  ],
+  openai: [
+    {id:'gpt-4o',        label:'GPT-4o — recommended'},
+    {id:'gpt-4o-mini',   label:'GPT-4o Mini — faster & cheaper'},
+    {id:'gpt-4-turbo',   label:'GPT-4 Turbo'},
+    {id:'o1',            label:'o1 — advanced reasoning'},
+  ],
+  groq: [
+    {id:'llama-3.3-70b-versatile', label:'Llama 3.3 70B — recommended'},
+    {id:'llama-3.1-8b-instant',    label:'Llama 3.1 8B — fastest (avoid rate limits)'},
+    {id:'mixtral-8x7b-32768',      label:'Mixtral 8x7B'},
+    {id:'gemma2-9b-it',            label:'Gemma 2 9B'},
+  ],
+};
+let _selectedProvider = 'claude';
+let _providerAvailable = { claude: false, openai: false, groq: false };
+
+async function selectProvider(p) {
+  if (!_providerAvailable[p]) {
+    const names = { claude: 'Claude (Anthropic)', openai: 'OpenAI (ChatGPT)', groq: 'Groq' };
+    toast(names[p] + ' — no API key configured. Add it in Settings first.', 'error');
+    return;
+  }
+  _selectedProvider = p;
+  const opts = (PROVIDER_MODELS[p] || []).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+  const sel = document.getElementById('model-select');
+  if (sel) sel.innerHTML = opts;
+  const panelSel = document.getElementById('panel-model-select');
+  if (panelSel) panelSel.innerHTML = opts;
+  highlightProviderBtn(p);
+  await applyProviderAndModel();
+}
+
+function highlightProviderBtn(provider) {
+  ['claude','openai','groq'].forEach(p => {
+    const accent = p === provider;
+    const avail = _providerAvailable[p];
+    const ids = ['btn-' + p, 'panel-btn-' + p];
+    ids.forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      if (!avail) {
+        btn.style.borderColor = 'var(--border)';
+        btn.style.background  = 'transparent';
+        btn.style.color       = 'var(--text-dim)';
+        btn.style.opacity     = '0.4';
+        btn.style.cursor      = 'not-allowed';
+        btn.title             = 'No API key configured';
+      } else {
+        btn.style.opacity     = '1';
+        btn.style.cursor      = 'pointer';
+        btn.title             = '';
+        btn.style.borderColor = accent ? 'var(--accent)' : 'var(--border)';
+        btn.style.background  = accent ? 'rgba(108,99,255,0.12)' : 'var(--bg-primary)';
+        btn.style.color       = accent ? 'var(--accent)' : 'var(--text-secondary)';
+      }
+    });
+  });
+}
+
+async function applyProviderAndModel() {
+  // Prefer panel select (always visible), fall back to modal select
+  const panelSel = document.getElementById('panel-model-select');
+  const modalSel = document.getElementById('model-select');
+  const model = (panelSel && panelSel.value) ? panelSel.value : (modalSel ? modalSel.value : '');
+  const providerName = _selectedProvider === 'claude' ? 'Claude' : _selectedProvider === 'openai' ? 'ChatGPT' : 'Groq';
+  try {
+    const d = await api('POST', '/api/ai-provider/switch', { provider: _selectedProvider, model });
+    if (!d) return;
+    const status = `✓ Active: ${providerName} — ${d.model}`;
+    const el = document.getElementById('provider-status');
+    if (el) el.textContent = status;
+    const pel = document.getElementById('panel-provider-status');
+    if (pel) pel.textContent = status;
+    updateStatusIndicators();
+    toast(`Switched to ${providerName} (${d.model})`, 'success');
+  } catch(e) {
+    toast('Failed to switch: ' + e.message, 'error');
+  }
+}
+
+async function loadProviderStatus() {
+  try {
+    const d = await api('GET', '/api/ai-provider/current');
+    if (!d) return;
+    if (d.available) Object.assign(_providerAvailable, d.available);
+    _selectedProvider = d.provider;
+    highlightProviderBtn(d.provider);
+
+    let status;
+    if (d.provider === 'none') {
+      status = 'No AI connected — add an API key in Settings';
+      [document.getElementById('model-select'), document.getElementById('panel-model-select')]
+        .forEach(sel => { if (sel) sel.innerHTML = '<option>— no key configured —</option>'; });
+    } else {
+      const opts = (PROVIDER_MODELS[d.provider] || []).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+      [document.getElementById('model-select'), document.getElementById('panel-model-select')]
+        .forEach(sel => { if (sel) { sel.innerHTML = opts; sel.value = d.model; } });
+      const providerName = d.provider === 'claude' ? 'Claude' : d.provider === 'openai' ? 'ChatGPT' : 'Groq';
+      status = `Active: ${providerName} — ${d.model}`;
+    }
+    const el = document.getElementById('provider-status');
+    if (el) el.textContent = status;
+    const pel = document.getElementById('panel-provider-status');
+    if (pel) pel.textContent = status;
+  } catch(e) {}
+}
+
+// ── Sidebar update shortcut ─────────────────────────────────────────────────
+async function sidebarCheckUpdate() {
+  const btn = document.getElementById('sidebar-update-btn');
+  btn.textContent = '⬇ Checking...';
+  btn.style.color = '';
+  try {
+    // Cache-bust so the browser never serves a stale response
+    const r = await fetch('/api/update/check?t=' + Date.now(), { cache: 'no-store' });
+    if (r.status === 401) { btn.textContent = '⬇ Check for Updates'; return; }
+    const d = await r.json();
+    if (!d) { btn.textContent = '⬇ Check for Updates'; return; }
+
+    const local  = d.current_version  || '?';
+    const remote = d.latest_version   || '?';
+
+    if (d.fetch_error) {
+      btn.textContent = '⬇ Check for Updates';
+      toast('Could not reach GitHub: ' + d.fetch_error, 'error');
+      return;
+    }
+
+    if (d.has_update) {
+      btn.textContent = '⬇ Update: ' + local + ' → ' + remote;
+      btn.style.color = '#34d399';
+      if (confirm('Update available!\n\nInstalled: ' + local + '\nAvailable: ' + remote + '\n\nApply now? Your keys and database are preserved.\nYou will need to restart after.')) {
+        btn.textContent = '⬇ Updating...';
+        await api('POST', '/api/update/apply');
+        btn.textContent = '⬇ Done — restart app';
+        btn.style.color = '#34d399';
+        toast('Update applied — please restart (close and run start.bat)', 'success');
+      }
+    } else {
+      btn.textContent = '✓ Up to date (' + local + ')';
+      btn.style.color = 'var(--text-dim)';
+      setTimeout(() => { btn.textContent = '⬇ Check for Updates'; btn.style.color = ''; }, 4000);
+    }
+  } catch(e) {
+    btn.textContent = '⬇ Check for Updates';
+    toast('Update check failed: ' + e.message, 'error');
+  }
+}
+
+// ── Status indicators ───────────────────────────────────────────────────────
+async function updateStatusIndicators() {
+  // AI provider
+  try {
+    const d = await api('GET', '/api/ai-provider/current');
+    if (d) {
+      if (d.available) Object.assign(_providerAvailable, d.available);
+      _selectedProvider = d.provider;
+      highlightProviderBtn(d.provider);
+      if (d.provider === 'none') {
+        document.getElementById('status-ai-dot').style.background = '#ef4444';
+        document.getElementById('status-ai-label').textContent = 'No AI — add key in Settings';
+      } else {
+        const label = d.provider === 'claude' ? 'Claude' : d.provider === 'openai' ? 'ChatGPT' : 'Groq';
+        const hasKey = d.available && d.available[d.provider];
+        document.getElementById('status-ai-dot').style.background = hasKey ? '#22c55e' : '#f59e0b';
+        document.getElementById('status-ai-label').textContent = label + ' · ' + (d.model || '');
+      }
+    }
+  } catch(e) {}
+  // Meta
+  try {
+    const meta = await api('GET', '/api/accounts/meta').catch(()=>null);
+    if (meta && meta.length) {
+      const acc = meta.find(a=>a.is_current) || meta[0];
+      document.getElementById('status-meta-dot').style.background = '#22c55e';
+      document.getElementById('status-meta-label').textContent = acc.user_name || 'Connected';
+    } else {
+      document.getElementById('status-meta-dot').style.background = '#ef4444';
+      document.getElementById('status-meta-label').textContent = 'Not connected';
+    }
+  } catch(e) {}
+}
+
+// ── Modal open (load data per modal) ───────────────────────────────────────
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  if (id === 'settings-modal') {
+    loadProviderStatus();
+    loadCustomInstructions();
+    api('GET', '/api/update/check?t=' + Date.now()).then(d => {
+      if (d) document.getElementById('update-current-ver').textContent = d.current_version || '—';
+    }).catch(()=>{});
+    api('GET', '/api/setup/status').then(s => {
+      if (!s) return;
+      const set = '(already set — leave blank to keep)';
+      if (s.has_meta) {
+        document.getElementById('settings-meta-app-id').placeholder = set;
+        document.getElementById('settings-meta-app-secret').placeholder = set;
+      }
+      if (s.has_anthropic) { document.getElementById('settings-anthropic-key').placeholder = set; document.getElementById('clear-anthropic-btn').style.display = ''; }
+      if (s.has_openai)    { document.getElementById('settings-openai-key').placeholder = set;    document.getElementById('clear-openai-btn').style.display = ''; }
+      if (s.has_groq)      { document.getElementById('settings-groq-key').placeholder = set;      document.getElementById('clear-groq-btn').style.display = ''; }
+    }).catch(()=>{});
+    // Sync Meta connection status
+    api('GET', '/api/accounts/meta').then(accounts => {
+      const dot = document.getElementById('settings-meta-conn-dot');
+      const lbl = document.getElementById('settings-meta-conn-label');
+      if (accounts && accounts.length) {
+        const acc = accounts.find(a => a.is_current) || accounts[0];
+        dot.style.background = '#22c55e';
+        lbl.textContent = 'Connected as ' + (acc.user_name || acc.user_email || 'Meta account');
+      } else {
+        dot.style.background = '#ef4444';
+        lbl.textContent = 'Not connected — paste your access token in Connections';
+      }
+    }).catch(()=>{});
+  }
+  if (id === 'skills-modal') loadSkills();
+  if (id === 'connections-modal') loadConnectionStatus();
+}
+
+// ── Token connect in Connections modal ─────────────────────────────────────
+async function connectTokenFromModal() {
+  const input = document.getElementById('modal-token-input');
+  const btn = document.getElementById('modal-token-btn');
+  const err = document.getElementById('modal-token-err');
+  const token = input.value.trim();
+  if (!token) { err.textContent = 'Paste your token first.'; err.style.display='block'; return; }
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  try {
+    const r = await fetch('/api/accounts/meta/token', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ access_token: token }),
+    });
+    const text = await r.text();
+    let data; try { data = JSON.parse(text); } catch { data = {}; }
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    toast('Connected as ' + (data.user_name || data.user_id), 'success');
+    closeModal('connections-modal');
+    state.metaConnected = true;
+    await Promise.allSettled([loadConnectionStatus(), updateStatusIndicators(), loadAccountDropdowns()]);
+  } catch(e) {
+    err.textContent = e.message; err.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Connect';
+  }
+}
+
+// ── Mobile sidebar ─────────────────────────────────────────────────────────
+function openMobileSidebar() {
+  document.getElementById('sidebar').classList.add('mobile-open');
+  document.getElementById('sidebar-overlay').classList.add('open');
+}
+function closeMobileSidebar() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+// Close sidebar after selecting a client/conversation on mobile
+const _origToggleClient = typeof toggleClient !== 'undefined' ? toggleClient : null;
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('error')) toast('Connection error: ' + params.get('error'), 'error');
+  if (params.get('connected')) toast('Connected successfully!', 'success');
+  try {
+    const check = await fetch('/api/accounts/meta');
+    if (check.status === 401) { showConnectScreen(); return; }
+    showApp();
+    await Promise.allSettled([loadClients(), loadSkills(), loadConnectionStatus(), refreshApiUsage(), refreshAiUsage(), updateStatusIndicators(), loadAccountDropdowns(), loadProviderStatus()]);
+    // Refresh status every 30 seconds
+    setInterval(updateStatusIndicators, 30000);
+  } catch(e) { showConnectScreen(); }
+}
+
+init();
+</script>
+</body>
+</html>
