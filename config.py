@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     META_REDIRECT_URI: str = "http://localhost:8000/auth/meta/callback"
     """OAuth redirect URI registered in the Meta app settings."""
 
+    META_POSTING_APP_ID: str = ""
+    """Facebook App ID for the separate Posting app (Instagram & FB Page posting)."""
+
+    META_POSTING_APP_SECRET: str = ""
+    """Facebook App Secret for the Posting app — keep out of source control."""
+
+    META_POSTING_REDIRECT_URI: str = ""
+    """OAuth redirect URI registered in the Posting Meta app settings."""
+
     # ------------------------------------------------------------------
     # Google
     # ------------------------------------------------------------------
@@ -146,6 +155,13 @@ class Settings(BaseSettings):
         if self.META_REDIRECT_URI and not self.META_REDIRECT_URI.startswith("http://localhost"):
             return self.META_REDIRECT_URI
         return f"{self.BASE_URL.rstrip('/')}/auth/meta/callback"
+
+    @property
+    def meta_posting_redirect_uri(self) -> str:
+        """OAuth callback URI for posting Meta app, built from BASE_URL."""
+        if self.META_POSTING_REDIRECT_URI and not self.META_POSTING_REDIRECT_URI.startswith("http://localhost"):
+            return self.META_POSTING_REDIRECT_URI
+        return f"{self.BASE_URL.rstrip('/')}/auth/meta/posting/callback"
 
     @property
     def google_redirect_uri(self) -> str:

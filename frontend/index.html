@@ -268,15 +268,40 @@ a{color:inherit;text-decoration:none}
         <div class="sidebar-logo">UPLINX<span>Meta Manager</span></div>
       </div>
     </div>
-    <div class="sidebar-search">
-      <input type="text" id="client-search" placeholder="Search clients..." oninput="filterClients(this.value)">
+    <!-- Interface switcher -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+      <button id="tab-ads" onclick="switchInterface('ads')"
+        style="flex:1;padding:8px 4px;background:var(--accent);color:#fff;border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px">
+        📊 Ads Manager
+      </button>
+      <button id="tab-posts" onclick="switchInterface('posts')"
+        style="flex:1;padding:8px 4px;background:var(--bg-secondary);color:var(--text-dim);border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px">
+        📝 Posts Manager
+      </button>
     </div>
-    <button class="sidebar-new-btn" onclick="openNewClientModal()">+ New Client</button>
-    <div class="sidebar-clients" id="client-list">
-      <div class="sidebar-section-label">CLIENTS</div>
+
+    <!-- Ads sidebar content -->
+    <div id="ads-sidebar-content" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+      <div class="sidebar-search">
+        <input type="text" id="client-search" placeholder="Search clients..." oninput="filterClients(this.value)">
+      </div>
+      <button class="sidebar-new-btn" onclick="openNewClientModal()">+ New Client</button>
+      <div class="sidebar-clients" id="client-list">
+        <div class="sidebar-section-label">CLIENTS</div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding:6px 12px">
+        <button class="sidebar-new-conv" onclick="newConversation()">+ New Conversation</button>
+      </div>
     </div>
-    <div style="border-top:1px solid var(--border);padding:6px 12px">
-      <button class="sidebar-new-conv" onclick="newConversation()">+ New Conversation</button>
+
+    <!-- Posts sidebar content -->
+    <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:12px;gap:4px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">POSTING ACCOUNT</div>
+      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-dim)">Not connected</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">FB PAGES</div>
+      <div id="posts-pages-list" style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px"></div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">INSTAGRAM</div>
+      <div id="posts-ig-list" style="display:flex;flex-direction:column;gap:3px"></div>
     </div>
     <!-- Status indicators -->
     <div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:5px">
@@ -354,6 +379,100 @@ a{color:inherit;text-decoration:none}
       <input type="file" id="file-input" style="display:none" multiple onchange="handleFileSelect(this.files)" accept=".jpg,.jpeg,.png,.gif,.mp4,.mov,.pdf,.md">
     </div>
   </main>
+
+  <!-- POSTS MANAGER MAIN AREA -->
+  <div id="posts-main" style="display:none;flex:1;flex-direction:column;overflow:hidden;background:var(--bg-secondary)">
+
+    <!-- Connect banner -->
+    <div id="posts-connect-banner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:16px;padding:40px;text-align:center">
+      <div style="width:56px;height:56px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(220,38,38,0.25);font-size:26px">📝</div>
+      <h2 style="margin:0;color:var(--text-primary)">Posts Manager</h2>
+      <p style="color:var(--text-secondary);max-width:380px;line-height:1.6;margin:0">Connect a separate Meta app with Page and Instagram permissions to manage your posts.</p>
+      <button onclick="openPostingConnectModal()" style="padding:11px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔗 Connect Posting Account</button>
+    </div>
+
+    <!-- Composer (shown when connected) -->
+    <div id="posts-composer" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <!-- Header -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg-primary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary)">📝 Create Post</div>
+          <div id="posts-account-label" style="font-size:11px;color:var(--text-dim);margin-top:2px">—</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="loadPostsScheduled()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">📅 Scheduled</button>
+          <button onclick="openPostingConnectModal()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">🔗 Accounts</button>
+        </div>
+      </div>
+      <!-- Platform tabs -->
+      <div style="padding:10px 20px;display:flex;gap:8px;border-bottom:1px solid var(--border);background:var(--bg-primary);flex-shrink:0">
+        <button id="ptab-facebook" onclick="selectPostPlatform('facebook')"
+          style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+          📘 Facebook Page
+        </button>
+        <button id="ptab-instagram" onclick="selectPostPlatform('instagram')"
+          style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">
+          📷 Instagram
+        </button>
+      </div>
+      <!-- Body -->
+      <div style="flex:1;overflow-y:auto;padding:20px">
+        <div style="max-width:620px;margin:0 auto">
+          <!-- Account selector -->
+          <div style="margin-bottom:14px">
+            <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
+            <select id="posts-target-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px">
+              <option value="">— Select —</option>
+            </select>
+          </div>
+          <!-- Caption -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
+            <textarea id="post-caption" rows="5" placeholder="Write your caption…"
+              style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:14px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box;line-height:1.5"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+          </div>
+          <!-- Media URL -->
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Media URL <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(optional — leave blank for text-only)</span></label>
+            <input type="text" id="post-media-url" placeholder="https://…"
+              style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <!-- Post type (Instagram only) -->
+          <div id="post-type-row" style="margin-bottom:14px;display:none">
+            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Post type</label>
+            <div style="display:flex;gap:6px">
+              <button id="ptype-image" onclick="selectPostType('IMAGE')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">🖼️ Image</button>
+              <button id="ptype-reels" onclick="selectPostType('REELS')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">🎬 Reel</button>
+              <button id="ptype-stories" onclick="selectPostType('STORIES')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">✨ Story</button>
+            </div>
+          </div>
+          <!-- Schedule -->
+          <div style="margin-bottom:20px">
+            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Schedule <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(leave blank = publish now)</span></label>
+            <input type="datetime-local" id="post-schedule-time"
+              style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          </div>
+          <!-- Actions -->
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px">
+            <button onclick="submitPost()" id="post-submit-btn"
+              style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">
+              🚀 Publish / Schedule
+            </button>
+            <button onclick="clearPostComposer()" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Clear</button>
+            <span id="post-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
+          </div>
+          <!-- Scheduled posts list -->
+          <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">SCHEDULED POSTS</div>
+          <div id="posts-recent-list" style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:13px;color:var(--text-dim)">No scheduled posts yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- RIGHT CONTEXT PANEL -->
   <aside id="context-panel">
@@ -452,6 +571,71 @@ a{color:inherit;text-decoration:none}
       <div class="panel-link" style="margin-top:8px;display:block" onclick="openModal('skills-modal')">Manage Skills →</div>
     </div>
   </aside>
+</div>
+
+<!-- Posting Account Connect Modal -->
+<div class="modal-overlay" id="posting-connect-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title">🔗 Connect Posting Account</div>
+      <button class="modal-close" onclick="closeModal('posting-connect-modal')">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Connected accounts -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Connected Accounts</div>
+        <div id="posting-accounts-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:13px;color:var(--text-dim)">No accounts connected yet.</div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Posting App Credentials -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">Posting App Credentials</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Create a separate Meta developer app with <code>pages_manage_posts</code> and <code>instagram_content_publish</code> permissions.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Posting App ID</label>
+            <input type="text" id="posting-app-id-input" class="form-input" placeholder="123456789…" style="font-size:13px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Posting App Secret</label>
+            <input type="password" id="posting-app-secret-input" class="form-input" placeholder="••••••••" autocomplete="off" style="font-size:13px">
+          </div>
+        </div>
+        <button onclick="savePostingCredentials()" style="padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Save App Credentials</button>
+        <span id="posting-creds-status" style="font-size:12px;margin-left:10px;color:var(--text-dim)"></span>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Add account -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Add Account</div>
+
+      <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🔑 Paste Access Token</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Page access token or long-lived user token with page + Instagram permissions.</div>
+        <input type="password" id="posting-token-input" placeholder="EAAxxxxxx…" autocomplete="off"
+          style="width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-primary);font-size:13px;margin-bottom:10px;outline:none;box-sizing:border-box"
+          onkeydown="if(event.key==='Enter') connectPostingWithToken()">
+        <button onclick="connectPostingWithToken()" id="connect-posting-token-btn"
+          style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+          Connect with Token
+        </button>
+        <div id="posting-token-error" style="color:var(--error);font-size:12px;margin-top:8px;display:none"></div>
+      </div>
+
+      <a href="/auth/meta/posting"
+        style="display:flex;align-items:center;justify-content:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;text-decoration:none;transition:var(--transition)"
+        onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+        🔷 Login with Facebook (OAuth)
+      </a>
+    </div>
+  </div>
 </div>
 
 <!-- ── MODALS ── -->
@@ -733,11 +917,13 @@ const state = {
 };
 
 // ── API helpers ────────────────────────────────────────────────────────────
+let _dashboardUnlocked = false;
+
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const r = await fetch(path, opts);
-  if (r.status === 401) { showConnectScreen(); return null; }
+  if (r.status === 401) { if (!_dashboardUnlocked) showConnectScreen(); return null; }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -770,6 +956,7 @@ function showConnectScreen() {
   document.getElementById('app').classList.add('hidden');
 }
 function showApp() {
+  _dashboardUnlocked = true;
   document.getElementById('connect-screen').classList.remove('visible');
   document.getElementById('app').classList.remove('hidden');
 }
@@ -982,7 +1169,7 @@ async function sendMessage() {
       body: JSON.stringify({ message: text, attachments: state.uploads.map(u=>u.path) }),
       signal: _streamAbort.signal,
     });
-    if (resp.status === 401) { showConnectScreen(); return; }
+    if (resp.status === 401) { if (!_dashboardUnlocked) showConnectScreen(); return; }
     typing.remove();
 
     aiDiv = document.createElement('div');
@@ -1806,15 +1993,315 @@ async function init() {
   if (params.get('connected')) toast('Connected successfully!', 'success');
   try {
     const check = await fetch('/api/accounts/meta');
-    if (check.status === 401) { showConnectScreen(); return; }
+    if (check.status === 401) {
+      showConnectScreen();
+      return;
+    }
     showApp();
     await Promise.allSettled([loadClients(), loadSkills(), loadConnectionStatus(), refreshApiUsage(), refreshAiUsage(), updateStatusIndicators(), loadAccountDropdowns(), loadProviderStatus()]);
     // Refresh status every 30 seconds
     setInterval(updateStatusIndicators, 30000);
-  } catch(e) { showConnectScreen(); }
+  } catch(e) { showApp(); }
 }
 
 init();
+
+// ── Posts Manager ──────────────────────────────────────────────────────────
+
+let _activeInterface = 'ads';
+let _postPlatform = 'facebook';
+let _postType = 'IMAGE';
+let _postingConnected = false;
+let _postingPages = [];
+let _postingIgAccounts = [];
+
+function switchInterface(iface) {
+  _activeInterface = iface;
+  const isAds = iface === 'ads';
+
+  // Tab buttons
+  const tabAds = document.getElementById('tab-ads');
+  const tabPosts = document.getElementById('tab-posts');
+  const activeStyle = 'flex:1;padding:8px 4px;background:var(--accent);color:#fff;border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.3px';
+  const inactiveStyle = 'flex:1;padding:8px 4px;background:var(--bg-secondary);color:var(--text-dim);border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.3px';
+  if (tabAds) tabAds.style.cssText = isAds ? activeStyle : inactiveStyle;
+  if (tabPosts) tabPosts.style.cssText = isAds ? inactiveStyle : activeStyle;
+
+  // Sidebar panels
+  const adsSide = document.getElementById('ads-sidebar-content');
+  const postsSide = document.getElementById('posts-sidebar-content');
+  if (adsSide) adsSide.style.display = isAds ? 'flex' : 'none';
+  if (postsSide) { postsSide.style.display = isAds ? 'none' : 'flex'; }
+
+  // Main panels
+  const chatArea = document.getElementById('chat-area');
+  const postsMain = document.getElementById('posts-main');
+  if (chatArea) chatArea.style.display = isAds ? '' : 'none';
+  if (postsMain) postsMain.style.display = isAds ? 'none' : 'flex';
+
+  // Right context panel — only relevant for ads
+  const aside = document.getElementById('context-panel');
+  if (aside) aside.style.display = isAds ? '' : 'none';
+
+  if (!isAds) loadPostingInterface();
+}
+
+async function loadPostingInterface() {
+  try {
+    const accounts = await fetch('/api/accounts/posting').then(r => r.json());
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      showPostsConnect(); return;
+    }
+    _postingConnected = true;
+    const current = accounts.find(a => a.is_current) || accounts[0];
+    const label = document.getElementById('posts-account-label');
+    if (label) label.textContent = `Connected as ${current.user_name || current.facebook_user_id}`;
+    updatePostingAccountStatus(current);
+    const banner = document.getElementById('posts-connect-banner');
+    const composer = document.getElementById('posts-composer');
+    if (banner) banner.style.display = 'none';
+    if (composer) { composer.style.display = 'flex'; composer.style.flexDirection = 'column'; }
+    await loadPostingPagesAndIG();
+  } catch(e) {
+    showPostsConnect();
+  }
+}
+
+function showPostsConnect() {
+  _postingConnected = false;
+  const banner = document.getElementById('posts-connect-banner');
+  const composer = document.getElementById('posts-composer');
+  if (banner) { banner.style.display = 'flex'; banner.style.flexDirection = 'column'; }
+  if (composer) composer.style.display = 'none';
+  updatePostingAccountStatus(null);
+}
+
+function updatePostingAccountStatus(account) {
+  const el = document.getElementById('posts-account-status');
+  if (!el) return;
+  if (!account) {
+    el.innerHTML = 'Not connected';
+    el.style.color = 'var(--text-dim)';
+    return;
+  }
+  el.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:6px;vertical-align:middle"></span><strong>${account.user_name || 'Connected'}</strong>`;
+  el.style.color = 'var(--text-primary)';
+}
+
+async function loadPostingPagesAndIG() {
+  try {
+    const [pages, igAccounts] = await Promise.all([
+      fetch('/api/posting/pages').then(r => r.ok ? r.json() : []),
+      fetch('/api/posting/instagram').then(r => r.ok ? r.json() : []),
+    ]);
+    _postingPages = Array.isArray(pages) ? pages : [];
+    _postingIgAccounts = Array.isArray(igAccounts) ? igAccounts : [];
+    renderPostingsSidebar();
+    populatePostTargetSelect();
+    loadPostsScheduled();
+  } catch(e) { console.warn('loadPostingPagesAndIG:', e); }
+}
+
+function renderPostingsSidebar() {
+  const pagesEl = document.getElementById('posts-pages-list');
+  const igEl = document.getElementById('posts-ig-list');
+  const itemStyle = 'padding:5px 8px;border-radius:6px;font-size:11px;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);cursor:pointer;transition:border-color 0.15s';
+  if (pagesEl) pagesEl.innerHTML = _postingPages.length
+    ? _postingPages.map(p => `<div style="${itemStyle}" onclick="selectPostingPage('${p.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">📘 ${p.name||p.id}</div>`).join('')
+    : '<div style="font-size:11px;color:var(--text-dim)">No pages found</div>';
+  if (igEl) igEl.innerHTML = _postingIgAccounts.length
+    ? _postingIgAccounts.map(a => `<div style="${itemStyle}" onclick="selectPostingIG('${a.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">📷 @${a.username||a.name}</div>`).join('')
+    : '<div style="font-size:11px;color:var(--text-dim)">No IG accounts found</div>';
+}
+
+function populatePostTargetSelect() {
+  const sel = document.getElementById('posts-target-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const source = _postPlatform === 'facebook' ? _postingPages : _postingIgAccounts;
+  if (!source.length) { sel.innerHTML = '<option value="">No accounts found</option>'; return; }
+  source.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = _postPlatform === 'facebook' ? (p.name||p.id) : `@${p.username||p.name}`;
+    sel.appendChild(o);
+  });
+}
+
+function selectPostPlatform(platform) {
+  _postPlatform = platform;
+  const isFB = platform === 'facebook';
+  const onStyle = 'padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer';
+  const offStyle = 'padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer';
+  const fbBtn = document.getElementById('ptab-facebook');
+  const igBtn = document.getElementById('ptab-instagram');
+  if (fbBtn) fbBtn.style.cssText = isFB ? onStyle : offStyle;
+  if (igBtn) igBtn.style.cssText = isFB ? offStyle : onStyle;
+  const acctLabel = document.getElementById('posts-acct-label');
+  if (acctLabel) acctLabel.textContent = isFB ? 'Facebook Page' : 'Instagram Account';
+  const typeRow = document.getElementById('post-type-row');
+  if (typeRow) typeRow.style.display = isFB ? 'none' : '';
+  populatePostTargetSelect();
+}
+
+function selectPostType(type) {
+  _postType = type;
+  ['image','reels','stories'].forEach(t => {
+    const btn = document.getElementById(`ptype-${t}`);
+    if (!btn) return;
+    const active = t.toUpperCase() === type;
+    btn.style.background = active ? 'var(--accent)' : 'transparent';
+    btn.style.color = active ? '#fff' : 'var(--text-secondary)';
+    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+  });
+}
+
+function selectPostingPage(pageId) {
+  selectPostPlatform('facebook');
+  const sel = document.getElementById('posts-target-select');
+  if (sel) sel.value = pageId;
+}
+
+function selectPostingIG(igId) {
+  selectPostPlatform('instagram');
+  const sel = document.getElementById('posts-target-select');
+  if (sel) sel.value = igId;
+}
+
+async function submitPost() {
+  const target = document.getElementById('posts-target-select').value;
+  const caption = document.getElementById('post-caption').value.trim();
+  const mediaUrl = document.getElementById('post-media-url').value.trim();
+  const scheduleTime = document.getElementById('post-schedule-time').value;
+  const statusEl = document.getElementById('post-status-msg');
+  const btn = document.getElementById('post-submit-btn');
+
+  if (!target) { statusEl.textContent = '⚠ Select a page or account.'; statusEl.style.color='var(--error)'; return; }
+  if (!caption && !mediaUrl) { statusEl.textContent = '⚠ Add a caption or media URL.'; statusEl.style.color='var(--error)'; return; }
+
+  btn.disabled = true; btn.textContent = 'Publishing…';
+  statusEl.textContent = '';
+  try {
+    const endpoint = _postPlatform === 'facebook' ? '/api/posting/publish/facebook' : '/api/posting/publish/instagram';
+    const body = _postPlatform === 'facebook'
+      ? { page_id: target, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null }
+      : { instagram_id: target, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null };
+
+    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Failed to publish');
+    statusEl.textContent = scheduleTime ? '✓ Scheduled!' : '✓ Published!';
+    statusEl.style.color = 'var(--success)';
+    clearPostComposer();
+    setTimeout(loadPostsScheduled, 800);
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message;
+    statusEl.style.color = 'var(--error)';
+  } finally {
+    btn.disabled = false; btn.textContent = '🚀 Publish / Schedule';
+  }
+}
+
+function clearPostComposer() {
+  ['post-caption','post-media-url','post-schedule-time'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const s = document.getElementById('post-status-msg'); if (s) s.textContent = '';
+}
+
+async function loadPostsScheduled() {
+  try {
+    const r = await fetch('/api/posting/scheduled');
+    if (!r.ok) return;
+    const posts = await r.json();
+    const el = document.getElementById('posts-recent-list');
+    if (!el) return;
+    if (!posts.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No scheduled posts yet.</div>'; return; }
+    el.innerHTML = posts.slice(0,10).map(p => `
+      <div style="padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.platform==='instagram'?'📷':'📘'} ${p.page_name||p.platform||'Post'}</span>
+          <span style="font-size:11px;color:var(--text-dim)">${p.scheduled_time ? new Date(p.scheduled_time).toLocaleString() : 'Immediate'}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${(p.content||'').substring(0,120)}${(p.content||'').length>120?'…':''}</div>
+      </div>`).join('');
+  } catch(e) { /* silent */ }
+}
+
+function openPostingConnectModal() {
+  loadPostingAccountsList();
+  openModal('posting-connect-modal');
+}
+
+async function loadPostingAccountsList() {
+  try {
+    const accounts = await fetch('/api/accounts/posting').then(r => r.json());
+    const el = document.getElementById('posting-accounts-list');
+    if (!el) return;
+    if (!Array.isArray(accounts) || !accounts.length) {
+      el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No accounts connected yet.</div>';
+      return;
+    }
+    el.innerHTML = accounts.map(a => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:7px;height:7px;border-radius:50%;background:${a.is_current?'var(--success)':'var(--text-dim)'}"></div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.user_name||a.facebook_user_id}</div>
+            <div style="font-size:11px;color:var(--text-dim)">${a.user_email||''}</div>
+          </div>
+        </div>
+        <button onclick="disconnectPostingAccount(${a.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">Disconnect</button>
+      </div>`).join('');
+  } catch(e) { /* silent */ }
+}
+
+async function connectPostingWithToken() {
+  const input = document.getElementById('posting-token-input');
+  const btn = document.getElementById('connect-posting-token-btn');
+  const err = document.getElementById('posting-token-error');
+  const token = input.value.trim();
+  if (!token) { err.textContent = 'Please paste your access token.'; err.style.display='block'; return; }
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  try {
+    const r = await fetch('/api/accounts/posting/token', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({access_token: token}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Connection failed');
+    toast(`Posting account connected as ${d.user_name||d.user_id}`, 'success');
+    input.value = '';
+    closeModal('posting-connect-modal');
+    loadPostingInterface();
+  } catch(e) {
+    err.textContent = e.message; err.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Connect with Token';
+  }
+}
+
+async function disconnectPostingAccount(id) {
+  await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
+  loadPostingAccountsList();
+  loadPostingInterface();
+}
+
+async function savePostingCredentials() {
+  const appId = document.getElementById('posting-app-id-input').value.trim();
+  const appSecret = document.getElementById('posting-app-secret-input').value.trim();
+  const status = document.getElementById('posting-creds-status');
+  try {
+    const r = await fetch('/api/setup/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({meta_posting_app_id: appId, meta_posting_app_secret: appSecret}),
+    });
+    if (r.ok) { status.textContent = '✓ Saved'; status.style.color='var(--success)'; }
+    else throw new Error();
+  } catch(e) { status.textContent = '✗ Failed'; status.style.color='var(--error)'; }
+  setTimeout(() => { if(status) status.textContent=''; }, 3000);
+}
 </script>
 </body>
 </html>

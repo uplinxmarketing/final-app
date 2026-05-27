@@ -138,6 +138,39 @@ class ConnectedMetaAccount(Base):
         )
 
 
+class ConnectedPostingAccount(Base):
+    """Stores OAuth credentials for a Meta account connected via the Posting app.
+
+    Used exclusively for FB Page and Instagram posting — separate from the Ads app.
+    """
+    __tablename__ = "connected_posting_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    facebook_user_id: Mapped[str] = mapped_column(
+        String, unique=True, nullable=False, index=True
+    )
+    user_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    user_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    encrypted_short_token: Mapped[str] = mapped_column(String, nullable=False)
+    encrypted_long_token: Mapped[str] = mapped_column(String, nullable=False)
+    token_expiry: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConnectedPostingAccount id={self.id} "
+            f"facebook_user_id={self.facebook_user_id!r}>"
+        )
+
+
 class ConnectedGoogleAccount(Base):
     """Stores OAuth credentials for a connected Google account."""
 

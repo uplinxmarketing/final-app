@@ -28,7 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from config import settings
 from database import (
     init_db, get_db,
-    ConnectedMetaAccount, ConnectedGoogleAccount,
+    ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
     Client, ClientAdAccount, ClientInstagramAccount,
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache
@@ -143,8 +143,10 @@ async def security_headers(request: Request, call_next):
 SESSION_COOKIE = "uplinx_session"
 LOGIN_COOKIE = "uplinx_login"
 PUBLIC_PATHS = {"/health", "/", "/auth/meta", "/auth/meta/callback",
+                "/auth/meta/posting", "/auth/meta/posting/callback",
                 "/auth/google", "/auth/google/callback", "/setup",
-                "/api/accounts/meta/token", "/login", "/api/login", "/api/logout"}
+                "/api/accounts/meta/token", "/api/accounts/posting/token",
+                "/login", "/api/login", "/api/logout"}
 
 
 def _login_token() -> str:
@@ -243,6 +245,27 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
         acc.token_expiry = datetime.utcnow() + timedelta(seconds=refresh.get("expires_in", 3600))
         await db.commit()
     return encryption.decrypt(acc.encrypted_access_token)
+
+async def get_posting_token(request: Request, db: AsyncSession) -> str:
+    """Decrypt and return the active Posting Meta access token."""
+    session = get_session(request)
+    uid = session.get("posting_user_id")
+    if not uid:
+        raise HTTPException(401, "Posting account not connected")
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.facebook_user_id == uid,
+            ConnectedPostingAccount.is_active == True,
+        )
+    )
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise HTTPException(401, "Posting account not found")
+    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+        raise HTTPException(401, "Posting token expired — please reconnect")
+    acc.last_used_at = datetime.utcnow()
+    await db.commit()
+    return encryption.decrypt(acc.encrypted_long_token)
 
 # ── Pydantic request models ────────────────────────────────────────────────────
 
@@ -344,6 +367,8 @@ def _is_setup_complete() -> bool:
 class SetupSaveRequest(BaseModel):
     meta_app_id: str = ""
     meta_app_secret: str = ""
+    meta_posting_app_id: str = ""
+    meta_posting_app_secret: str = ""
     ai_provider: str = "claude"
     anthropic_api_key: str = ""
     claude_model: str = ""
@@ -381,6 +406,8 @@ async def setup_save(req: SetupSaveRequest):
     pairs = {
         "META_APP_ID": req.meta_app_id,
         "META_APP_SECRET": req.meta_app_secret,
+        "META_POSTING_APP_ID": req.meta_posting_app_id,
+        "META_POSTING_APP_SECRET": req.meta_posting_app_secret,
         "AI_PROVIDER": req.ai_provider,
         "ANTHROPIC_API_KEY": req.anthropic_api_key,
         "CLAUDE_MODEL": req.claude_model,
@@ -404,6 +431,10 @@ async def setup_save(req: SetupSaveRequest):
             settings.META_APP_ID = req.meta_app_id
         if req.meta_app_secret:
             settings.META_APP_SECRET = req.meta_app_secret
+        if req.meta_posting_app_id:
+            settings.META_POSTING_APP_ID = req.meta_posting_app_id
+        if req.meta_posting_app_secret:
+            settings.META_POSTING_APP_SECRET = req.meta_posting_app_secret
         if req.ai_provider:
             settings.AI_PROVIDER = req.ai_provider
         if req.anthropic_api_key:
@@ -489,6 +520,7 @@ async def setup_status():
         "complete": _is_setup_complete(),
         "ai_provider": settings.AI_PROVIDER,
         "has_meta": bool(settings.META_APP_ID),
+        "has_posting_app": bool(settings.META_POSTING_APP_ID),
         "has_anthropic": bool(settings.ANTHROPIC_API_KEY),
         "has_openai": bool(settings.OPENAI_API_KEY),
         "has_groq": bool(settings.GROQ_API_KEY),
@@ -738,6 +770,217 @@ async def auth_google_callback(
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     return {"success": True}
+
+# ── Posting Account API routes ─────────────────────────────────────────────────
+
+@app.get("/api/accounts/posting")
+async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_db)):
+    """List connected Posting app Meta accounts (no tokens exposed)."""
+    session = get_session(request)
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+    )
+    accounts = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "facebook_user_id": a.facebook_user_id,
+            "user_name": a.user_name,
+            "user_email": a.user_email,
+            "token_expiry": a.token_expiry.isoformat() if a.token_expiry else None,
+            "last_used_at": a.last_used_at.isoformat() if a.last_used_at else None,
+            "is_current": a.facebook_user_id == session.get("posting_user_id"),
+        }
+        for a in accounts
+    ]
+
+
+@app.delete("/api/accounts/posting/{account_id}")
+async def api_disconnect_posting(account_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(ConnectedPostingAccount).where(ConnectedPostingAccount.id == account_id))
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise HTTPException(404, "Account not found")
+    acc.is_active = False
+    await db.commit()
+    return {"success": True}
+
+
+@app.post("/api/accounts/posting/token")
+async def api_posting_direct_token(
+    req: DirectTokenRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Connect a Posting account using a direct access token (no OAuth required)."""
+    token = req.access_token.strip()
+    if not token:
+        raise HTTPException(400, "access_token is required")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{settings.meta_graph_base_url}/me",
+            params={"fields": "id,name,email", "access_token": token},
+        )
+    if r.status_code != 200:
+        detail = r.json().get("error", {}).get("message", "Invalid token")
+        raise HTTPException(400, f"Meta rejected the token: {detail}")
+
+    data = r.json()
+    user_id: str = data.get("id", "")
+    user_name: str = data.get("name", "")
+    user_email: str = data.get("email", "")
+
+    if not user_id:
+        raise HTTPException(400, "Could not retrieve user ID from Meta")
+
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == user_id)
+    )
+    acc = result.scalar_one_or_none()
+    encrypted = encryption.encrypt(token)
+
+    if acc:
+        acc.encrypted_short_token = encrypted
+        acc.encrypted_long_token = encrypted
+        acc.user_name = user_name
+        acc.user_email = user_email
+        acc.token_expiry = None
+        acc.is_active = True
+        acc.last_used_at = datetime.utcnow()
+    else:
+        acc = ConnectedPostingAccount(
+            facebook_user_id=user_id,
+            user_name=user_name,
+            user_email=user_email,
+            encrypted_short_token=encrypted,
+            encrypted_long_token=encrypted,
+            token_expiry=None,
+            created_at=datetime.utcnow(),
+            last_used_at=datetime.utcnow(),
+            is_active=True,
+        )
+        db.add(acc)
+
+    await db.commit()
+
+    existing = get_session(request)
+    session_data = {**dict(existing), "posting_user_id": user_id}
+    session_token = create_session_token(session_data)
+    response.set_cookie(
+        SESSION_COOKIE, session_token,
+        httponly=True, samesite="lax", max_age=86400 * 30,
+    )
+    return {"success": True, "user_id": user_id, "user_name": user_name}
+
+
+# ── Posting (Posts Manager) OAuth ─────────────────────────────────────────────
+
+META_POSTING_SCOPES = ",".join([
+    "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+    "instagram_basic", "instagram_content_publish",
+    "instagram_manage_insights", "instagram_manage_contents",
+    "publish_video",
+])
+
+@app.get("/auth/meta/posting")
+async def auth_meta_posting(request: Request, response: Response):
+    if not settings.META_POSTING_APP_ID:
+        return RedirectResponse("/?error=posting_app_not_configured")
+    state = generate_oauth_state()
+    response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
+    params = urllib.parse.urlencode({
+        "client_id": settings.META_POSTING_APP_ID,
+        "redirect_uri": settings.meta_posting_redirect_uri,
+        "scope": META_POSTING_SCOPES,
+        "response_type": "code",
+        "state": state,
+    })
+    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+
+
+@app.get("/auth/meta/posting/callback")
+async def auth_meta_posting_callback(
+    request: Request,
+    response: Response,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    if error:
+        return RedirectResponse(f"/?error={urllib.parse.quote(error)}")
+
+    expected_state = request.cookies.get("oauth_state_posting", "")
+    if not verify_oauth_state(state, expected_state):
+        return RedirectResponse("/?error=invalid_state")
+
+    short = await meta_api.exchange_code_for_token(
+        code, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET,
+        settings.meta_posting_redirect_uri
+    )
+    if not short.get("success"):
+        return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
+
+    short_token = short["data"].get("access_token", "")
+
+    long = await meta_api.exchange_for_long_lived_token(
+        short_token, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET
+    )
+    if not long.get("success"):
+        return RedirectResponse("/?error=posting_long_token_failed")
+
+    long_token = long["data"].get("access_token", "")
+    expires_in = long["data"].get("expires_in", 5184000)
+
+    user = await meta_api.get_user_info(long_token)
+    if not user.get("success"):
+        return RedirectResponse("/?error=posting_user_info_failed")
+
+    uid = user["data"].get("id", "")
+    name = user["data"].get("name", "")
+    email = user["data"].get("email", "")
+
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == uid)
+    )
+    acc = result.scalar_one_or_none()
+    now = datetime.utcnow()
+    if acc:
+        acc.encrypted_short_token = encryption.encrypt(short_token)
+        acc.encrypted_long_token = encryption.encrypt(long_token)
+        acc.token_expiry = now + timedelta(seconds=expires_in)
+        acc.user_name = name
+        acc.user_email = email
+        acc.is_active = True
+        acc.last_used_at = now
+    else:
+        acc = ConnectedPostingAccount(
+            facebook_user_id=uid,
+            user_name=name,
+            user_email=email,
+            encrypted_short_token=encryption.encrypt(short_token),
+            encrypted_long_token=encryption.encrypt(long_token),
+            token_expiry=now + timedelta(seconds=expires_in),
+            created_at=now,
+            last_used_at=now,
+            is_active=True,
+        )
+        db.add(acc)
+    await db.commit()
+
+    # Merge into existing session so both ads + posting IDs coexist
+    existing = get_session(request)
+    session_data = {**dict(existing), "posting_user_id": uid}
+    session_token = create_session_token(session_data)
+    redirect = RedirectResponse("/?connected=posting")
+    redirect.set_cookie(
+        SESSION_COOKIE, session_token,
+        max_age=28800, httponly=True, samesite="lax"
+    )
+    redirect.delete_cookie("oauth_state_posting")
+    return redirect
 
 # ── Account API routes ─────────────────────────────────────────────────────────
 
@@ -1436,6 +1679,143 @@ async def api_delete_campaign(campaign_id: str, request: Request, db: AsyncSessi
     token = await get_meta_token(request, db)
     result = await meta_api.delete_campaign(token, campaign_id)
     return result
+
+
+# ── Posting-specific endpoints ────────────────────────────────────────────────
+
+@app.get("/api/posting/pages")
+async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)):
+    """Get FB pages accessible via the Posting app token."""
+    token = await get_posting_token(request, db)
+    result = await meta_api.get_pages(token)
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error", "Meta API error"))
+    return result["data"]
+
+
+@app.get("/api/posting/instagram")
+async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get_db)):
+    """Get Instagram Business accounts accessible via the Posting app token."""
+    token = await get_posting_token(request, db)
+    result = await meta_api.get_pages(token)
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error", "Meta API error"))
+    pages = result["data"]
+    ig_accounts = []
+    async with httpx.AsyncClient(timeout=15) as client:
+        for page in pages:
+            r = await client.get(
+                f"{settings.meta_graph_base_url}/{page['id']}",
+                params={"fields": "instagram_business_account{id,name,username}", "access_token": token}
+            )
+            if r.status_code == 200:
+                d = r.json()
+                iba = d.get("instagram_business_account")
+                if iba:
+                    ig_accounts.append({
+                        "id": iba["id"],
+                        "name": iba.get("name", ""),
+                        "username": iba.get("username", ""),
+                        "page_id": page["id"],
+                        "page_name": page.get("name", ""),
+                    })
+    return ig_accounts
+
+
+class PublishFacebookRequest(BaseModel):
+    page_id: str
+    caption: str = ""
+    media_url: str = ""
+    scheduled_time: Optional[str] = None
+
+
+class PublishInstagramRequest(BaseModel):
+    instagram_id: str
+    caption: str = ""
+    media_url: str = ""
+    media_type: str = "IMAGE"  # IMAGE, REELS, STORIES
+    scheduled_time: Optional[str] = None
+
+
+@app.post("/api/posting/publish/facebook")
+async def api_publish_facebook(
+    req: PublishFacebookRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    token = await get_posting_token(request, db)
+    # Get page token from user token
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{settings.meta_graph_base_url}/{req.page_id}",
+            params={"fields": "access_token", "access_token": token}
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, "Could not get page token")
+    page_token = r.json().get("access_token", token)
+
+    result = await meta_api.schedule_facebook_post(
+        page_id=req.page_id,
+        access_token=page_token,
+        message=req.caption,
+        image_url=req.media_url or None,
+        scheduled_publish_time=req.scheduled_time,
+    )
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error", "Failed to publish"))
+    return {"success": True, "post_id": result.get("data", {}).get("id")}
+
+
+@app.post("/api/posting/publish/instagram")
+async def api_publish_instagram(
+    req: PublishInstagramRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    token = await get_posting_token(request, db)
+    if req.media_type == "REELS":
+        result = await meta_api.schedule_instagram_reel(
+            instagram_id=req.instagram_id,
+            access_token=token,
+            video_url=req.media_url,
+            caption=req.caption,
+        )
+    elif req.media_type == "STORIES":
+        result = await meta_api.schedule_instagram_story(
+            instagram_id=req.instagram_id,
+            access_token=token,
+            image_url=req.media_url,
+        )
+    else:
+        result = await meta_api.schedule_instagram_post(
+            instagram_id=req.instagram_id,
+            access_token=token,
+            image_url=req.media_url,
+            caption=req.caption,
+        )
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error", "Failed to publish"))
+    return {"success": True}
+
+
+@app.get("/api/posting/scheduled")
+async def api_posting_scheduled(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return recent scheduled posts (last 20)."""
+    result = await db.execute(
+        select(ScheduledPost).order_by(ScheduledPost.created_at.desc()).limit(20)
+    )
+    posts = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "platform": p.platform if hasattr(p, 'platform') else 'facebook',
+            "page_name": getattr(p, 'page_name', '') or getattr(p, 'page_id', ''),
+            "content": p.caption if hasattr(p, 'caption') else '',
+            "scheduled_time": p.scheduled_time.isoformat() if hasattr(p, 'scheduled_time') and p.scheduled_time else None,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in posts
+    ]
 
 
 # ── Scheduled posts ────────────────────────────────────────────────────────────
