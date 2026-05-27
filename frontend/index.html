@@ -601,6 +601,82 @@ a{color:inherit;text-decoration:none}
   </aside>
 </div>
 
+<!-- Meta Developer Apps Modal -->
+<div class="modal-overlay" id="meta-apps-modal">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-header">
+      <div class="modal-title">🛠️ Meta Developer Apps</div>
+      <button class="modal-close" onclick="closeModal('meta-apps-modal')">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Ads Apps -->
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent)">Ads Apps</div>
+          <button onclick="openMetaAppForm('ads')"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">
+            + Add Ads App
+          </button>
+        </div>
+        <div id="ads-apps-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:13px;color:var(--text-dim)">No ads apps configured yet.</div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <!-- Posting Apps -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent)">Posting Apps</div>
+          <button onclick="openMetaAppForm('posting')"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">
+            + Add Posting App
+          </button>
+        </div>
+        <div id="posting-apps-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:13px;color:var(--text-dim)">No posting apps configured yet.</div>
+        </div>
+      </div>
+
+      <!-- Add / Edit form (hidden by default) -->
+      <div id="meta-app-form" style="display:none;margin-top:4px;padding:16px;background:var(--bg-primary);border:2px solid var(--accent);border-radius:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:12px" id="meta-app-form-title">Add App</div>
+        <input type="hidden" id="meta-app-form-id" value="">
+        <input type="hidden" id="meta-app-form-type" value="ads">
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Label</label>
+          <input type="text" id="meta-app-form-name" placeholder="e.g. Main Ads App" class="form-input" style="font-size:13px">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+          <div>
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">App ID</label>
+            <input type="text" id="meta-app-form-app-id" placeholder="123456789…" class="form-input" style="font-size:13px">
+            <div id="meta-app-form-app-id-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">App Secret</label>
+            <input type="password" id="meta-app-form-secret" placeholder="••••••••" autocomplete="off" class="form-input" style="font-size:13px">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="saveMetaApp()"
+            style="padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+            Save
+          </button>
+          <button onclick="cancelMetaAppForm()"
+            style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">
+            Cancel
+          </button>
+          <span id="meta-app-form-status" style="font-size:12px;color:var(--text-dim)"></span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- Posting Account Connect Modal -->
 <div class="modal-overlay" id="posting-connect-modal">
   <div class="modal" style="max-width:480px">
@@ -620,22 +696,18 @@ a{color:inherit;text-decoration:none}
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
 
-      <!-- Posting App Credentials -->
+      <!-- Posting App selection -->
       <div style="margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">Posting App Credentials</div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Create a separate Meta developer app with <code>pages_manage_posts</code> and <code>instagram_content_publish</code> permissions.</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-          <div>
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Posting App ID</label>
-            <input type="text" id="posting-app-id-input" class="form-input" placeholder="123456789…" style="font-size:13px">
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Posting App Secret</label>
-            <input type="password" id="posting-app-secret-input" class="form-input" placeholder="••••••••" autocomplete="off" style="font-size:13px">
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">Connect via Posting App</div>
+          <button onclick="closeModal('posting-connect-modal');openMetaAppsModal('posting')"
+            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">
+            🛠️ Manage Apps
+          </button>
         </div>
-        <button onclick="savePostingCredentials()" style="padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Save App Credentials</button>
-        <span id="posting-creds-status" style="font-size:12px;margin-left:10px;color:var(--text-dim)"></span>
+        <div id="posting-modal-apps-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:13px;color:var(--text-dim)">No posting apps configured.</div>
+        </div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
@@ -656,12 +728,13 @@ a{color:inherit;text-decoration:none}
         <div id="posting-token-error" style="color:var(--error);font-size:12px;margin-top:8px;display:none"></div>
       </div>
 
-      <a href="/auth/meta/posting"
-        style="display:flex;align-items:center;justify-content:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;text-decoration:none;transition:var(--transition)"
-        onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-        onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
-        🔷 Login with Facebook (OAuth)
-      </a>
+      <div id="posting-oauth-buttons" style="display:flex;flex-direction:column;gap:6px">
+        <a href="/auth/meta/posting" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none;width:100%;box-sizing:border-box;justify-content:center"
+          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+          🔷 Login with Facebook (first posting app)
+        </a>
+      </div>
     </div>
   </div>
 </div>
@@ -740,28 +813,59 @@ a{color:inherit;text-decoration:none}
       <button class="modal-close" onclick="closeModal('connections-modal')">×</button>
     </div>
     <div class="modal-body">
-      <div class="conn-item">
-        <div class="conn-status">
-          <div class="conn-dot" id="meta-conn-dot"></div>
-          <div>
-            <div style="font-weight:500">Meta / Facebook</div>
-            <div style="font-size:12px;color:var(--text-dim)" id="meta-conn-info">Not connected</div>
+      <!-- Meta Ads accounts -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent)">Meta Ads</div>
+          <button onclick="closeModal('connections-modal');openMetaAppsModal('ads')"
+            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">
+            🛠️ Manage Apps
+          </button>
+        </div>
+        <!-- Connected ads accounts -->
+        <div id="conn-modal-ads-accounts" style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
+          <div class="conn-item">
+            <div class="conn-status">
+              <div class="conn-dot" id="meta-conn-dot"></div>
+              <div>
+                <div style="font-weight:500">Meta / Facebook Ads</div>
+                <div style="font-size:12px;color:var(--text-dim)" id="meta-conn-info">Not connected</div>
+              </div>
+            </div>
           </div>
         </div>
-        <a href="/auth/meta" class="btn-primary" style="font-size:12px;padding:6px 14px" id="meta-conn-btn">OAuth</a>
-      </div>
-      <div style="margin-top:10px;padding:14px;background:var(--bg-primary);border:1px solid var(--accent);border-radius:8px">
-        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">🔑 Connect with Access Token</div>
-        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Paste your Meta User Access Token or System User Token here. This is the recommended way to connect without a custom domain.</div>
-        <div style="display:flex;gap:8px">
-          <input type="password" id="modal-token-input" placeholder="EAAxxxxxx…" autocomplete="off"
-            style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-primary);font-size:13px;outline:none"
-            onkeydown="if(event.key==='Enter') connectTokenFromModal()">
-          <button id="modal-token-btn" onclick="connectTokenFromModal()"
-            style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+        <!-- Ads apps with connect buttons -->
+        <div id="conn-ads-apps" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px"></div>
+        <!-- Direct token paste -->
+        <div style="padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:4px">🔑 Connect with Access Token (Ads)</div>
+          <div style="display:flex;gap:8px">
+            <input type="password" id="modal-token-input" placeholder="EAAxxxxxx…" autocomplete="off"
+              style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-primary);font-size:13px;outline:none"
+              onkeydown="if(event.key==='Enter') connectTokenFromModal()">
+            <button id="modal-token-btn" onclick="connectTokenFromModal()"
+              style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Connect</button>
+          </div>
+          <div id="modal-token-err" style="color:var(--error);font-size:11px;margin-top:6px;display:none"></div>
         </div>
-        <div id="modal-token-err" style="color:var(--error);font-size:11px;margin-top:6px;display:none"></div>
       </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+
+      <!-- Meta Posting accounts -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent)">Meta Posting</div>
+          <button onclick="closeModal('connections-modal');openMetaAppsModal('posting')"
+            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">
+            🛠️ Manage Apps
+          </button>
+        </div>
+        <div id="conn-posting-apps" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+
       <div class="conn-item">
         <div class="conn-status">
           <div class="conn-dot" id="google-conn-dot"></div>
@@ -835,19 +939,11 @@ a{color:inherit;text-decoration:none}
           </div>
           <button onclick="closeModal('settings-modal');openModal('connections-modal')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Connect Account →</button>
         </div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">Meta App Credentials <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — for OAuth login only)</span></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-          <div>
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">App ID</label>
-            <input type="text" id="settings-meta-app-id" class="form-input" placeholder="123456789…" style="font-size:13px">
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">App Secret</label>
-            <input type="password" id="settings-meta-app-secret" class="form-input" placeholder="••••••••" autocomplete="off" style="font-size:13px">
-          </div>
-        </div>
-        <button onclick="saveMetaCredentials()" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Save App Credentials</button>
-        <span id="settings-meta-status" style="font-size:12px;margin-left:10px;color:var(--text-dim)"></span>
+        <button onclick="closeModal('settings-modal');openMetaAppsModal('ads')"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+          🛠️ Manage Meta Developer Apps
+        </button>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Add, edit, or remove Ads and Posting apps — each with its own App ID and Secret.</div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
@@ -1951,10 +2047,7 @@ function openModal(id) {
     api('GET', '/api/setup/status').then(s => {
       if (!s) return;
       const set = '(already set — leave blank to keep)';
-      if (s.has_meta) {
-        document.getElementById('settings-meta-app-id').placeholder = set;
-        document.getElementById('settings-meta-app-secret').placeholder = set;
-      }
+      // Meta app credentials are now managed via the Meta Developer Apps modal
       if (s.has_anthropic) { document.getElementById('settings-anthropic-key').placeholder = set; document.getElementById('clear-anthropic-btn').style.display = ''; }
       if (s.has_openai)    { document.getElementById('settings-openai-key').placeholder = set;    document.getElementById('clear-openai-btn').style.display = ''; }
       if (s.has_groq)      { document.getElementById('settings-groq-key').placeholder = set;      document.getElementById('clear-groq-btn').style.display = ''; }
@@ -1974,7 +2067,7 @@ function openModal(id) {
     }).catch(()=>{});
   }
   if (id === 'skills-modal') loadSkills();
-  if (id === 'connections-modal') loadConnectionStatus();
+  if (id === 'connections-modal') { loadConnectionStatus(); loadConnectionsApps(); }
 }
 
 // ── Token connect in Connections modal ─────────────────────────────────────
@@ -2268,6 +2361,7 @@ async function loadPostsScheduled() {
 
 function openPostingConnectModal() {
   loadPostingAccountsList();
+  loadConnectionsApps();
   openModal('posting-connect-modal');
 }
 
@@ -2339,6 +2433,203 @@ async function savePostingCredentials() {
     else throw new Error();
   } catch(e) { status.textContent = '✗ Failed'; status.style.color='var(--error)'; }
   setTimeout(() => { if(status) status.textContent=''; }, 3000);
+}
+
+// ── Meta Developer Apps management ─────────────────────────────────────────
+
+async function openMetaAppsModal(focusType) {
+  await loadMetaAppsList();
+  openModal('meta-apps-modal');
+  // Also refresh connections modal lists
+  loadConnectionsApps();
+}
+
+async function loadMetaAppsList() {
+  try {
+    const apps = await fetch('/api/meta-apps').then(r => r.json());
+    const ads = apps.filter(a => a.app_type === 'ads');
+    const posting = apps.filter(a => a.app_type === 'posting');
+    renderAppsSection('ads-apps-list', ads, 'ads');
+    renderAppsSection('posting-apps-list', posting, 'posting');
+  } catch(e) { console.warn('loadMetaAppsList:', e); }
+}
+
+function renderAppsSection(containerId, apps, type) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!apps.length) {
+    el.innerHTML = `<div style="font-size:13px;color:var(--text-dim)">No ${type} apps configured yet.</div>`;
+    return;
+  }
+  el.innerHTML = apps.map(a => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.name}</div>
+        <div style="font-size:11px;color:var(--text-dim);font-family:monospace">App ID: ${a.app_id}</div>
+      </div>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        <a href="/auth/meta${type === 'posting' ? '/posting' : ''}?app=${a.id}"
+          style="padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap">
+          🔗 Connect
+        </a>
+        <button onclick="openMetaAppEditForm(${a.id},'${escHtml(a.name)}','${escHtml(a.app_id)}','${a.app_type}')"
+          style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">✏️</button>
+        <button onclick="deleteMetaApp(${a.id})"
+          style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function escHtml(s) {
+  return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function openMetaAppForm(type) {
+  document.getElementById('meta-app-form-id').value = '';
+  document.getElementById('meta-app-form-type').value = type;
+  document.getElementById('meta-app-form-title').textContent = `Add ${type === 'ads' ? 'Ads' : 'Posting'} App`;
+  document.getElementById('meta-app-form-name').value = '';
+  document.getElementById('meta-app-form-app-id').value = '';
+  document.getElementById('meta-app-form-app-id').disabled = false;
+  document.getElementById('meta-app-form-app-id-hint').textContent = '';
+  document.getElementById('meta-app-form-secret').value = '';
+  document.getElementById('meta-app-form-status').textContent = '';
+  document.getElementById('meta-app-form').style.display = '';
+  document.getElementById('meta-app-form-name').focus();
+}
+
+function openMetaAppEditForm(id, name, appId, type) {
+  document.getElementById('meta-app-form-id').value = id;
+  document.getElementById('meta-app-form-type').value = type;
+  document.getElementById('meta-app-form-title').textContent = 'Edit App';
+  document.getElementById('meta-app-form-name').value = name;
+  document.getElementById('meta-app-form-app-id').value = appId;
+  document.getElementById('meta-app-form-app-id').disabled = true;
+  document.getElementById('meta-app-form-app-id-hint').textContent = 'App ID cannot be changed after creation';
+  document.getElementById('meta-app-form-secret').value = '';
+  document.getElementById('meta-app-form-status').textContent = '';
+  document.getElementById('meta-app-form').style.display = '';
+  document.getElementById('meta-app-form-name').focus();
+}
+
+function cancelMetaAppForm() {
+  document.getElementById('meta-app-form').style.display = 'none';
+  document.getElementById('meta-app-form-status').textContent = '';
+}
+
+async function saveMetaApp() {
+  const id = document.getElementById('meta-app-form-id').value;
+  const type = document.getElementById('meta-app-form-type').value;
+  const name = document.getElementById('meta-app-form-name').value.trim();
+  const appId = document.getElementById('meta-app-form-app-id').value.trim();
+  const secret = document.getElementById('meta-app-form-secret').value.trim();
+  const status = document.getElementById('meta-app-form-status');
+
+  if (!name) { status.textContent = '⚠ Label required'; status.style.color = 'var(--error)'; return; }
+  if (!id && !appId) { status.textContent = '⚠ App ID required'; status.style.color = 'var(--error)'; return; }
+  if (!id && !secret) { status.textContent = '⚠ App Secret required'; status.style.color = 'var(--error)'; return; }
+
+  status.textContent = 'Saving…'; status.style.color = 'var(--text-dim)';
+
+  try {
+    let r;
+    if (id) {
+      // Update (name + optional secret)
+      r = await fetch(`/api/meta-apps/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, app_secret: secret || undefined}),
+      });
+    } else {
+      // Create
+      r = await fetch('/api/meta-apps', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, app_type: type, app_id: appId, app_secret: secret}),
+      });
+    }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    status.textContent = '✓ Saved'; status.style.color = 'var(--success)';
+    setTimeout(cancelMetaAppForm, 800);
+    await loadMetaAppsList();
+    loadConnectionsApps();
+  } catch(e) {
+    status.textContent = '⚠ ' + e.message; status.style.color = 'var(--error)';
+  }
+}
+
+async function deleteMetaApp(id) {
+  if (!confirm('Delete this Meta app? Connected accounts using it will still work until their tokens expire.')) return;
+  try {
+    await fetch(`/api/meta-apps/${id}`, {method: 'DELETE'});
+    await loadMetaAppsList();
+    loadConnectionsApps();
+  } catch(e) { toast('Delete failed', 'error'); }
+}
+
+async function loadConnectionsApps() {
+  // Populate apps in the connections modal
+  try {
+    const apps = await fetch('/api/meta-apps').then(r => r.json());
+    const ads = apps.filter(a => a.app_type === 'ads');
+    const posting = apps.filter(a => a.app_type === 'posting');
+
+    const connAds = document.getElementById('conn-ads-apps');
+    const connPosting = document.getElementById('conn-posting-apps');
+    const postingModalApps = document.getElementById('posting-modal-apps-list');
+    const postingOAuthButtons = document.getElementById('posting-oauth-buttons');
+
+    if (connAds) {
+      connAds.innerHTML = ads.map(a => `
+        <a href="/auth/meta?app=${a.id}"
+          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${a.name}</div>
+            <div style="font-size:10px;color:var(--text-dim);font-family:monospace">${a.app_id}</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:var(--accent)">🔗 Connect</span>
+        </a>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
+    }
+
+    if (connPosting) {
+      connPosting.innerHTML = posting.map(a => `
+        <a href="/auth/meta/posting?app=${a.id}"
+          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${a.name}</div>
+            <div style="font-size:10px;color:var(--text-dim);font-family:monospace">${a.app_id}</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:var(--accent)">🔗 Connect</span>
+        </a>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
+    }
+
+    if (postingModalApps) {
+      postingModalApps.innerHTML = posting.map(a => `
+        <a href="/auth/meta/posting?app=${a.id}"
+          style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+          onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.name}</div>
+            <div style="font-size:11px;color:var(--text-dim);font-family:monospace">App ID: ${a.app_id}</div>
+          </div>
+          <span style="padding:5px 12px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;font-weight:600">🔗 Connect</span>
+        </a>`).join('') || '<div style="font-size:13px;color:var(--text-dim)">No posting apps configured. <button onclick="closeModal(\'posting-connect-modal\');openMetaAppsModal(\'posting\')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;font-weight:600">Manage Apps →</button></div>';
+    }
+
+    // Update OAuth link with first posting app if available
+    if (postingOAuthButtons && posting.length > 0) {
+      postingOAuthButtons.innerHTML = posting.map(a => `
+        <a href="/auth/meta/posting?app=${a.id}"
+          style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none;width:100%;box-sizing:border-box;justify-content:center"
+          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+          🔷 Login with Facebook via "${a.name}"
+        </a>`).join('');
+    }
+  } catch(e) { console.warn('loadConnectionsApps:', e); }
 }
 </script>
 </body>

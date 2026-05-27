@@ -29,6 +29,7 @@ from config import settings
 from database import (
     init_db, get_db,
     ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
+    MetaApp,
     Client, ClientAdAccount, ClientInstagramAccount,
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache
@@ -65,6 +66,30 @@ async def lifespan(app: FastAPI):
     async for db in get_db():
         await initialize_default_skills(db)
         await initialize_default_quick_commands(db)
+        # Auto-seed MetaApp rows from env vars (once, on first start)
+        if settings.META_APP_ID:
+            _res = await db.execute(
+                select(MetaApp).where(MetaApp.app_id == settings.META_APP_ID, MetaApp.app_type == "ads").limit(1)
+            )
+            if not _res.scalar_one_or_none():
+                db.add(MetaApp(
+                    name="Default Ads App", app_type="ads",
+                    app_id=settings.META_APP_ID,
+                    encrypted_app_secret=encryption.encrypt(settings.META_APP_SECRET or "placeholder"),
+                    sort_order=0,
+                ))
+        if settings.META_POSTING_APP_ID:
+            _res = await db.execute(
+                select(MetaApp).where(MetaApp.app_id == settings.META_POSTING_APP_ID, MetaApp.app_type == "posting").limit(1)
+            )
+            if not _res.scalar_one_or_none():
+                db.add(MetaApp(
+                    name="Default Posting App", app_type="posting",
+                    app_id=settings.META_POSTING_APP_ID,
+                    encrypted_app_secret=encryption.encrypt(settings.META_POSTING_APP_SECRET or "placeholder"),
+                    sort_order=0,
+                ))
+        await db.commit()
         break
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -577,12 +602,51 @@ META_SCOPES = ",".join([
 ])
 
 @app.get("/auth/meta")
-async def auth_meta(request: Request, response: Response):
+async def auth_meta(
+    request: Request,
+    response: Response,
+    app: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Initiate Meta OAuth for the Ads app.
+
+    ``?app={id}`` selects a specific MetaApp row from the database.
+    If omitted, falls back to the first active ads app in the DB,
+    then to the META_APP_ID environment variable.
+    """
+    app_id_val = ""
+    redirect_uri_val = settings.meta_redirect_uri
+
+    if app:
+        result = await db.execute(
+            select(MetaApp).where(MetaApp.id == app, MetaApp.app_type == "ads", MetaApp.is_active == True)
+        )
+        db_app = result.scalar_one_or_none()
+        if not db_app:
+            return RedirectResponse("/?error=ads_app_not_found")
+        app_id_val = db_app.app_id
+        response.set_cookie("oauth_meta_app_id", str(app), max_age=600, httponly=True, samesite="lax")
+    else:
+        # Fall back to first active DB app, then env var
+        result = await db.execute(
+            select(MetaApp).where(MetaApp.app_type == "ads", MetaApp.is_active == True)
+            .order_by(MetaApp.sort_order).limit(1)
+        )
+        db_app = result.scalar_one_or_none()
+        if db_app:
+            app_id_val = db_app.app_id
+            response.set_cookie("oauth_meta_app_id", str(db_app.id), max_age=600, httponly=True, samesite="lax")
+        else:
+            app_id_val = settings.META_APP_ID
+
+    if not app_id_val:
+        return RedirectResponse("/?error=meta_app_not_configured")
+
     state = generate_oauth_state()
     response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
-        "client_id": settings.META_APP_ID,
-        "redirect_uri": settings.META_REDIRECT_URI,
+        "client_id": app_id_val,
+        "redirect_uri": redirect_uri_val,
         "scope": META_SCOPES,
         "response_type": "code",
         "state": state,
@@ -605,9 +669,25 @@ async def auth_meta_callback(
     if not verify_oauth_state(state, expected_state):
         return RedirectResponse("/?error=invalid_state")
 
+    # Resolve app credentials: DB app (from cookie) → env var fallback
+    _app_id = settings.META_APP_ID
+    _app_secret = settings.META_APP_SECRET
+    _app_db_id_cookie = request.cookies.get("oauth_meta_app_id")
+    if _app_db_id_cookie:
+        try:
+            _res = await db.execute(
+                select(MetaApp).where(MetaApp.id == int(_app_db_id_cookie), MetaApp.is_active == True)
+            )
+            _db_app = _res.scalar_one_or_none()
+            if _db_app:
+                _app_id = _db_app.app_id
+                _app_secret = encryption.decrypt(_db_app.encrypted_app_secret)
+        except Exception:
+            pass
+
     # Exchange code → short-lived token
     short = await meta_api.exchange_code_for_token(
-        code, settings.META_APP_ID, settings.META_APP_SECRET, settings.META_REDIRECT_URI
+        code, _app_id, _app_secret, settings.meta_redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
@@ -616,7 +696,7 @@ async def auth_meta_callback(
 
     # Exchange → long-lived token
     long = await meta_api.exchange_for_long_lived_token(
-        short_token, settings.META_APP_ID, settings.META_APP_SECRET
+        short_token, _app_id, _app_secret
     )
     if not long.get("success"):
         return RedirectResponse("/?error=long_token_failed")
@@ -670,6 +750,7 @@ async def auth_meta_callback(
         max_age=28800, httponly=True, samesite="lax"
     )
     redirect.delete_cookie("oauth_state")
+    redirect.delete_cookie("oauth_meta_app_id")
     return redirect
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
@@ -776,6 +857,16 @@ async def logout(response: Response):
 class DirectTokenRequest(BaseModel):
     access_token: str
 
+class MetaAppCreateRequest(BaseModel):
+    name: str
+    app_type: str        # "ads" or "posting"
+    app_id: str
+    app_secret: str
+
+class MetaAppUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    app_secret: Optional[str] = None   # App ID is immutable after creation
+
 # ── Posting Account API routes ─────────────────────────────────────────────────
 
 @app.get("/api/accounts/posting")
@@ -880,6 +971,104 @@ async def api_posting_direct_token(
     return {"success": True, "user_id": user_id, "user_name": user_name}
 
 
+# ── Meta Developer Apps CRUD ───────────────────────────────────────────────────
+
+@app.get("/api/meta-apps")
+async def api_list_meta_apps(
+    request: Request,
+    app_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """List Meta developer apps. Secrets are never returned."""
+    q = (
+        select(MetaApp)
+        .where(MetaApp.is_active == True)
+        .order_by(MetaApp.app_type, MetaApp.sort_order, MetaApp.created_at)
+    )
+    if app_type:
+        q = q.where(MetaApp.app_type == app_type)
+    result = await db.execute(q)
+    apps = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "name": a.name,
+            "app_type": a.app_type,
+            "app_id": a.app_id,
+            "has_secret": bool(a.encrypted_app_secret),
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in apps
+    ]
+
+
+@app.post("/api/meta-apps")
+async def api_create_meta_app(
+    req: MetaAppCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new Meta developer app credential entry."""
+    if req.app_type not in ("ads", "posting"):
+        raise HTTPException(400, "app_type must be 'ads' or 'posting'")
+    if not req.app_id.strip():
+        raise HTTPException(400, "app_id is required")
+    if not req.app_secret.strip():
+        raise HTTPException(400, "app_secret is required")
+    result = await db.execute(
+        select(MetaApp).where(MetaApp.app_type == req.app_type, MetaApp.is_active == True)
+    )
+    sort_order = len(result.scalars().all())
+    app_obj = MetaApp(
+        name=req.name.strip() or f"{req.app_type.title()} App",
+        app_type=req.app_type,
+        app_id=req.app_id.strip(),
+        encrypted_app_secret=encryption.encrypt(req.app_secret.strip()),
+        sort_order=sort_order,
+        is_active=True,
+    )
+    db.add(app_obj)
+    await db.commit()
+    await db.refresh(app_obj)
+    return {"success": True, "id": app_obj.id}
+
+
+@app.put("/api/meta-apps/{meta_app_id}")
+async def api_update_meta_app(
+    meta_app_id: int,
+    req: MetaAppUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a Meta developer app — only name and/or secret can be changed."""
+    result = await db.execute(select(MetaApp).where(MetaApp.id == meta_app_id))
+    app_obj = result.scalar_one_or_none()
+    if not app_obj:
+        raise HTTPException(404, "App not found")
+    if req.name is not None and req.name.strip():
+        app_obj.name = req.name.strip()
+    if req.app_secret and req.app_secret.strip():
+        app_obj.encrypted_app_secret = encryption.encrypt(req.app_secret.strip())
+    await db.commit()
+    return {"success": True}
+
+
+@app.delete("/api/meta-apps/{meta_app_id}")
+async def api_delete_meta_app(
+    meta_app_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a Meta developer app."""
+    result = await db.execute(select(MetaApp).where(MetaApp.id == meta_app_id))
+    app_obj = result.scalar_one_or_none()
+    if not app_obj:
+        raise HTTPException(404, "App not found")
+    app_obj.is_active = False
+    await db.commit()
+    return {"success": True}
+
+
 # ── Posting (Posts Manager) OAuth ─────────────────────────────────────────────
 
 META_POSTING_SCOPES = ",".join([
@@ -890,13 +1079,43 @@ META_POSTING_SCOPES = ",".join([
 ])
 
 @app.get("/auth/meta/posting")
-async def auth_meta_posting(request: Request, response: Response):
-    if not settings.META_POSTING_APP_ID:
+async def auth_meta_posting(
+    request: Request,
+    response: Response,
+    app: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Initiate Meta OAuth for the Posting app."""
+    app_id_val = ""
+
+    if app:
+        result = await db.execute(
+            select(MetaApp).where(MetaApp.id == app, MetaApp.app_type == "posting", MetaApp.is_active == True)
+        )
+        db_app = result.scalar_one_or_none()
+        if not db_app:
+            return RedirectResponse("/?error=posting_app_not_found")
+        app_id_val = db_app.app_id
+        response.set_cookie("oauth_posting_app_id", str(app), max_age=600, httponly=True, samesite="lax")
+    else:
+        result = await db.execute(
+            select(MetaApp).where(MetaApp.app_type == "posting", MetaApp.is_active == True)
+            .order_by(MetaApp.sort_order).limit(1)
+        )
+        db_app = result.scalar_one_or_none()
+        if db_app:
+            app_id_val = db_app.app_id
+            response.set_cookie("oauth_posting_app_id", str(db_app.id), max_age=600, httponly=True, samesite="lax")
+        else:
+            app_id_val = settings.META_POSTING_APP_ID
+
+    if not app_id_val:
         return RedirectResponse("/?error=posting_app_not_configured")
+
     state = generate_oauth_state()
     response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
-        "client_id": settings.META_POSTING_APP_ID,
+        "client_id": app_id_val,
         "redirect_uri": settings.meta_posting_redirect_uri,
         "scope": META_POSTING_SCOPES,
         "response_type": "code",
@@ -921,9 +1140,23 @@ async def auth_meta_posting_callback(
     if not verify_oauth_state(state, expected_state):
         return RedirectResponse("/?error=invalid_state")
 
+    _papp_id = settings.META_POSTING_APP_ID
+    _papp_secret = settings.META_POSTING_APP_SECRET
+    _papp_db_id_cookie = request.cookies.get("oauth_posting_app_id")
+    if _papp_db_id_cookie:
+        try:
+            _pres = await db.execute(
+                select(MetaApp).where(MetaApp.id == int(_papp_db_id_cookie), MetaApp.is_active == True)
+            )
+            _pdb_app = _pres.scalar_one_or_none()
+            if _pdb_app:
+                _papp_id = _pdb_app.app_id
+                _papp_secret = encryption.decrypt(_pdb_app.encrypted_app_secret)
+        except Exception:
+            pass
+
     short = await meta_api.exchange_code_for_token(
-        code, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET,
-        settings.meta_posting_redirect_uri
+        code, _papp_id, _papp_secret, settings.meta_posting_redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
@@ -931,7 +1164,7 @@ async def auth_meta_posting_callback(
     short_token = short["data"].get("access_token", "")
 
     long = await meta_api.exchange_for_long_lived_token(
-        short_token, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET
+        short_token, _papp_id, _papp_secret
     )
     if not long.get("success"):
         return RedirectResponse("/?error=posting_long_token_failed")
@@ -985,6 +1218,7 @@ async def auth_meta_posting_callback(
         max_age=28800, httponly=True, samesite="lax"
     )
     redirect.delete_cookie("oauth_state_posting")
+    redirect.delete_cookie("oauth_posting_app_id")
     return redirect
 
 # ── Account API routes ─────────────────────────────────────────────────────────
