@@ -771,6 +771,11 @@ async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     return {"success": True}
 
+# ── Shared request models ──────────────────────────────────────────────────────
+
+class DirectTokenRequest(BaseModel):
+    access_token: str
+
 # ── Posting Account API routes ─────────────────────────────────────────────────
 
 @app.get("/api/accounts/posting")
@@ -1016,9 +1021,6 @@ async def api_disconnect_meta(account_id: int, request: Request, db: AsyncSessio
     await db.commit()
     return {"success": True}
 
-
-class DirectTokenRequest(BaseModel):
-    access_token: str
 
 @app.post("/api/accounts/meta/token")
 async def api_meta_direct_token(
