@@ -207,6 +207,162 @@ a{color:inherit;text-decoration:none}
 </head>
 <body>
 
+<!-- Admin Dashboard (full-screen, shown to admin users on login) -->
+<div id="admin-dashboard" style="display:none;position:fixed;inset:0;z-index:200;background:var(--bg-primary);flex-direction:column;overflow:hidden">
+
+  <!-- Top bar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:var(--bg-secondary);border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:20px;font-weight:900;color:var(--accent);font-family:var(--font-heading);letter-spacing:-0.5px">Uplinx</span>
+      <span style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;padding:3px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:5px">Admin</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button onclick="openMetaAppsModal()" style="padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">🛠 Meta Apps</button>
+      <button onclick="launchToolFromDashboard()" style="padding:8px 20px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+        🚀 Launch Tool
+      </button>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <span id="dashboard-username-label" style="font-size:12px;color:var(--text-dim)">admin</span>
+      <button onclick="doLogout()" style="padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer">Sign out</button>
+    </div>
+  </div>
+
+  <!-- Body — scrollable -->
+  <div style="flex:1;overflow-y:auto;padding:28px 28px 40px">
+
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px">
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Total Users</div>
+        <div id="stat-total-users" style="font-size:28px;font-weight:800;color:var(--text-primary)">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Active Users</div>
+        <div id="stat-active-users" style="font-size:28px;font-weight:800;color:#22c55e">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Ads Apps</div>
+        <div id="stat-ads-apps" style="font-size:28px;font-weight:800;color:#3b82f6">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Posting Apps</div>
+        <div id="stat-post-apps" style="font-size:28px;font-weight:800;color:#8b5cf6">—</div>
+      </div>
+    </div>
+
+    <!-- Users section -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary)">Team Members</div>
+      <button onclick="document.getElementById('dashboard-add-user-section').style.display='block';document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});openUserForm()"
+        style="padding:8px 18px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">+ Add User</button>
+    </div>
+    <div id="dashboard-users-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
+      <div style="font-size:13px;color:var(--text-dim);padding:20px 0">Loading…</div>
+    </div>
+
+    <!-- Add / Edit user inline form -->
+    <div id="dashboard-add-user-section" style="display:none;margin-bottom:28px;background:var(--bg-secondary);border:2px solid var(--accent);border-radius:12px;padding:22px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px" id="user-form-title-d">Add User</div>
+      <input type="hidden" id="user-form-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Username</label>
+          <input type="text" id="user-form-username" class="form-input" placeholder="jsmith" style="font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Email (optional)</label>
+          <input type="email" id="user-form-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Role</label>
+          <select id="user-form-role" class="form-input" style="font-size:13px">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Interface Access</label>
+          <select id="user-form-access" class="form-input" style="font-size:13px">
+            <option value="both">Ads + Posts</option>
+            <option value="ads">Ads only</option>
+            <option value="posting">Posts only</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
+          <input type="password" id="user-form-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
+          <div id="user-form-pw-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="saveDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save</button>
+        <button onclick="document.getElementById('dashboard-add-user-section').style.display='none'" style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Cancel</button>
+        <span id="user-form-status" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+    <!-- Page Assignments section -->
+    <div id="dashboard-pages-section" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:28px">
+      <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:16px">Page Assignments</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">Select User</label>
+          <select id="page-assign-user-select" class="form-input" style="font-size:13px" onchange="loadUserPageAssignments()"></select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">Platform</label>
+          <select id="page-assign-platform" class="form-input" style="font-size:13px" onchange="loadAppPages()">
+            <option value="facebook">Facebook Page</option>
+            <option value="instagram">Instagram Account</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Currently Assigned</div>
+        <div id="user-pages-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+      <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Assign Page / Account</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Meta App</label>
+          <select id="page-assign-app-select" class="form-input" style="font-size:13px" onchange="loadAppPages()"></select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Page / Account</label>
+          <select id="page-assign-page-select" class="form-input" style="font-size:13px"></select>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="assignPageToUser()" style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Assign</button>
+        <button onclick="document.getElementById('dashboard-pages-section').style.display='none'" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Close</button>
+        <span id="page-assign-status" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+    <!-- Launch tool section -->
+    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:8px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Launch Tool</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Enter the advertising or posting tool to manage campaigns and content.</div>
+      <div style="display:flex;gap:10px">
+        <button onclick="launchSpecificInterface('ads')"
+          style="flex:1;padding:14px;border-radius:10px;border:2px solid #3b82f6;background:rgba(59,130,246,.07);color:#3b82f6;font-size:14px;font-weight:700;cursor:pointer;transition:all .15s"
+          onmouseover="this.style.background='rgba(59,130,246,.15)'" onmouseout="this.style.background='rgba(59,130,246,.07)'">
+          📊 Ad Manager
+        </button>
+        <button onclick="launchSpecificInterface('posts')"
+          style="flex:1;padding:14px;border-radius:10px;border:2px solid #8b5cf6;background:rgba(139,92,246,.07);color:#8b5cf6;font-size:14px;font-weight:700;cursor:pointer;transition:all .15s"
+          onmouseover="this.style.background='rgba(139,92,246,.15)'" onmouseout="this.style.background='rgba(139,92,246,.07)'">
+          📝 Post Manager
+        </button>
+      </div>
+    </div>
+
+  </div><!-- end scrollable body -->
+</div><!-- end #admin-dashboard -->
+
 <!-- Login screen (shown when no user session exists) -->
 <div id="login-screen" style="display:none;position:fixed;inset:0;z-index:1000;background:var(--bg-primary);align-items:center;justify-content:center;flex-direction:column;overflow-y:auto">
   <div style="width:390px;max-width:94vw;padding:24px 0">
@@ -433,7 +589,7 @@ a{color:inherit;text-decoration:none}
         <div class="sidebar-nav-item" onclick="openModal('connections-modal')">🔗 Connections</div>
         <div class="sidebar-nav-item" onclick="openModal('skills-modal')">📋 Skills</div>
         <div class="sidebar-nav-item" onclick="openModal('settings-modal')">⚙️ Settings</div>
-        <div class="sidebar-nav-item" id="admin-panel-btn" onclick="openAdminPanel()" style="display:none;color:var(--accent)">👑 Admin Panel</div>
+        <div class="sidebar-nav-item" id="admin-panel-btn" onclick="backToAdminDashboard()" style="display:none;color:var(--accent)">👑 Admin Dashboard</div>
         <div class="sidebar-nav-item" id="sidebar-update-btn" onclick="sidebarCheckUpdate()" style="color:var(--text-dim)">⬇ Check for Updates</div>
       </div>
       <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;margin-top:4px">
@@ -1385,12 +1541,18 @@ async function checkAuthAndInit() {
 
 function initApp(user) {
   applyUserAccess(user);
-  loadInitialData();
-  if (user.interface_access === 'ads') {
+  if (user.role === 'admin') {
+    // Admins land on the full admin dashboard
+    loadInitialData(); // load in background for when they enter the tool
+    showAdminDashboard();
+  } else if (user.interface_access === 'ads') {
+    loadInitialData();
     enterInterface('ads');
   } else if (user.interface_access === 'posting') {
+    loadInitialData();
     enterInterface('posts');
   } else {
+    loadInitialData();
     showInterfaceSelector();
   }
 }
@@ -1403,10 +1565,35 @@ function applyUserAccess(user) {
   if (manageAppsBtn) manageAppsBtn.style.display = isAdmin ? '' : 'none';
   const usernameEl = document.getElementById('sidebar-username');
   if (usernameEl) usernameEl.textContent = user.username;
+  const dashUserLabel = document.getElementById('dashboard-username-label');
+  if (dashUserLabel) dashUserLabel.textContent = user.username;
   const adsCard = document.getElementById('selector-ads-card');
   const postCard = document.getElementById('selector-post-card');
   if (adsCard) adsCard.style.display = (user.interface_access === 'posting') ? 'none' : '';
   if (postCard) postCard.style.display = (user.interface_access === 'ads') ? 'none' : '';
+}
+
+function launchToolFromDashboard() {
+  hideAdminDashboard();
+  showInterfaceSelector();
+}
+
+function launchSpecificInterface(iface) {
+  hideAdminDashboard();
+  enterInterface(iface);
+}
+
+// Back to admin dashboard button (added inside the sidebar)
+function backToAdminDashboard() {
+  // hide the current tool view, show dashboard
+  const sel = document.getElementById('interface-selector');
+  if (sel) sel.style.display = 'none';
+  showAdminDashboard();
+}
+
+async function saveDashboardUser() {
+  await saveUser();
+  setTimeout(() => { loadDashboardUsers(); loadDashboardStats(); }, 400);
 }
 
 async function loadInitialData() {
@@ -3190,6 +3377,129 @@ async function removePageAssignment(userId, assignmentId) {
     loadUserPageAssignments();
   } catch(e) { toast('Failed to remove assignment', 'error'); }
 }
+
+// ── Admin Dashboard ─────────────────────────────────────────────────────────
+
+function showAdminDashboard() {
+  document.getElementById('admin-dashboard').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  loadAdminDashboard();
+}
+
+function hideAdminDashboard() {
+  document.getElementById('admin-dashboard').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+async function loadAdminDashboard() {
+  await Promise.all([loadDashboardStats(), loadDashboardUsers()]);
+}
+
+async function loadDashboardStats() {
+  try {
+    const [usersRes, appsRes] = await Promise.all([
+      fetch('/api/users').then(r => r.json()),
+      fetch('/api/meta-apps').then(r => r.json()),
+    ]);
+    const activeUsers = usersRes.filter(u => u.is_active).length;
+    const totalUsers = usersRes.length;
+    const totalApps = appsRes.length;
+    const adsApps = appsRes.filter(a => a.app_type === 'ads').length;
+    const postApps = appsRes.filter(a => a.app_type === 'posting').length;
+    document.getElementById('stat-total-users').textContent = totalUsers;
+    document.getElementById('stat-active-users').textContent = activeUsers;
+    document.getElementById('stat-ads-apps').textContent = adsApps;
+    document.getElementById('stat-post-apps').textContent = postApps;
+  } catch(e) { console.warn('loadDashboardStats:', e); }
+}
+
+async function loadDashboardUsers() {
+  const el = document.getElementById('dashboard-users-list');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:20px 0 0 0">Loading…</div>';
+  try {
+    const users = await fetch('/api/users').then(r => r.json());
+    if (!users.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:20px 0">No users yet.</div>'; return; }
+    el.innerHTML = users.map(u => {
+      const accessColor = u.interface_access === 'ads' ? '#3b82f6' : u.interface_access === 'posting' ? '#8b5cf6' : '#10b981';
+      const statusColor = u.is_active ? '#22c55e' : '#6b7280';
+      const appTags = (u.assigned_apps || []).map(a =>
+        `<span style="font-size:10px;padding:1px 7px;border-radius:4px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary)">${escHtml(a)}</span>`
+      ).join(' ');
+      return `
+      <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:14px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
+            <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;display:inline-block"></span>
+            <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${escHtml(u.username)}</span>
+            ${u.role === 'admin' ? '<span style="font-size:10px;font-weight:700;background:var(--accent);color:#fff;padding:2px 7px;border-radius:4px">ADMIN</span>' : ''}
+            <span style="font-size:11px;font-weight:600;color:#fff;background:${accessColor};padding:2px 8px;border-radius:5px">${u.interface_access === 'both' ? 'Ads + Posts' : u.interface_access === 'ads' ? 'Ads only' : 'Posts only'}</span>
+            <span style="font-size:11px;color:var(--text-dim)">${u.is_active ? 'Active' : 'Deactivated'}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${appTags || '<span style="font-size:11px;color:var(--text-dim)">No apps assigned</span>'}
+            ${u.page_count > 0 ? `<span style="font-size:11px;color:var(--text-dim)">· ${u.page_count} page${u.page_count !== 1 ? 's' : ''}</span>` : ''}
+            ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">· ${escHtml(u.email)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button onclick="dashboardEditUser(${u.id},'${escHtml(u.username)}','${escHtml(u.email||'')}','${u.role}','${u.interface_access}')"
+            style="padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">Edit</button>
+          <button onclick="dashboardManagePages(${u.id},'${escHtml(u.username)}')"
+            style="padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">Pages</button>
+          <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escHtml(u.username)}')"
+            style="padding:6px 14px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<div style="color:var(--error);font-size:13px">Failed to load users.</div>'; }
+}
+
+function dashboardEditUser(id, username, email, role, access) {
+  openUserForm();
+  document.getElementById('user-form-id').value = id;
+  document.getElementById('user-form-title').textContent = 'Edit User';
+  document.getElementById('user-form-username').value = username;
+  document.getElementById('user-form-username').disabled = true;
+  document.getElementById('user-form-email').value = email;
+  document.getElementById('user-form-role').value = role;
+  document.getElementById('user-form-access').value = access;
+  document.getElementById('user-form-password').value = '';
+  document.getElementById('user-form-pw-hint').textContent = 'Leave blank to keep current password';
+  document.getElementById('user-form').style.display = 'block';
+  document.getElementById('dashboard-add-user-section').style.display = 'block';
+  document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function dashboardManagePages(userId, username) {
+  document.getElementById('dashboard-pages-section').style.display = 'block';
+  // Populate user list and pre-select this user
+  await loadAdminPageAssignUsers();
+  const sel = document.getElementById('page-assign-user-select');
+  if (sel) { sel.value = userId; }
+  await loadUserPageAssignments();
+  // Populate apps list
+  await loadAdminMetaAppsForAssign();
+  document.getElementById('dashboard-pages-section').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function dashboardToggleActive(id, active, username) {
+  if (!confirm(`${active ? 'Activate' : 'Deactivate'} user "${username}"?`)) return;
+  try {
+    await fetch(`/api/users/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({is_active: active})});
+    loadAdminDashboard();
+    toast(`User "${username}" ${active ? 'activated' : 'deactivated'}`, active ? 'success' : 'info');
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function dashboardSaveUser() {
+  await saveUser();
+  setTimeout(loadDashboardUsers, 400);
+}
+
+// Override saveUser to also refresh dashboard
+const _origSaveUser = typeof saveUser !== 'undefined' ? saveUser : null;
+
 </script>
 </body>
 </html>
