@@ -2896,19 +2896,38 @@ async function loadAdminUsers() {
     const el = document.getElementById('users-list');
     if (!el) return;
     if (!users.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No users yet.</div>'; return; }
-    el.innerHTML = users.map(u => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;opacity:${u.is_active ? 1 : 0.5}">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(u.username)} ${u.role === 'admin' ? '<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 5px;border-radius:4px">admin</span>' : ''}</div>
-          <div style="font-size:11px;color:var(--text-dim)">${u.interface_access} access${u.email ? ' · ' + escHtml(u.email) : ''}</div>
+    el.innerHTML = users.map(u => {
+      const accessBadgeColor = u.interface_access === 'ads' ? '#3b82f6' : u.interface_access === 'posting' ? '#8b5cf6' : '#10b981';
+      const statusDot = u.is_active
+        ? '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;margin-right:5px"></span>'
+        : '<span style="width:7px;height:7px;border-radius:50%;background:#6b7280;display:inline-block;margin-right:5px"></span>';
+      const appTags = (u.assigned_apps||[]).map(a =>
+        `<span style="font-size:10px;background:var(--bg-secondary);border:1px solid var(--border);padding:1px 6px;border-radius:4px;color:var(--text-secondary)">${escHtml(a)}</span>`
+      ).join(' ');
+      const pagesLabel = u.page_count > 0 ? `${u.page_count} page${u.page_count!==1?'s':''} assigned` : 'No pages assigned';
+      return `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;opacity:${u.is_active ? 1 : 0.55}">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">
+            ${statusDot}
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(u.username)}</span>
+            ${u.role === 'admin' ? '<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">admin</span>' : ''}
+            <span style="font-size:10px;padding:1px 7px;border-radius:4px;font-weight:600;color:#fff;background:${accessBadgeColor}">${u.interface_access}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${appTags || '<span style="font-size:11px;color:var(--text-dim)">No apps assigned</span>'}
+            <span style="font-size:11px;color:var(--text-dim)">· ${pagesLabel}</span>
+            ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">· ${escHtml(u.email)}</span>` : ''}
+          </div>
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-shrink:0;margin-left:10px">
           <button onclick="openUserEditForm(${u.id},'${escHtml(u.username)}','${escHtml(u.email||'')}','${u.role}','${u.interface_access}')"
             style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">Edit</button>
           <button onclick="toggleUserActive(${u.id},${!u.is_active})"
-            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+            style="padding:4px 10px;border-radius:6px;border:1px solid ${u.is_active?'var(--error,#ef4444)':'var(--success,#22c55e)'};background:transparent;color:${u.is_active?'var(--error,#ef4444)':'var(--success,#22c55e)'};font-size:11px;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch(e) { console.warn('loadAdminUsers:', e); }
 }
 
