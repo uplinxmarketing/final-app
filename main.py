@@ -1743,27 +1743,58 @@ async def api_publish_facebook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """Publish or schedule a Facebook Page post via the Posting app token."""
     token = await get_posting_token(request, db)
-    # Get page token from user token
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            f"{settings.meta_graph_base_url}/{req.page_id}",
-            params={"fields": "access_token", "access_token": token}
-        )
-    if r.status_code != 200:
-        raise HTTPException(502, "Could not get page token")
-    page_token = r.json().get("access_token", token)
 
-    result = await meta_api.schedule_facebook_post(
-        page_id=req.page_id,
-        access_token=page_token,
-        message=req.caption,
-        image_url=req.media_url or None,
-        scheduled_publish_time=req.scheduled_time,
-    )
-    if not result.get("success"):
-        raise HTTPException(502, result.get("error", "Failed to publish"))
-    return {"success": True, "post_id": result.get("data", {}).get("id")}
+    # Exchange user token for page-specific access token
+    async with httpx.AsyncClient(timeout=15) as client:
+        page_r = await client.get(
+            f"{settings.meta_graph_base_url}/{req.page_id}",
+            params={"fields": "access_token", "access_token": token},
+        )
+    if page_r.status_code != 200:
+        raise HTTPException(502, "Could not retrieve page token — check page permissions")
+    page_token = page_r.json().get("access_token", token)
+
+    # Convert ISO datetime string → Unix timestamp for scheduled posts
+    scheduled_ts: Optional[int] = None
+    if req.scheduled_time:
+        try:
+            from datetime import timezone as _tz
+            dt = datetime.fromisoformat(req.scheduled_time.replace("Z", "+00:00"))
+            scheduled_ts = int(dt.timestamp())
+        except Exception:
+            raise HTTPException(400, "Invalid scheduled_time — use ISO 8601 format")
+
+    base = settings.meta_graph_base_url
+    async with httpx.AsyncClient(timeout=20) as client:
+        if req.media_url:
+            # Photo post
+            payload: dict = {
+                "url": req.media_url,
+                "caption": req.caption,
+                "access_token": page_token,
+            }
+            if scheduled_ts:
+                payload["published"] = "false"
+                payload["scheduled_publish_time"] = str(scheduled_ts)
+            r = await client.post(f"{base}/{req.page_id}/photos", data=payload)
+        else:
+            # Text / link post
+            payload = {
+                "message": req.caption,
+                "access_token": page_token,
+            }
+            if scheduled_ts:
+                payload["published"] = "false"
+                payload["scheduled_publish_time"] = str(scheduled_ts)
+            r = await client.post(f"{base}/{req.page_id}/feed", data=payload)
+
+    if r.status_code not in (200, 201):
+        err = r.json().get("error", {}).get("message", "Failed to publish to Facebook")
+        raise HTTPException(502, err)
+    data = r.json()
+    return {"success": True, "post_id": data.get("id") or data.get("post_id")}
 
 
 @app.post("/api/posting/publish/instagram")
@@ -1772,30 +1803,46 @@ async def api_publish_instagram(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """Publish a post/reel/story to an Instagram Business account."""
     token = await get_posting_token(request, db)
+    base = settings.meta_graph_base_url
+
+    # Build container creation payload
+    container_data: dict = {"access_token": token}
+    if req.caption:
+        container_data["caption"] = req.caption
+
     if req.media_type == "REELS":
-        result = await meta_api.schedule_instagram_reel(
-            instagram_id=req.instagram_id,
-            access_token=token,
-            video_url=req.media_url,
-            caption=req.caption,
-        )
+        container_data["media_type"] = "REELS"
+        container_data["video_url"] = req.media_url
     elif req.media_type == "STORIES":
-        result = await meta_api.schedule_instagram_story(
-            instagram_id=req.instagram_id,
-            access_token=token,
-            image_url=req.media_url,
-        )
+        container_data["media_type"] = "STORIES"
+        container_data["image_url"] = req.media_url
     else:
-        result = await meta_api.schedule_instagram_post(
-            instagram_id=req.instagram_id,
-            access_token=token,
-            image_url=req.media_url,
-            caption=req.caption,
+        # Standard image post
+        if req.media_url:
+            container_data["image_url"] = req.media_url
+
+    # Step 1 — create media container
+    async with httpx.AsyncClient(timeout=30) as client:
+        cr = await client.post(f"{base}/{req.instagram_id}/media", data=container_data)
+    if cr.status_code not in (200, 201):
+        err = cr.json().get("error", {}).get("message", "Failed to create Instagram media container")
+        raise HTTPException(502, err)
+    creation_id = cr.json().get("id")
+    if not creation_id:
+        raise HTTPException(502, "No creation_id returned from Instagram container step")
+
+    # Step 2 — publish the container
+    async with httpx.AsyncClient(timeout=30) as client:
+        pr = await client.post(
+            f"{base}/{req.instagram_id}/media_publish",
+            data={"creation_id": creation_id, "access_token": token},
         )
-    if not result.get("success"):
-        raise HTTPException(502, result.get("error", "Failed to publish"))
-    return {"success": True}
+    if pr.status_code not in (200, 201):
+        err = pr.json().get("error", {}).get("message", "Failed to publish Instagram media")
+        raise HTTPException(502, err)
+    return {"success": True, "media_id": pr.json().get("id")}
 
 
 @app.get("/api/posting/scheduled")
@@ -1808,10 +1855,11 @@ async def api_posting_scheduled(request: Request, db: AsyncSession = Depends(get
     return [
         {
             "id": p.id,
-            "platform": p.platform if hasattr(p, 'platform') else 'facebook',
-            "page_name": getattr(p, 'page_name', '') or getattr(p, 'page_id', ''),
-            "content": p.caption if hasattr(p, 'caption') else '',
-            "scheduled_time": p.scheduled_time.isoformat() if hasattr(p, 'scheduled_time') and p.scheduled_time else None,
+            "platform": p.platform,
+            "page_id": p.page_id or p.instagram_id or "",
+            "content": p.caption or "",
+            "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
+            "status": p.status,
             "created_at": p.created_at.isoformat() if p.created_at else None,
         }
         for p in posts

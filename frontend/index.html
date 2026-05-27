@@ -29,7 +29,7 @@ a{color:inherit;text-decoration:none}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
 /* ── Layout ── */
-#app{display:flex;height:100vh;overflow:hidden}
+#app{display:flex;height:100vh;overflow:hidden;position:relative}
 #connect-screen{display:none;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:24px;background:var(--bg-primary)}
 #connect-screen.visible{display:flex}
 #app.hidden{display:none}
@@ -258,6 +258,35 @@ a{color:inherit;text-decoration:none}
 <!-- Main app (hidden until authenticated) -->
 <div id="app" class="hidden">
 
+  <!-- Interface Selector overlay — shown on load so user picks Ads or Posts -->
+  <div id="interface-selector" style="display:none;position:absolute;inset:0;z-index:50;background:var(--bg-primary);align-items:center;justify-content:center;flex-direction:column">
+    <div style="text-align:center;margin-bottom:36px">
+      <div style="width:52px;height:52px;background:var(--accent);border-radius:12px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:14px;box-shadow:0 6px 20px rgba(220,38,38,0.25)">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="white"/></svg>
+      </div>
+      <h1 style="margin:0 0 6px;font-size:21px;font-weight:800;color:var(--text-primary);letter-spacing:-0.3px">UPLINX Meta Manager</h1>
+      <p style="margin:0;font-size:13px;color:var(--text-dim)">Choose your workspace to continue</p>
+    </div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;padding:0 20px">
+      <div onclick="enterInterface('ads')"
+        style="width:230px;padding:28px 22px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:16px;cursor:pointer;transition:all 0.18s;text-align:center;user-select:none"
+        onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--accent-soft)';this.style.transform='translateY(-3px)'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-secondary)';this.style.transform=''">
+        <div style="font-size:38px;margin-bottom:12px">📊</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Ad Uploads</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">Campaign management, ad creation, creatives, analytics &amp; AI assistant</div>
+      </div>
+      <div onclick="enterInterface('posts')"
+        style="width:230px;padding:28px 22px;background:var(--bg-secondary);border:2px solid var(--border);border-radius:16px;cursor:pointer;transition:all 0.18s;text-align:center;user-select:none"
+        onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--accent-soft)';this.style.transform='translateY(-3px)'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-secondary)';this.style.transform=''">
+        <div style="font-size:38px;margin-bottom:12px">📝</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Post Upload</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">Facebook Page &amp; Instagram posts, reels, and stories via your posting app</div>
+      </div>
+    </div>
+  </div>
+
   <!-- LEFT SIDEBAR -->
   <nav id="sidebar">
     <div class="sidebar-header">
@@ -268,15 +297,14 @@ a{color:inherit;text-decoration:none}
         <div class="sidebar-logo">UPLINX<span>Meta Manager</span></div>
       </div>
     </div>
-    <!-- Interface switcher -->
-    <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
-      <button id="tab-ads" onclick="switchInterface('ads')"
-        style="flex:1;padding:8px 4px;background:var(--accent);color:#fff;border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px">
-        📊 Ads Manager
-      </button>
-      <button id="tab-posts" onclick="switchInterface('posts')"
-        style="flex:1;padding:8px 4px;background:var(--bg-secondary);color:var(--text-dim);border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px">
-        📝 Posts Manager
+    <!-- Active interface indicator + switch button -->
+    <div style="padding:7px 12px;border-bottom:1px solid var(--border)">
+      <button onclick="showInterfaceSelector()"
+        style="width:100%;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:700;color:var(--text-secondary);cursor:pointer;text-align:left;transition:var(--transition);display:flex;align-items:center;justify-content:space-between"
+        onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+        <span id="interface-mode-label">📊 Ad Uploads</span>
+        <span style="opacity:0.55;font-size:10px">⇄ Switch</span>
       </button>
     </div>
 
@@ -959,6 +987,8 @@ function showApp() {
   _dashboardUnlocked = true;
   document.getElementById('connect-screen').classList.remove('visible');
   document.getElementById('app').classList.remove('hidden');
+  // Show interface selector so user picks Ads or Posts
+  showInterfaceSelector();
 }
 
 async function connectWithToken() {
@@ -2008,24 +2038,29 @@ init();
 
 // ── Posts Manager ──────────────────────────────────────────────────────────
 
-let _activeInterface = 'ads';
+let _activeInterface = null; // null = selector shown; 'ads' | 'posts'
 let _postPlatform = 'facebook';
 let _postType = 'IMAGE';
 let _postingConnected = false;
 let _postingPages = [];
 let _postingIgAccounts = [];
 
-function switchInterface(iface) {
+function showInterfaceSelector() {
+  const sel = document.getElementById('interface-selector');
+  if (sel) { sel.style.display = 'flex'; }
+}
+
+function enterInterface(iface) {
   _activeInterface = iface;
   const isAds = iface === 'ads';
 
-  // Tab buttons
-  const tabAds = document.getElementById('tab-ads');
-  const tabPosts = document.getElementById('tab-posts');
-  const activeStyle = 'flex:1;padding:8px 4px;background:var(--accent);color:#fff;border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.3px';
-  const inactiveStyle = 'flex:1;padding:8px 4px;background:var(--bg-secondary);color:var(--text-dim);border:none;border-radius:0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.3px';
-  if (tabAds) tabAds.style.cssText = isAds ? activeStyle : inactiveStyle;
-  if (tabPosts) tabPosts.style.cssText = isAds ? inactiveStyle : activeStyle;
+  // Hide selector
+  const sel = document.getElementById('interface-selector');
+  if (sel) sel.style.display = 'none';
+
+  // Update mode label in sidebar
+  const label = document.getElementById('interface-mode-label');
+  if (label) label.textContent = isAds ? '📊 Ad Uploads' : '📝 Post Upload';
 
   // Sidebar panels
   const adsSide = document.getElementById('ads-sidebar-content');
@@ -2039,12 +2074,15 @@ function switchInterface(iface) {
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
   if (postsMain) postsMain.style.display = isAds ? 'none' : 'flex';
 
-  // Right context panel — only relevant for ads
+  // Right context panel — only for ads
   const aside = document.getElementById('context-panel');
   if (aside) aside.style.display = isAds ? '' : 'none';
 
   if (!isAds) loadPostingInterface();
 }
+
+// Legacy alias
+function switchInterface(iface) { enterInterface(iface); }
 
 async function loadPostingInterface() {
   try {
