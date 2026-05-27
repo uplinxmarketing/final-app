@@ -35,7 +35,7 @@ from database import (
     Client, ClientAdAccount, ClientInstagramAccount,
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache,
-    User, UserPageAssignment,
+    User, UserPageAssignment, UserClientAssignment,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -608,6 +608,8 @@ async def save_user_settings(request: Request):
 
 @app.get("/api/setup/status")
 async def setup_status():
+    from database import DATABASE_URL as _db_url
+    db_type = "sqlite" if _db_url.startswith("sqlite") else "postgresql"
     return {
         "complete": _is_setup_complete(),
         "ai_provider": settings.AI_PROVIDER,
@@ -617,6 +619,7 @@ async def setup_status():
         "has_openai": bool(settings.OPENAI_API_KEY),
         "has_groq": bool(settings.GROQ_API_KEY),
         "has_google": bool(settings.GOOGLE_CLIENT_ID),
+        "db_type": db_type,
     }
 
 # ── Health & frontend ──────────────────────────────────────────────────────────
@@ -782,10 +785,18 @@ async def require_admin(request: Request, db: AsyncSession = Depends(get_db)):
 @app.get("/api/users")
 async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
     await require_admin(request, db)
+    from sqlalchemy import func as _func
     result = await db.execute(select(User).order_by(User.created_at))
     users = result.scalars().all()
-    return [
-        {
+    out = []
+    for u in users:
+        page_res = await db.execute(
+            select(_func.count()).select_from(UserPageAssignment).where(UserPageAssignment.user_id == u.id)
+        )
+        client_res = await db.execute(
+            select(_func.count()).select_from(UserClientAssignment).where(UserClientAssignment.user_id == u.id)
+        )
+        out.append({
             "id": u.id,
             "username": u.username,
             "email": u.email,
@@ -793,9 +804,10 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
             "interface_access": u.interface_access,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat(),
-        }
-        for u in users
-    ]
+            "page_count": page_res.scalar() or 0,
+            "client_count": client_res.scalar() or 0,
+        })
+    return out
 
 
 @app.post("/api/users", status_code=201)
@@ -902,6 +914,62 @@ async def api_remove_page_assignment(user_id: int, assignment_id: int, request: 
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(404, "Assignment not found")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Client assignment endpoints ───────────────────────────────────────────────
+
+@app.get("/api/users/{user_id}/clients")
+async def api_get_user_clients(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(
+        select(UserClientAssignment, Client)
+        .join(Client, UserClientAssignment.client_id == Client.id)
+        .where(UserClientAssignment.user_id == user_id)
+    )
+    rows = result.all()
+    return [
+        {"id": r.UserClientAssignment.id, "client_id": r.Client.id, "client_name": r.Client.name, "color_tag": r.Client.color_tag}
+        for r in rows
+    ]
+
+
+@app.post("/api/users/{user_id}/clients", status_code=201)
+async def api_assign_client(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    body = await request.json()
+    client_id = body.get("client_id")
+    if not client_id:
+        raise HTTPException(400, "client_id required")
+    existing = await db.execute(
+        select(UserClientAssignment).where(
+            UserClientAssignment.user_id == user_id,
+            UserClientAssignment.client_id == client_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, "Already assigned")
+    assignment = UserClientAssignment(user_id=user_id, client_id=client_id)
+    db.add(assignment)
+    await db.commit()
+    await db.refresh(assignment)
+    return {"id": assignment.id}
+
+
+@app.delete("/api/users/{user_id}/clients/{assignment_id}")
+async def api_remove_client_assignment(user_id: int, assignment_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(
+        select(UserClientAssignment).where(
+            UserClientAssignment.id == assignment_id,
+            UserClientAssignment.user_id == user_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Client assignment not found")
     await db.delete(row)
     await db.commit()
     return {"ok": True}

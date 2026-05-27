@@ -230,78 +230,95 @@ a{color:inherit;text-decoration:none}
   <!-- Body — scrollable -->
   <div style="flex:1;overflow-y:auto;padding:28px 28px 40px">
 
+    <!-- SQLite persistence warning (hidden by default, shown if db_type=sqlite) -->
+    <div id="sqlite-warning-banner" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:20px;color:#92400e;font-size:13px;line-height:1.6">
+      <strong>⚠ Data is stored in SQLite (temporary storage)</strong> — every Render deploy wipes the database, deleting all users and settings.<br>
+      <strong>Fix:</strong> Go to your Render service → <em>Environment</em> → add this variable:<br>
+      <code style="background:#fde68a;padding:2px 6px;border-radius:4px;font-size:12px;display:inline-block;margin-top:4px">DATABASE_URL</code>
+      <span style="font-size:12px"> = </span>
+      <code style="background:#fde68a;padding:2px 6px;border-radius:4px;font-size:11px;word-break:break-all;display:inline-block;margin-top:2px">postgresql://postgres:[YOUR-PASSWORD]@db.hkwirofdkgdamqnlcjqf.supabase.co:5432/postgres</code><br>
+      <span style="font-size:12px">Get your password from <strong>Supabase → Project Settings → Database → Database password</strong>. Tables will be created automatically on first start.</span>
+    </div>
+
     <!-- Stats row -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px">
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Total Users</div>
-        <div id="stat-total-users" style="font-size:28px;font-weight:800;color:var(--text-primary)">—</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:28px">
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">👥 Total Users</div>
+        <div id="stat-total-users" style="font-size:26px;font-weight:800;color:var(--text-primary)">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Active Users</div>
-        <div id="stat-active-users" style="font-size:28px;font-weight:800;color:#22c55e">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">✅ Active Users</div>
+        <div id="stat-active-users" style="font-size:26px;font-weight:800;color:#22c55e">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Ads Apps</div>
-        <div id="stat-ads-apps" style="font-size:28px;font-weight:800;color:#3b82f6">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📊 Ads Apps</div>
+        <div id="stat-ads-apps" style="font-size:26px;font-weight:800;color:#3b82f6">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Posting Apps</div>
-        <div id="stat-post-apps" style="font-size:28px;font-weight:800;color:#8b5cf6">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📝 Post Apps</div>
+        <div id="stat-post-apps" style="font-size:26px;font-weight:800;color:#8b5cf6">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🏢 Clients</div>
+        <div id="stat-clients" style="font-size:26px;font-weight:800;color:#f59e0b">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📄 Pages Assigned</div>
+        <div id="stat-pages" style="font-size:26px;font-weight:800;color:#06b6d4">—</div>
       </div>
     </div>
 
     <!-- Users section -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div style="font-size:16px;font-weight:700;color:var(--text-primary)">Team Members</div>
-      <button onclick="document.getElementById('dashboard-add-user-section').style.display='block';document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});openUserForm()"
+      <button onclick="openDashboardUserForm()"
         style="padding:8px 18px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">+ Add User</button>
     </div>
     <div id="dashboard-users-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
       <div style="font-size:13px;color:var(--text-dim);padding:20px 0">Loading…</div>
     </div>
 
-    <!-- Add / Edit user inline form -->
+    <!-- ADD new user form -->
     <div id="dashboard-add-user-section" style="display:none;margin-bottom:28px;background:var(--bg-secondary);border:2px solid var(--accent);border-radius:12px;padding:22px">
-      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px" id="user-form-title-d">Add User</div>
-      <input type="hidden" id="user-form-id">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px">Add New User</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Username</label>
-          <input type="text" id="user-form-username" class="form-input" placeholder="jsmith" style="font-size:13px">
+          <input type="text" id="d-new-username" class="form-input" placeholder="jsmith" style="font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Email (optional)</label>
-          <input type="email" id="user-form-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
+          <input type="email" id="d-new-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
         <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
+          <input type="password" id="d-new-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
+        </div>
+        <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Role</label>
-          <select id="user-form-role" class="form-input" style="font-size:13px">
+          <select id="d-new-role" class="form-input" style="font-size:13px">
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Interface Access</label>
-          <select id="user-form-access" class="form-input" style="font-size:13px">
+          <select id="d-new-access" class="form-input" style="font-size:13px">
             <option value="both">Ads + Posts</option>
             <option value="ads">Ads only</option>
             <option value="posting">Posts only</option>
           </select>
         </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
-          <input type="password" id="user-form-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
-          <div id="user-form-pw-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
-        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button onclick="saveDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save</button>
+        <button onclick="saveNewDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Create User</button>
         <button onclick="document.getElementById('dashboard-add-user-section').style.display='none'" style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Cancel</button>
-        <span id="user-form-status" style="font-size:12px;color:var(--text-dim)"></span>
+        <span id="d-new-status" style="font-size:12px;color:var(--text-dim)"></span>
       </div>
     </div>
+
 
     <!-- Page Assignments section -->
     <div id="dashboard-pages-section" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:28px">
@@ -1665,10 +1682,89 @@ function backToAdminDashboard() {
   showAdminDashboard();
 }
 
-async function saveDashboardUser() {
-  await saveUser();
-  setTimeout(() => { loadDashboardUsers(); loadDashboardStats(); }, 400);
+function openDashboardUserForm() {
+  document.getElementById('d-new-username').value = '';
+  document.getElementById('d-new-email').value = '';
+  document.getElementById('d-new-password').value = '';
+  document.getElementById('d-new-role').value = 'user';
+  document.getElementById('d-new-access').value = 'both';
+  document.getElementById('d-new-status').textContent = '';
+  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+  document.getElementById('dashboard-add-user-section').style.display = 'block';
+  document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});
 }
+
+async function saveNewDashboardUser() {
+  const username = document.getElementById('d-new-username').value.trim();
+  const email = document.getElementById('d-new-email').value.trim();
+  const password = document.getElementById('d-new-password').value;
+  const role = document.getElementById('d-new-role').value;
+  const access = document.getElementById('d-new-access').value;
+  const statusEl = document.getElementById('d-new-status');
+
+  if (!username) { statusEl.textContent = '⚠ Username required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+  if (!password) { statusEl.textContent = '⚠ Password required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+
+  statusEl.textContent = 'Creating…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username, password, email: email || null, role, interface_access: access }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Failed to create user');
+    statusEl.textContent = '✓ User created'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { document.getElementById('dashboard-add-user-section').style.display = 'none'; }, 900);
+    loadDashboardUsers(); loadDashboardStats(); loadAdminUsers(); loadAdminPageAssignUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
+}
+
+async function saveDashboardAccount() {
+  const id = document.getElementById('d-acct-id').value;
+  const email = document.getElementById('d-acct-email').value.trim();
+  const password = document.getElementById('d-acct-password').value;
+  const statusEl = document.getElementById('d-acct-status');
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const body = { email: email || null };
+    if (password) body.password = password;
+    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    document.getElementById('d-acct-password').value = '';
+    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    loadDashboardUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
+}
+
+async function saveDashboardPermissions() {
+  const id = document.getElementById('d-role-id').value;
+  const role = document.getElementById('d-role-role').value;
+  const access = document.getElementById('d-role-access').value;
+  const statusEl = document.getElementById('d-role-status');
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ role, interface_access: access }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    loadDashboardUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
+}
+
+function closeDashboardEditUser() {
+  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+}
+
+// saveDashboardUser kept for backward compat (dashboardSaveUser calls it)
+async function saveDashboardUser() { await saveNewDashboardUser(); }
 
 async function loadInitialData() {
   _dashboardUnlocked = true;
@@ -3685,19 +3781,27 @@ async function loadAdminDashboard() {
 
 async function loadDashboardStats() {
   try {
-    const [usersRes, appsRes] = await Promise.all([
+    const [usersRes, appsRes, statusRes, clientsRes] = await Promise.all([
       fetch('/api/users').then(r => r.json()),
       fetch('/api/meta-apps').then(r => r.json()),
+      fetch('/api/setup/status').then(r => r.json()),
+      fetch('/api/clients').then(r => r.json()),
     ]);
     const activeUsers = usersRes.filter(u => u.is_active).length;
     const totalUsers = usersRes.length;
-    const totalApps = appsRes.length;
     const adsApps = appsRes.filter(a => a.app_type === 'ads').length;
     const postApps = appsRes.filter(a => a.app_type === 'posting').length;
+    const totalPages = usersRes.reduce((s, u) => s + (u.page_count || 0), 0);
     document.getElementById('stat-total-users').textContent = totalUsers;
     document.getElementById('stat-active-users').textContent = activeUsers;
     document.getElementById('stat-ads-apps').textContent = adsApps;
     document.getElementById('stat-post-apps').textContent = postApps;
+    const sc = document.getElementById('stat-clients');
+    if (sc) sc.textContent = Array.isArray(clientsRes) ? clientsRes.length : '—';
+    const sp = document.getElementById('stat-pages');
+    if (sp) sp.textContent = totalPages;
+    const warn = document.getElementById('sqlite-warning-banner');
+    if (warn) warn.style.display = statusRes.db_type === 'sqlite' ? 'block' : 'none';
   } catch(e) { console.warn('loadDashboardStats:', e); }
 }
 
@@ -3710,53 +3814,350 @@ async function loadDashboardUsers() {
     if (!users.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:20px 0">No users yet.</div>'; return; }
     el.innerHTML = users.map(u => {
       const accessColor = u.interface_access === 'ads' ? '#3b82f6' : u.interface_access === 'posting' ? '#8b5cf6' : '#10b981';
+      const accessLabel = u.interface_access === 'both' ? 'Ads + Posts' : u.interface_access === 'ads' ? 'Ads only' : 'Posts only';
       const statusColor = u.is_active ? '#22c55e' : '#6b7280';
-      const appTags = (u.assigned_apps || []).map(a =>
-        `<span style="font-size:10px;padding:1px 7px;border-radius:4px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary)">${escHtml(a)}</span>`
-      ).join(' ');
       return `
-      <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:14px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-        <div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
-            <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;display:inline-block"></span>
-            <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${escHtml(u.username)}</span>
-            ${u.role === 'admin' ? '<span style="font-size:10px;font-weight:700;background:var(--accent);color:#fff;padding:2px 7px;border-radius:4px">ADMIN</span>' : ''}
-            <span style="font-size:11px;font-weight:600;color:#fff;background:${accessColor};padding:2px 8px;border-radius:5px">${u.interface_access === 'both' ? 'Ads + Posts' : u.interface_access === 'ads' ? 'Ads only' : 'Posts only'}</span>
-            <span style="font-size:11px;color:var(--text-dim)">${u.is_active ? 'Active' : 'Deactivated'}</span>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:0">
+        <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:13px 16px;background:var(--bg-secondary)">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;display:inline-block"></span>
+              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${escHtml(u.username)}</span>
+              ${u.role === 'admin' ? '<span style="font-size:10px;font-weight:700;background:var(--accent);color:#fff;padding:2px 7px;border-radius:4px">ADMIN</span>' : ''}
+              <span style="font-size:11px;font-weight:600;color:#fff;background:${accessColor};padding:2px 8px;border-radius:5px">${accessLabel}</span>
+              ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">${escHtml(u.email)}</span>` : ''}
+              <span style="font-size:11px;color:${statusColor}">${u.is_active ? 'Active' : 'Deactivated'}</span>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            ${appTags || '<span style="font-size:11px;color:var(--text-dim)">No apps assigned</span>'}
-            ${u.page_count > 0 ? `<span style="font-size:11px;color:var(--text-dim)">· ${u.page_count} page${u.page_count !== 1 ? 's' : ''}</span>` : ''}
-            ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">· ${escHtml(u.email)}</span>` : ''}
+          <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+            <button id="upanel-btn-${u.id}" onclick="toggleUserPanel(${u.id})"
+              style="padding:6px 13px;border-radius:7px;border:1px solid var(--accent);background:var(--accent-soft,rgba(99,102,241,.08));color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Edit ▾</button>
+            <button id="uperms-btn-${u.id}" onclick="togglePermsPanel(${u.id})"
+              style="padding:6px 13px;border-radius:7px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);color:#d97706;font-size:12px;font-weight:600;cursor:pointer">Permissions ▾</button>
+            <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escHtml(u.username)}')"
+              style="padding:6px 13px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button onclick="dashboardEditUser(${u.id},'${escHtml(u.username)}','${escHtml(u.email||'')}','${u.role}','${u.interface_access}')"
-            style="padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">Edit</button>
-          <button onclick="dashboardManagePages(${u.id},'${escHtml(u.username)}')"
-            style="padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">Pages</button>
-          <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escHtml(u.username)}')"
-            style="padding:6px 14px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+        <!-- Per-user inline management panel (role/access + account) -->
+        <div id="upanel-${u.id}" class="user-mgmt-panel" style="display:none;border-top:2px solid var(--accent);background:var(--bg-primary);padding:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;max-width:520px">
+            <!-- Role & Access -->
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px">🛡 Role & Access</div>
+              <div style="margin-bottom:8px">
+                <label style="font-size:10px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">Role</label>
+                <select id="up-role-${u.id}" class="form-input" style="font-size:12px">
+                  <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
+                  <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                </select>
+              </div>
+              <div style="margin-bottom:10px">
+                <label style="font-size:10px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">Interface</label>
+                <select id="up-access-${u.id}" class="form-input" style="font-size:12px">
+                  <option value="both" ${u.interface_access === 'both' ? 'selected' : ''}>Ads + Posts</option>
+                  <option value="ads" ${u.interface_access === 'ads' ? 'selected' : ''}>Ads only</option>
+                  <option value="posting" ${u.interface_access === 'posting' ? 'selected' : ''}>Posts only</option>
+                </select>
+              </div>
+              <button onclick="savePanelRole(${u.id})" style="width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+              <span id="up-role-status-${u.id}" style="font-size:11px;display:block;margin-top:5px;text-align:center;min-height:14px"></span>
+            </div>
+            <!-- Account -->
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px">🔐 Account</div>
+              <div style="margin-bottom:8px">
+                <label style="font-size:10px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">Email</label>
+                <input type="email" id="up-email-${u.id}" class="form-input" value="${escHtml(u.email||'')}" placeholder="optional" style="font-size:12px">
+              </div>
+              <div style="margin-bottom:10px">
+                <label style="font-size:10px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">New Password</label>
+                <input type="password" id="up-pw-${u.id}" class="form-input" placeholder="Leave blank to keep" autocomplete="new-password" style="font-size:12px">
+              </div>
+              <button onclick="savePanelAccount(${u.id})" style="width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+              <span id="up-acct-status-${u.id}" style="font-size:11px;display:block;margin-top:5px;text-align:center;min-height:14px"></span>
+            </div>
+          </div>
+        </div>
+        <!-- Permissions panel: pages + clients -->
+        <div id="uperms-${u.id}" class="user-perms-panel" style="display:none;border-top:2px solid #f59e0b;background:var(--bg-primary);padding:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+            <!-- Pages -->
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">📄 Page Access
+                <span id="up-pcount-${u.id}" style="font-size:11px;font-weight:500;color:var(--text-dim);margin-left:4px">(${u.page_count||0})</span>
+              </div>
+              <div id="up-pages-${u.id}" style="margin-bottom:10px;min-height:20px">
+                <span style="font-size:12px;color:var(--text-dim)">Loading…</span>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:10px">
+                <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Assign New Page</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px">
+                  <select id="up-app-${u.id}" class="form-input" style="font-size:11px" onchange="loadPanelPageOptions(${u.id})">
+                    <option value="">Meta App…</option>
+                  </select>
+                  <select id="up-platform-${u.id}" class="form-input" style="font-size:11px" onchange="loadPanelPageOptions(${u.id})">
+                    <option value="facebook">Facebook</option>
+                    <option value="instagram">Instagram</option>
+                  </select>
+                </div>
+                <select id="up-page-${u.id}" class="form-input" style="font-size:11px;margin-bottom:5px">
+                  <option value="">Select page…</option>
+                </select>
+                <button onclick="addPanelPage(${u.id})" style="width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Assign Page</button>
+                <span id="up-assign-status-${u.id}" style="font-size:11px;display:block;margin-top:4px;min-height:14px"></span>
+              </div>
+            </div>
+            <!-- Clients -->
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">🏢 Client Access
+                <span id="up-ccount-${u.id}" style="font-size:11px;font-weight:500;color:var(--text-dim);margin-left:4px">(${u.client_count||0})</span>
+              </div>
+              <div id="up-clients-${u.id}" style="margin-bottom:10px;min-height:20px">
+                <span style="font-size:12px;color:var(--text-dim)">Loading…</span>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:10px">
+                <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Assign Client</div>
+                <select id="up-client-sel-${u.id}" class="form-input" style="font-size:11px;margin-bottom:5px">
+                  <option value="">Select client…</option>
+                </select>
+                <button onclick="addPanelClient(${u.id})" style="width:100%;padding:7px;background:#f59e0b;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Assign Client</button>
+                <span id="up-client-status-${u.id}" style="font-size:11px;display:block;margin-top:4px;min-height:14px"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<div style="color:var(--error);font-size:13px">Failed to load users.</div>'; }
 }
 
+let _panelApps = null;
+let _allClients = null;
+
+function _closeAllPanels() {
+  document.querySelectorAll('.user-mgmt-panel').forEach(p => {
+    p.style.display = 'none';
+    const btn = document.getElementById(p.id.replace('upanel-', 'upanel-btn-'));
+    if (btn) btn.textContent = 'Edit ▾';
+  });
+  document.querySelectorAll('.user-perms-panel').forEach(p => {
+    p.style.display = 'none';
+    const btn = document.getElementById(p.id.replace('uperms-', 'uperms-btn-'));
+    if (btn) btn.textContent = 'Permissions ▾';
+  });
+}
+
+async function toggleUserPanel(id) {
+  const panel = document.getElementById(`upanel-${id}`);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  _closeAllPanels();
+  if (!isOpen) {
+    panel.style.display = 'block';
+    const btn = document.getElementById(`upanel-btn-${id}`);
+    if (btn) btn.textContent = 'Edit ▴';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+}
+
+async function togglePermsPanel(id) {
+  const panel = document.getElementById(`uperms-${id}`);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  _closeAllPanels();
+  if (!isOpen) {
+    panel.style.display = 'block';
+    const btn = document.getElementById(`uperms-btn-${id}`);
+    if (btn) btn.textContent = 'Permissions ▴';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    await loadPermsData(id);
+  }
+}
+
+async function loadPermsData(id) {
+  await refreshPanelPages(id);
+  await refreshPanelClients(id);
+  // Load meta apps for page assign dropdown
+  if (!_panelApps) {
+    try { const r = await fetch('/api/meta-apps'); _panelApps = r.ok ? await r.json() : []; }
+    catch(e) { _panelApps = []; }
+  }
+  const appSel = document.getElementById(`up-app-${id}`);
+  if (appSel) {
+    appSel.innerHTML = _panelApps.length
+      ? _panelApps.map(a => `<option value="${a.id}">${escHtml(a.name)} (${a.app_type})</option>`).join('')
+      : '<option value="">No apps configured</option>';
+    if (_panelApps.length) await loadPanelPageOptions(id);
+  }
+  // Load clients for client assign dropdown
+  if (!_allClients) {
+    try { const r = await fetch('/api/clients'); _allClients = r.ok ? await r.json() : []; }
+    catch(e) { _allClients = []; }
+  }
+  const cSel = document.getElementById(`up-client-sel-${id}`);
+  if (cSel) {
+    cSel.innerHTML = _allClients.length
+      ? _allClients.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('')
+      : '<option value="">No clients available</option>';
+  }
+}
+
+async function refreshPanelClients(id) {
+  const el = document.getElementById(`up-clients-${id}`);
+  if (!el) return;
+  try {
+    const r = await fetch(`/api/users/${id}/clients`);
+    const clients = r.ok ? await r.json() : [];
+    const countEl = document.getElementById(`up-ccount-${id}`);
+    if (countEl) countEl.textContent = `(${clients.length})`;
+    if (!clients.length) { el.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No clients assigned</span>'; return; }
+    el.innerHTML = clients.map(c => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:500">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.color_tag||'#6c63ff'};margin-right:5px"></span>
+          ${escHtml(c.client_name)}
+        </span>
+        <button onclick="removePanelClient(${id},${c.id})" style="color:var(--error,#ef4444);background:transparent;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;line-height:1">✕</button>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<span style="font-size:12px;color:var(--error)">Failed to load</span>'; }
+}
+
+async function addPanelClient(id) {
+  const sel = document.getElementById(`up-client-sel-${id}`);
+  const st = document.getElementById(`up-client-status-${id}`);
+  const clientId = sel?.value;
+  if (!clientId) { st.textContent = '⚠ Select a client'; st.style.color = 'var(--error,#ef4444)'; return; }
+  st.textContent = 'Assigning…'; st.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}/clients`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({client_id:parseInt(clientId)}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||'Failed');
+    st.textContent = '✓ Assigned'; st.style.color = 'var(--success,#2ecc71)';
+    setTimeout(()=>{ st.textContent=''; }, 2500);
+    refreshPanelClients(id);
+    loadDashboardStats();
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = 'var(--error,#ef4444)'; }
+}
+
+async function removePanelClient(userId, assignmentId) {
+  try {
+    await fetch(`/api/users/${userId}/clients/${assignmentId}`, {method:'DELETE'});
+    refreshPanelClients(userId);
+    loadDashboardStats();
+  } catch(e) { toast('Failed to remove client', 'error'); }
+}
+
+// loadPanelData: Manage panel only has role/account — no data to load
+async function loadPanelData(id) {}
+
+async function refreshPanelPages(id) {
+  const el = document.getElementById(`up-pages-${id}`);
+  if (!el) return;
+  try {
+    const r = await fetch(`/api/users/${id}/pages`);
+    const pages = r.ok ? await r.json() : [];
+    if (!pages.length) {
+      el.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No pages assigned yet</span>';
+      return;
+    }
+    el.innerHTML = pages.map(p => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:500">${p.platform === 'instagram' ? '📷' : '📘'} ${escHtml(p.page_name || p.page_id)}</span>
+        <button onclick="removePanelPage(${id},${p.id})"
+          style="color:var(--error,#ef4444);background:transparent;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;line-height:1">✕</button>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<span style="font-size:12px;color:var(--error)">Failed to load pages</span>'; }
+}
+
+async function loadPanelPageOptions(id) {
+  const appSel = document.getElementById(`up-app-${id}`);
+  const platSel = document.getElementById(`up-platform-${id}`);
+  const pageSel = document.getElementById(`up-page-${id}`);
+  if (!appSel || !platSel || !pageSel) return;
+  const appId = appSel.value;
+  const platform = platSel.value;
+  if (!appId) { pageSel.innerHTML = '<option value="">Select an app first</option>'; return; }
+  pageSel.innerHTML = '<option value="">Loading…</option>';
+  try {
+    const r = await fetch(`/api/meta-apps/${appId}/pages?platform=${platform}`);
+    const pages = r.ok ? await r.json() : [];
+    pageSel.innerHTML = pages.length
+      ? pages.map(p => `<option value="${p.id}|${encodeURIComponent(p.name||p.id)}">${escHtml(p.name || p.id)}</option>`).join('')
+      : '<option value="">No pages found</option>';
+  } catch(e) { pageSel.innerHTML = '<option value="">Error loading</option>'; }
+}
+
+async function savePanelRole(id) {
+  const role = document.getElementById(`up-role-${id}`).value;
+  const access = document.getElementById(`up-access-${id}`).value;
+  const st = document.getElementById(`up-role-status-${id}`);
+  st.textContent = 'Saving…'; st.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role, interface_access:access})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||'Failed');
+    st.textContent = '✓ Saved'; st.style.color = 'var(--success,#2ecc71)';
+    setTimeout(()=>{ st.textContent=''; }, 2500);
+    loadDashboardUsers();
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = 'var(--error,#ef4444)'; }
+}
+
+async function savePanelAccount(id) {
+  const email = document.getElementById(`up-email-${id}`).value.trim();
+  const pw = document.getElementById(`up-pw-${id}`).value;
+  const st = document.getElementById(`up-acct-status-${id}`);
+  st.textContent = 'Saving…'; st.style.color = 'var(--text-dim)';
+  try {
+    const body = {email: email || null};
+    if (pw) body.password = pw;
+    const r = await fetch(`/api/users/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||'Failed');
+    document.getElementById(`up-pw-${id}`).value = '';
+    st.textContent = '✓ Saved'; st.style.color = 'var(--success,#2ecc71)';
+    setTimeout(()=>{ st.textContent=''; }, 2500);
+    loadDashboardUsers();
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = 'var(--error,#ef4444)'; }
+}
+
+async function addPanelPage(id) {
+  const appId = document.getElementById(`up-app-${id}`).value;
+  const platform = document.getElementById(`up-platform-${id}`).value;
+  const pageVal = document.getElementById(`up-page-${id}`).value;
+  const st = document.getElementById(`up-assign-status-${id}`);
+  if (!appId || !pageVal) { st.textContent = '⚠ Select app and page'; st.style.color = 'var(--error,#ef4444)'; return; }
+  const [pageId, encodedName] = pageVal.split('|');
+  const pageName = encodedName ? decodeURIComponent(encodedName) : pageId;
+  st.textContent = 'Assigning…'; st.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}/pages`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({page_id:pageId, page_name:pageName, platform, meta_app_db_id:parseInt(appId)}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||'Failed');
+    st.textContent = '✓ Assigned'; st.style.color = 'var(--success,#2ecc71)';
+    setTimeout(()=>{ st.textContent=''; }, 2500);
+    refreshPanelPages(id);
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = 'var(--error,#ef4444)'; }
+}
+
+async function removePanelPage(userId, assignmentId) {
+  try {
+    await fetch(`/api/users/${userId}/pages/${assignmentId}`, {method:'DELETE'});
+    refreshPanelPages(userId);
+    loadDashboardStats();
+  } catch(e) { toast('Failed to remove page', 'error'); }
+}
+
 function dashboardEditUser(id, username, email, role, access) {
-  openUserForm();
-  document.getElementById('user-form-id').value = id;
-  document.getElementById('user-form-title').textContent = 'Edit User';
-  document.getElementById('user-form-username').value = username;
-  document.getElementById('user-form-username').disabled = true;
-  document.getElementById('user-form-email').value = email;
-  document.getElementById('user-form-role').value = role;
-  document.getElementById('user-form-access').value = access;
-  document.getElementById('user-form-password').value = '';
-  document.getElementById('user-form-pw-hint').textContent = 'Leave blank to keep current password';
-  document.getElementById('user-form').style.display = 'block';
-  document.getElementById('dashboard-add-user-section').style.display = 'block';
-  document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth', block:'nearest'});
+  toggleUserPanel(id);
+}
+
+function closeDashboardEditUser() {
+  document.querySelectorAll('[id^="upanel-"]').forEach(p => { p.style.display='none'; });
 }
 
 async function dashboardManagePages(userId, username) {
@@ -3781,8 +4182,7 @@ async function dashboardToggleActive(id, active, username) {
 }
 
 async function dashboardSaveUser() {
-  await saveUser();
-  setTimeout(loadDashboardUsers, 400);
+  await saveDashboardUser();
 }
 
 // Override saveUser to also refresh dashboard

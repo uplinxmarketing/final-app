@@ -652,6 +652,26 @@ class UserPageAssignment(Base):
         )
 
 
+class UserClientAssignment(Base):
+    """Links a user to a client they are allowed to manage."""
+
+    __tablename__ = "user_client_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    __table_args__ = (UniqueConstraint("user_id", "client_id"),)
+
+    def __repr__(self) -> str:
+        return f"<UserClientAssignment id={self.id} user_id={self.user_id} client_id={self.client_id}>"
+
+
 class ScheduledPost(Base):
     """A social media post scheduled for future publication."""
 
