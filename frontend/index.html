@@ -208,15 +208,17 @@ a{color:inherit;text-decoration:none}
 <body>
 
 <!-- Login screen (shown when no user session exists) -->
-<div id="login-screen" style="display:none;position:fixed;inset:0;z-index:1000;background:var(--bg-primary);align-items:center;justify-content:center;flex-direction:column">
-  <div style="width:380px;max-width:92vw">
+<div id="login-screen" style="display:none;position:fixed;inset:0;z-index:1000;background:var(--bg-primary);align-items:center;justify-content:center;flex-direction:column;overflow-y:auto">
+  <div style="width:390px;max-width:94vw;padding:24px 0">
+
     <!-- Logo -->
     <div style="text-align:center;margin-bottom:28px">
-      <div style="font-size:32px;font-weight:900;color:var(--accent);font-family:var(--font-heading);letter-spacing:-1px">Uplinx</div>
+      <div style="font-size:34px;font-weight:900;color:var(--accent);font-family:var(--font-heading);letter-spacing:-1px">Uplinx</div>
       <div style="font-size:13px;color:var(--text-dim);margin-top:3px">Meta Manager · Team Access</div>
     </div>
-    <!-- Card -->
-    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:16px;padding:30px;box-shadow:0 4px 24px rgba(0,0,0,0.18)">
+
+    <!-- Sign-in card -->
+    <div id="login-card" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:16px;padding:30px;box-shadow:0 4px 28px rgba(0,0,0,.2)">
       <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:22px">Sign in to your account</div>
 
       <div style="margin-bottom:14px">
@@ -238,18 +240,47 @@ a{color:inherit;text-decoration:none}
       </div>
 
       <button onclick="doLogin()" id="login-btn"
-        style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:opacity .15s"
+        style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.3px"
         onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">
         Sign In →
       </button>
 
-      <div id="login-error" style="display:none;margin-top:12px;font-size:12px;color:var(--error,#ef4444);text-align:center;padding:8px;background:rgba(239,68,68,.08);border-radius:7px"></div>
+      <div id="login-error" style="display:none;margin-top:12px;font-size:12px;color:var(--error,#ef4444);text-align:center;padding:8px 12px;background:rgba(239,68,68,.09);border-radius:8px;border:1px solid rgba(239,68,68,.2)"></div>
     </div>
 
-    <!-- Footer note — no self-registration (admin-only) -->
-    <div style="text-align:center;margin-top:18px;font-size:12px;color:var(--text-dim)">
+    <!-- Footer -->
+    <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--text-dim)">
       Don't have an account? Contact your administrator.
+      <span style="margin:0 6px;opacity:.4">·</span>
+      <a href="#" onclick="toggleEmergencyReset(event)" style="color:var(--text-dim);text-decoration:underline;text-underline-offset:2px">Admin locked out?</a>
     </div>
+
+    <!-- Emergency reset panel (hidden by default) -->
+    <div id="emergency-reset-panel" style="display:none;margin-top:16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;padding:24px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🔑 Emergency Admin Reset</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px">Enter your server's <strong>SECRET_KEY</strong> (from Render → Environment) to reset the admin password.</div>
+
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">SECRET_KEY (from Render env vars)</label>
+        <input type="password" id="reset-secret-key" class="form-input" placeholder="Paste your SECRET_KEY here" autocomplete="off" style="font-size:13px">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">New Password</label>
+          <input type="password" id="reset-new-password" class="form-input" placeholder="Min 8 chars" autocomplete="new-password" style="font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Email (optional)</label>
+          <input type="text" id="reset-email" class="form-input" placeholder="admin@example.com" style="font-size:13px">
+        </div>
+      </div>
+      <button onclick="doEmergencyReset()" id="reset-btn"
+        style="width:100%;padding:10px;background:#dc2626;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">
+        Reset Admin Password
+      </button>
+      <div id="reset-status" style="display:none;margin-top:10px;font-size:12px;text-align:center;padding:8px;border-radius:7px"></div>
+    </div>
+
   </div>
 </div>
 
@@ -1273,30 +1304,70 @@ async function doLogin() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Invalid username or password');
     window._currentUser = d;
-    // Persist username for next visit
     try { localStorage.setItem('uplinx_last_username', username); } catch(_) {}
     hideLoginScreen();
     initApp(d);
   } catch(e) {
     err.textContent = e.message; err.style.display = 'block';
-    // Shake animation
-    const card = err.closest('[style*="background:var(--bg-secondary)"]');
-    if (card) { card.style.transition='transform .1s'; card.style.transform='translateX(6px)'; setTimeout(()=>{card.style.transform='translateX(-6px)';setTimeout(()=>{card.style.transform='';},100)},100); }
+    // Shake the card
+    const card = document.getElementById('login-card');
+    if (card) {
+      card.style.transition = 'transform .08s';
+      card.style.transform = 'translateX(7px)';
+      setTimeout(() => { card.style.transform = 'translateX(-7px)'; setTimeout(() => { card.style.transform = ''; }, 80); }, 80);
+    }
   } finally {
     btn.disabled = false; btn.textContent = 'Sign In →';
   }
 }
 
+function toggleEmergencyReset(e) {
+  e.preventDefault();
+  const panel = document.getElementById('emergency-reset-panel');
+  if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+async function doEmergencyReset() {
+  const secretKey = document.getElementById('reset-secret-key').value.trim();
+  const newPassword = document.getElementById('reset-new-password').value;
+  const email = document.getElementById('reset-email').value.trim();
+  const btn = document.getElementById('reset-btn');
+  const statusEl = document.getElementById('reset-status');
+
+  if (!secretKey) { statusEl.textContent = 'Enter your SECRET_KEY.'; statusEl.style.background = 'rgba(239,68,68,.1)'; statusEl.style.color = 'var(--error,#ef4444)'; statusEl.style.display = 'block'; return; }
+  if (newPassword.length < 8) { statusEl.textContent = 'Password must be at least 8 characters.'; statusEl.style.background = 'rgba(239,68,68,.1)'; statusEl.style.color = 'var(--error,#ef4444)'; statusEl.style.display = 'block'; return; }
+
+  btn.disabled = true; btn.textContent = 'Resetting…';
+  statusEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/auth/emergency-reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret_key: secretKey, password: newPassword, email }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Reset failed');
+    statusEl.textContent = '✓ ' + d.message + ' Username: admin';
+    statusEl.style.background = 'rgba(34,197,94,.1)';
+    statusEl.style.color = 'var(--success,#22c55e)';
+    statusEl.style.display = 'block';
+    // Pre-fill the login form
+    document.getElementById('login-username').value = 'admin';
+    document.getElementById('login-password').value = newPassword;
+    document.getElementById('reset-secret-key').value = '';
+    document.getElementById('reset-new-password').value = '';
+  } catch(e) {
+    statusEl.textContent = '✗ ' + e.message;
+    statusEl.style.background = 'rgba(239,68,68,.1)';
+    statusEl.style.color = 'var(--error,#ef4444)';
+    statusEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Reset Admin Password';
+  }
+}
+
 async function checkAuthAndInit() {
   // Pre-fill saved username
-  try {
-    const saved = localStorage.getItem('uplinx_last_username');
-    if (saved) {
-      const uEl = document.getElementById('login-username');
-      if (uEl && !uEl.value) uEl.value = saved;
-    }
-  } catch(_) {}
-
+  try { const s = localStorage.getItem('uplinx_last_username'); if (s) { const el = document.getElementById('login-username'); if (el && !el.value) el.value = s; } } catch(_) {}
   try {
     const r = await fetch('/api/auth/me');
     if (r.ok) {
@@ -2934,38 +3005,19 @@ async function loadAdminUsers() {
     const el = document.getElementById('users-list');
     if (!el) return;
     if (!users.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No users yet.</div>'; return; }
-    el.innerHTML = users.map(u => {
-      const accessBadgeColor = u.interface_access === 'ads' ? '#3b82f6' : u.interface_access === 'posting' ? '#8b5cf6' : '#10b981';
-      const statusDot = u.is_active
-        ? '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;margin-right:5px"></span>'
-        : '<span style="width:7px;height:7px;border-radius:50%;background:#6b7280;display:inline-block;margin-right:5px"></span>';
-      const appTags = (u.assigned_apps||[]).map(a =>
-        `<span style="font-size:10px;background:var(--bg-secondary);border:1px solid var(--border);padding:1px 6px;border-radius:4px;color:var(--text-secondary)">${escHtml(a)}</span>`
-      ).join(' ');
-      const pagesLabel = u.page_count > 0 ? `${u.page_count} page${u.page_count!==1?'s':''} assigned` : 'No pages assigned';
-      return `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;opacity:${u.is_active ? 1 : 0.55}">
-        <div style="min-width:0;flex:1">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">
-            ${statusDot}
-            <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(u.username)}</span>
-            ${u.role === 'admin' ? '<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">admin</span>' : ''}
-            <span style="font-size:10px;padding:1px 7px;border-radius:4px;font-weight:600;color:#fff;background:${accessBadgeColor}">${u.interface_access}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            ${appTags || '<span style="font-size:11px;color:var(--text-dim)">No apps assigned</span>'}
-            <span style="font-size:11px;color:var(--text-dim)">· ${pagesLabel}</span>
-            ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">· ${escHtml(u.email)}</span>` : ''}
-          </div>
+    el.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;opacity:${u.is_active ? 1 : 0.5}">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(u.username)} ${u.role === 'admin' ? '<span style="font-size:10px;background:var(--accent);color:#fff;padding:1px 5px;border-radius:4px">admin</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--text-dim)">${u.interface_access} access${u.email ? ' · ' + escHtml(u.email) : ''}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;margin-left:10px">
+        <div style="display:flex;gap:6px">
           <button onclick="openUserEditForm(${u.id},'${escHtml(u.username)}','${escHtml(u.email||'')}','${u.role}','${u.interface_access}')"
             style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">Edit</button>
           <button onclick="toggleUserActive(${u.id},${!u.is_active})"
-            style="padding:4px 10px;border-radius:6px;border:1px solid ${u.is_active?'var(--error,#ef4444)':'var(--success,#22c55e)'};background:transparent;color:${u.is_active?'var(--error,#ef4444)':'var(--success,#22c55e)'};font-size:11px;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
         </div>
-      </div>`;
-    }).join('');
+      </div>`).join('');
   } catch(e) { console.warn('loadAdminUsers:', e); }
 }
 

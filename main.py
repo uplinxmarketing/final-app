@@ -115,9 +115,8 @@ async def lifespan(app: FastAPI):
     async for db in get_db():
         res = await db.execute(select(User).where(User.username == "admin").limit(1))
         admin_user = res.scalar_one_or_none()
-
         if settings.ADMIN_PASSWORD:
-            # ADMIN_PASSWORD env var is set — create or update the admin account
+            # ADMIN_PASSWORD env var set — create or force-update admin account
             if admin_user:
                 admin_user.hashed_password = _hash_password(settings.ADMIN_PASSWORD)
                 admin_user.is_active = True
@@ -127,35 +126,31 @@ async def lifespan(app: FastAPI):
                 await db.commit()
                 logger.info("Admin account synced from ADMIN_PASSWORD env var")
             else:
-                admin_user = User(
+                db.add(User(
                     username="admin",
                     email=settings.ADMIN_EMAIL or None,
                     hashed_password=_hash_password(settings.ADMIN_PASSWORD),
                     role="admin",
                     interface_access="both",
                     is_active=True,
-                )
-                db.add(admin_user)
+                ))
                 await db.commit()
                 logger.info("Admin account created from ADMIN_PASSWORD env var")
         elif not admin_user:
-            # No ADMIN_PASSWORD env var and no admin exists — seed with LOGIN_PASSWORD or random
-            res2 = await db.execute(select(User).limit(1))
-            if not res2.scalar_one_or_none():
-                pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
-                new_admin = User(
-                    username="admin",
-                    hashed_password=_hash_password(pw),
-                    role="admin",
-                    interface_access="both",
-                    is_active=True,
-                )
-                db.add(new_admin)
-                await db.commit()
-                if not settings.LOGIN_PASSWORD:
-                    logger.warning("=== FIRST RUN: admin password = %s — set ADMIN_PASSWORD env var! ===", pw)
-                else:
-                    logger.info("Auto-created admin from LOGIN_PASSWORD")
+            # No admin exists and no env var — seed with LOGIN_PASSWORD or random
+            pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
+            db.add(User(
+                username="admin",
+                hashed_password=_hash_password(pw),
+                role="admin",
+                interface_access="both",
+                is_active=True,
+            ))
+            await db.commit()
+            if not settings.LOGIN_PASSWORD:
+                logger.warning("=== FIRST RUN: admin password = %s — set ADMIN_PASSWORD env var! ===", pw)
+            else:
+                logger.info("Auto-created admin from LOGIN_PASSWORD")
         break
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -238,7 +233,8 @@ PUBLIC_PATHS = {"/health", "/", "/auth/meta", "/auth/meta/callback",
                 "/auth/google", "/auth/google/callback", "/setup",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
                 "/login", "/api/login", "/api/logout",
-                "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+                "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+                "/api/auth/emergency-reset"}
 
 
 def _login_token() -> str:
@@ -656,7 +652,6 @@ async def do_logout(response: Response):
 class UserLoginRequest(BaseModel):
     username: str
     password: str
-    remember_me: bool = False
 
 class UserCreateRequest(BaseModel):
     username: str
@@ -692,9 +687,7 @@ async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSes
         "username": user.username,
     }
     token = create_session_token(session_data)
-    # remember_me=True → 30-day persistent cookie; False → session cookie (expires on browser close)
-    cookie_max_age = 86400 * 30 if req.remember_me else None
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=cookie_max_age)
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=86400 * 30)
     return {
         "user_id": user.id,
         "username": user.username,
@@ -708,6 +701,46 @@ async def api_auth_logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     response.delete_cookie(LOGIN_COOKIE)
     return {"ok": True}
+
+
+@app.post("/api/auth/emergency-reset")
+async def api_emergency_reset(request: Request, db: AsyncSession = Depends(get_db)):
+    """Emergency admin password reset — requires the SECRET_KEY as proof of server access.
+    Only usable when locked out; protected by SECRET_KEY which is server-side only.
+    """
+    body = await request.json()
+    provided_key = body.get("secret_key", "")
+    new_password = body.get("password", "")
+    new_email = body.get("email", "")
+
+    if not provided_key or not secrets.compare_digest(provided_key, settings.SECRET_KEY):
+        raise HTTPException(403, "Invalid secret key")
+    if len(new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    result = await db.execute(select(User).where(User.username == "admin").limit(1))
+    admin_user = result.scalar_one_or_none()
+    if admin_user:
+        admin_user.hashed_password = _hash_password(new_password)
+        admin_user.is_active = True
+        if new_email:
+            admin_user.email = new_email
+        await db.commit()
+        logger.warning("Admin password reset via emergency endpoint")
+        return {"ok": True, "message": "Admin password updated. You can now sign in."}
+    else:
+        # Create admin from scratch
+        db.add(User(
+            username="admin",
+            email=new_email or None,
+            hashed_password=_hash_password(new_password),
+            role="admin",
+            interface_access="both",
+            is_active=True,
+        ))
+        await db.commit()
+        logger.warning("Admin account created via emergency endpoint")
+        return {"ok": True, "message": "Admin account created. You can now sign in."}
 
 
 @app.get("/api/auth/me")
@@ -744,25 +777,8 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
     await require_admin(request, db)
     result = await db.execute(select(User).order_by(User.created_at))
     users = result.scalars().all()
-
-    # Collect assigned Meta app names per user for the admin overview
-    meta_apps_map: dict[int, str] = {}
-    all_apps_res = await db.execute(select(MetaApp).where(MetaApp.is_active == True))
-    for ma in all_apps_res.scalars().all():
-        meta_apps_map[ma.id] = ma.name
-
-    out = []
-    for u in users:
-        # Summarise page assignments for this user
-        pa_res = await db.execute(
-            select(UserPageAssignment).where(UserPageAssignment.user_id == u.id)
-        )
-        assignments = pa_res.scalars().all()
-        # Unique app names assigned to this user
-        assigned_app_ids = {a.meta_app_db_id for a in assignments if a.meta_app_db_id}
-        assigned_apps = [meta_apps_map.get(aid, f"App #{aid}") for aid in assigned_app_ids]
-        page_count = len(assignments)
-        out.append({
+    return [
+        {
             "id": u.id,
             "username": u.username,
             "email": u.email,
@@ -770,10 +786,9 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
             "interface_access": u.interface_access,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat(),
-            "assigned_apps": assigned_apps,
-            "page_count": page_count,
-        })
-    return out
+        }
+        for u in users
+    ]
 
 
 @app.post("/api/users", status_code=201)
