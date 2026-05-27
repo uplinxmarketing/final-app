@@ -28,7 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from config import settings
 from database import (
     init_db, get_db,
-    ConnectedMetaAccount, ConnectedGoogleAccount,
+    ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
     Client, ClientAdAccount, ClientInstagramAccount,
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache
@@ -143,8 +143,10 @@ async def security_headers(request: Request, call_next):
 SESSION_COOKIE = "uplinx_session"
 LOGIN_COOKIE = "uplinx_login"
 PUBLIC_PATHS = {"/health", "/", "/auth/meta", "/auth/meta/callback",
+                "/auth/meta/posting", "/auth/meta/posting/callback",
                 "/auth/google", "/auth/google/callback", "/setup",
-                "/api/accounts/meta/token", "/login", "/api/login", "/api/logout"}
+                "/api/accounts/meta/token", "/api/accounts/posting/token",
+                "/login", "/api/login", "/api/logout"}
 
 
 def _login_token() -> str:
@@ -243,6 +245,27 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
         acc.token_expiry = datetime.utcnow() + timedelta(seconds=refresh.get("expires_in", 3600))
         await db.commit()
     return encryption.decrypt(acc.encrypted_access_token)
+
+async def get_posting_token(request: Request, db: AsyncSession) -> str:
+    """Decrypt and return the active Posting Meta access token."""
+    session = get_session(request)
+    uid = session.get("posting_user_id")
+    if not uid:
+        raise HTTPException(401, "Posting account not connected")
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.facebook_user_id == uid,
+            ConnectedPostingAccount.is_active == True,
+        )
+    )
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise HTTPException(401, "Posting account not found")
+    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+        raise HTTPException(401, "Posting token expired — please reconnect")
+    acc.last_used_at = datetime.utcnow()
+    await db.commit()
+    return encryption.decrypt(acc.encrypted_long_token)
 
 # ── Pydantic request models ────────────────────────────────────────────────────
 
@@ -344,6 +367,8 @@ def _is_setup_complete() -> bool:
 class SetupSaveRequest(BaseModel):
     meta_app_id: str = ""
     meta_app_secret: str = ""
+    meta_posting_app_id: str = ""
+    meta_posting_app_secret: str = ""
     ai_provider: str = "claude"
     anthropic_api_key: str = ""
     claude_model: str = ""
@@ -381,6 +406,8 @@ async def setup_save(req: SetupSaveRequest):
     pairs = {
         "META_APP_ID": req.meta_app_id,
         "META_APP_SECRET": req.meta_app_secret,
+        "META_POSTING_APP_ID": req.meta_posting_app_id,
+        "META_POSTING_APP_SECRET": req.meta_posting_app_secret,
         "AI_PROVIDER": req.ai_provider,
         "ANTHROPIC_API_KEY": req.anthropic_api_key,
         "CLAUDE_MODEL": req.claude_model,
@@ -404,6 +431,10 @@ async def setup_save(req: SetupSaveRequest):
             settings.META_APP_ID = req.meta_app_id
         if req.meta_app_secret:
             settings.META_APP_SECRET = req.meta_app_secret
+        if req.meta_posting_app_id:
+            settings.META_POSTING_APP_ID = req.meta_posting_app_id
+        if req.meta_posting_app_secret:
+            settings.META_POSTING_APP_SECRET = req.meta_posting_app_secret
         if req.ai_provider:
             settings.AI_PROVIDER = req.ai_provider
         if req.anthropic_api_key:
@@ -489,6 +520,7 @@ async def setup_status():
         "complete": _is_setup_complete(),
         "ai_provider": settings.AI_PROVIDER,
         "has_meta": bool(settings.META_APP_ID),
+        "has_posting_app": bool(settings.META_POSTING_APP_ID),
         "has_anthropic": bool(settings.ANTHROPIC_API_KEY),
         "has_openai": bool(settings.OPENAI_API_KEY),
         "has_groq": bool(settings.GROQ_API_KEY),
@@ -738,6 +770,113 @@ async def auth_google_callback(
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     return {"success": True}
+
+# ── Posting (Posts Manager) OAuth ─────────────────────────────────────────────
+
+META_POSTING_SCOPES = ",".join([
+    "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+    "instagram_basic", "instagram_content_publish",
+    "instagram_manage_insights", "instagram_manage_contents",
+    "publish_video",
+])
+
+@app.get("/auth/meta/posting")
+async def auth_meta_posting(request: Request, response: Response):
+    if not settings.META_POSTING_APP_ID:
+        return RedirectResponse("/?error=posting_app_not_configured")
+    state = generate_oauth_state()
+    response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
+    params = urllib.parse.urlencode({
+        "client_id": settings.META_POSTING_APP_ID,
+        "redirect_uri": settings.meta_posting_redirect_uri,
+        "scope": META_POSTING_SCOPES,
+        "response_type": "code",
+        "state": state,
+    })
+    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+
+
+@app.get("/auth/meta/posting/callback")
+async def auth_meta_posting_callback(
+    request: Request,
+    response: Response,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    if error:
+        return RedirectResponse(f"/?error={urllib.parse.quote(error)}")
+
+    expected_state = request.cookies.get("oauth_state_posting", "")
+    if not verify_oauth_state(state, expected_state):
+        return RedirectResponse("/?error=invalid_state")
+
+    short = await meta_api.exchange_code_for_token(
+        code, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET,
+        settings.meta_posting_redirect_uri
+    )
+    if not short.get("success"):
+        return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
+
+    short_token = short["data"].get("access_token", "")
+
+    long = await meta_api.exchange_for_long_lived_token(
+        short_token, settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET
+    )
+    if not long.get("success"):
+        return RedirectResponse("/?error=posting_long_token_failed")
+
+    long_token = long["data"].get("access_token", "")
+    expires_in = long["data"].get("expires_in", 5184000)
+
+    user = await meta_api.get_user_info(long_token)
+    if not user.get("success"):
+        return RedirectResponse("/?error=posting_user_info_failed")
+
+    uid = user["data"].get("id", "")
+    name = user["data"].get("name", "")
+    email = user["data"].get("email", "")
+
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == uid)
+    )
+    acc = result.scalar_one_or_none()
+    now = datetime.utcnow()
+    if acc:
+        acc.encrypted_short_token = encryption.encrypt(short_token)
+        acc.encrypted_long_token = encryption.encrypt(long_token)
+        acc.token_expiry = now + timedelta(seconds=expires_in)
+        acc.user_name = name
+        acc.user_email = email
+        acc.is_active = True
+        acc.last_used_at = now
+    else:
+        acc = ConnectedPostingAccount(
+            facebook_user_id=uid,
+            user_name=name,
+            user_email=email,
+            encrypted_short_token=encryption.encrypt(short_token),
+            encrypted_long_token=encryption.encrypt(long_token),
+            token_expiry=now + timedelta(seconds=expires_in),
+            created_at=now,
+            last_used_at=now,
+            is_active=True,
+        )
+        db.add(acc)
+    await db.commit()
+
+    # Merge into existing session so both ads + posting IDs coexist
+    existing = get_session(request)
+    session_data = {**dict(existing), "posting_user_id": uid}
+    session_token = create_session_token(session_data)
+    redirect = RedirectResponse("/?connected=posting")
+    redirect.set_cookie(
+        SESSION_COOKIE, session_token,
+        max_age=28800, httponly=True, samesite="lax"
+    )
+    redirect.delete_cookie("oauth_state_posting")
+    return redirect
 
 # ── Account API routes ─────────────────────────────────────────────────────────
 
