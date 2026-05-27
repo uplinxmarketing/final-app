@@ -111,24 +111,51 @@ async def lifespan(app: FastAPI):
                 ))
         await db.commit()
         break
-    # Auto-seed first admin user if no users exist
+    # Auto-seed / sync admin user on startup
     async for db in get_db():
-        res = await db.execute(select(User).limit(1))
-        if not res.scalar_one_or_none():
-            pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
-            admin = User(
-                username="admin",
-                hashed_password=_hash_password(pw),
-                role="admin",
-                interface_access="both",
-                is_active=True,
-            )
-            db.add(admin)
-            await db.commit()
-            if not settings.LOGIN_PASSWORD:
-                logger.warning("=== FIRST RUN: admin password = %s (save this!) ===", pw)
+        res = await db.execute(select(User).where(User.username == "admin").limit(1))
+        admin_user = res.scalar_one_or_none()
+
+        if settings.ADMIN_PASSWORD:
+            # ADMIN_PASSWORD env var is set — create or update the admin account
+            if admin_user:
+                admin_user.hashed_password = _hash_password(settings.ADMIN_PASSWORD)
+                admin_user.is_active = True
+                admin_user.role = "admin"
+                if settings.ADMIN_EMAIL:
+                    admin_user.email = settings.ADMIN_EMAIL
+                await db.commit()
+                logger.info("Admin account synced from ADMIN_PASSWORD env var")
             else:
-                logger.info("Auto-created admin user from LOGIN_PASSWORD")
+                admin_user = User(
+                    username="admin",
+                    email=settings.ADMIN_EMAIL or None,
+                    hashed_password=_hash_password(settings.ADMIN_PASSWORD),
+                    role="admin",
+                    interface_access="both",
+                    is_active=True,
+                )
+                db.add(admin_user)
+                await db.commit()
+                logger.info("Admin account created from ADMIN_PASSWORD env var")
+        elif not admin_user:
+            # No ADMIN_PASSWORD env var and no admin exists — seed with LOGIN_PASSWORD or random
+            res2 = await db.execute(select(User).limit(1))
+            if not res2.scalar_one_or_none():
+                pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
+                new_admin = User(
+                    username="admin",
+                    hashed_password=_hash_password(pw),
+                    role="admin",
+                    interface_access="both",
+                    is_active=True,
+                )
+                db.add(new_admin)
+                await db.commit()
+                if not settings.LOGIN_PASSWORD:
+                    logger.warning("=== FIRST RUN: admin password = %s — set ADMIN_PASSWORD env var! ===", pw)
+                else:
+                    logger.info("Auto-created admin from LOGIN_PASSWORD")
         break
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -629,6 +656,7 @@ async def do_logout(response: Response):
 class UserLoginRequest(BaseModel):
     username: str
     password: str
+    remember_me: bool = False
 
 class UserCreateRequest(BaseModel):
     username: str
@@ -664,7 +692,9 @@ async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSes
         "username": user.username,
     }
     token = create_session_token(session_data)
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=86400 * 30)
+    # remember_me=True → 30-day persistent cookie; False → session cookie (expires on browser close)
+    cookie_max_age = 86400 * 30 if req.remember_me else None
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=cookie_max_age)
     return {
         "user_id": user.id,
         "username": user.username,
