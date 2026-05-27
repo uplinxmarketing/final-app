@@ -241,22 +241,30 @@ a{color:inherit;text-decoration:none}
     </div>
 
     <!-- Stats row -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px">
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Total Users</div>
-        <div id="stat-total-users" style="font-size:28px;font-weight:800;color:var(--text-primary)">—</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:28px">
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">👥 Total Users</div>
+        <div id="stat-total-users" style="font-size:26px;font-weight:800;color:var(--text-primary)">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Active Users</div>
-        <div id="stat-active-users" style="font-size:28px;font-weight:800;color:#22c55e">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">✅ Active Users</div>
+        <div id="stat-active-users" style="font-size:26px;font-weight:800;color:#22c55e">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Ads Apps</div>
-        <div id="stat-ads-apps" style="font-size:28px;font-weight:800;color:#3b82f6">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📊 Ads Apps</div>
+        <div id="stat-ads-apps" style="font-size:26px;font-weight:800;color:#3b82f6">—</div>
       </div>
-      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Posting Apps</div>
-        <div id="stat-post-apps" style="font-size:28px;font-weight:800;color:#8b5cf6">—</div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📝 Post Apps</div>
+        <div id="stat-post-apps" style="font-size:26px;font-weight:800;color:#8b5cf6">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🏢 Clients</div>
+        <div id="stat-clients" style="font-size:26px;font-weight:800;color:#f59e0b">—</div>
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">📄 Pages Assigned</div>
+        <div id="stat-pages" style="font-size:26px;font-weight:800;color:#06b6d4">—</div>
       </div>
     </div>
 
@@ -3773,19 +3781,25 @@ async function loadAdminDashboard() {
 
 async function loadDashboardStats() {
   try {
-    const [usersRes, appsRes, statusRes] = await Promise.all([
+    const [usersRes, appsRes, statusRes, clientsRes] = await Promise.all([
       fetch('/api/users').then(r => r.json()),
       fetch('/api/meta-apps').then(r => r.json()),
       fetch('/api/setup/status').then(r => r.json()),
+      fetch('/api/clients').then(r => r.json()),
     ]);
     const activeUsers = usersRes.filter(u => u.is_active).length;
     const totalUsers = usersRes.length;
     const adsApps = appsRes.filter(a => a.app_type === 'ads').length;
     const postApps = appsRes.filter(a => a.app_type === 'posting').length;
+    const totalPages = usersRes.reduce((s, u) => s + (u.page_count || 0), 0);
     document.getElementById('stat-total-users').textContent = totalUsers;
     document.getElementById('stat-active-users').textContent = activeUsers;
     document.getElementById('stat-ads-apps').textContent = adsApps;
     document.getElementById('stat-post-apps').textContent = postApps;
+    const sc = document.getElementById('stat-clients');
+    if (sc) sc.textContent = Array.isArray(clientsRes) ? clientsRes.length : '—';
+    const sp = document.getElementById('stat-pages');
+    if (sp) sp.textContent = totalPages;
     const warn = document.getElementById('sqlite-warning-banner');
     if (warn) warn.style.display = statusRes.db_type === 'sqlite' ? 'block' : 'none';
   } catch(e) { console.warn('loadDashboardStats:', e); }
@@ -3815,16 +3829,18 @@ async function loadDashboardUsers() {
               <span style="font-size:11px;color:${statusColor}">${u.is_active ? 'Active' : 'Deactivated'}</span>
             </div>
           </div>
-          <div style="display:flex;gap:6px;flex-shrink:0">
+          <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
             <button id="upanel-btn-${u.id}" onclick="toggleUserPanel(${u.id})"
-              style="padding:6px 14px;border-radius:7px;border:1px solid var(--accent);background:var(--accent-soft,rgba(99,102,241,.08));color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Manage ▾</button>
+              style="padding:6px 13px;border-radius:7px;border:1px solid var(--accent);background:var(--accent-soft,rgba(99,102,241,.08));color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Edit ▾</button>
+            <button id="uperms-btn-${u.id}" onclick="togglePermsPanel(${u.id})"
+              style="padding:6px 13px;border-radius:7px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);color:#d97706;font-size:12px;font-weight:600;cursor:pointer">Permissions ▾</button>
             <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escHtml(u.username)}')"
-              style="padding:6px 14px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+              style="padding:6px 13px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
           </div>
         </div>
-        <!-- Per-user inline management panel -->
+        <!-- Per-user inline management panel (role/access + account) -->
         <div id="upanel-${u.id}" class="user-mgmt-panel" style="display:none;border-top:2px solid var(--accent);background:var(--bg-primary);padding:16px">
-          <div style="display:grid;grid-template-columns:160px 160px 1fr;gap:14px;align-items:start">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;max-width:520px">
             <!-- Role & Access -->
             <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
               <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px">🛡 Role & Access</div>
@@ -3860,15 +3876,22 @@ async function loadDashboardUsers() {
               <button onclick="savePanelAccount(${u.id})" style="width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">Save</button>
               <span id="up-acct-status-${u.id}" style="font-size:11px;display:block;margin-top:5px;text-align:center;min-height:14px"></span>
             </div>
-            <!-- Page Assignments -->
+          </div>
+        </div>
+        <!-- Permissions panel: pages + clients -->
+        <div id="uperms-${u.id}" class="user-perms-panel" style="display:none;border-top:2px solid #f59e0b;background:var(--bg-primary);padding:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+            <!-- Pages -->
             <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
-              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">📄 Page Assignments</div>
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">📄 Page Access
+                <span id="up-pcount-${u.id}" style="font-size:11px;font-weight:500;color:var(--text-dim);margin-left:4px">(${u.page_count||0})</span>
+              </div>
               <div id="up-pages-${u.id}" style="margin-bottom:10px;min-height:20px">
                 <span style="font-size:12px;color:var(--text-dim)">Loading…</span>
               </div>
               <div style="border-top:1px solid var(--border);padding-top:10px">
                 <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Assign New Page</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px">
                   <select id="up-app-${u.id}" class="form-input" style="font-size:11px" onchange="loadPanelPageOptions(${u.id})">
                     <option value="">Meta App…</option>
                   </select>
@@ -3877,13 +3900,28 @@ async function loadDashboardUsers() {
                     <option value="instagram">Instagram</option>
                   </select>
                 </div>
-                <select id="up-page-${u.id}" class="form-input" style="font-size:11px;margin-bottom:6px">
+                <select id="up-page-${u.id}" class="form-input" style="font-size:11px;margin-bottom:5px">
                   <option value="">Select page…</option>
                 </select>
-                <div style="display:flex;gap:6px;align-items:center">
-                  <button onclick="addPanelPage(${u.id})" style="flex:1;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Assign</button>
-                </div>
-                <span id="up-assign-status-${u.id}" style="font-size:11px;display:block;margin-top:5px;min-height:14px"></span>
+                <button onclick="addPanelPage(${u.id})" style="width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Assign Page</button>
+                <span id="up-assign-status-${u.id}" style="font-size:11px;display:block;margin-top:4px;min-height:14px"></span>
+              </div>
+            </div>
+            <!-- Clients -->
+            <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">🏢 Client Access
+                <span id="up-ccount-${u.id}" style="font-size:11px;font-weight:500;color:var(--text-dim);margin-left:4px">(${u.client_count||0})</span>
+              </div>
+              <div id="up-clients-${u.id}" style="margin-bottom:10px;min-height:20px">
+                <span style="font-size:12px;color:var(--text-dim)">Loading…</span>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:10px">
+                <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Assign Client</div>
+                <select id="up-client-sel-${u.id}" class="form-input" style="font-size:11px;margin-bottom:5px">
+                  <option value="">Select client…</option>
+                </select>
+                <button onclick="addPanelClient(${u.id})" style="width:100%;padding:7px;background:#f59e0b;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ Assign Client</button>
+                <span id="up-client-status-${u.id}" style="font-size:11px;display:block;margin-top:4px;min-height:14px"></span>
               </div>
             </div>
           </div>
@@ -3894,45 +3932,125 @@ async function loadDashboardUsers() {
 }
 
 let _panelApps = null;
+let _allClients = null;
+
+function _closeAllPanels() {
+  document.querySelectorAll('.user-mgmt-panel').forEach(p => {
+    p.style.display = 'none';
+    const btn = document.getElementById(p.id.replace('upanel-', 'upanel-btn-'));
+    if (btn) btn.textContent = 'Edit ▾';
+  });
+  document.querySelectorAll('.user-perms-panel').forEach(p => {
+    p.style.display = 'none';
+    const btn = document.getElementById(p.id.replace('uperms-', 'uperms-btn-'));
+    if (btn) btn.textContent = 'Permissions ▾';
+  });
+}
 
 async function toggleUserPanel(id) {
   const panel = document.getElementById(`upanel-${id}`);
   if (!panel) return;
   const isOpen = panel.style.display !== 'none';
-  // Close all open panels and reset their toggle buttons
-  document.querySelectorAll('.user-mgmt-panel').forEach(p => {
-    p.style.display = 'none';
-    const btnId = p.id.replace('upanel-', 'upanel-btn-');
-    const btn = document.getElementById(btnId);
-    if (btn) btn.textContent = 'Manage ▾';
-  });
+  _closeAllPanels();
   if (!isOpen) {
     panel.style.display = 'block';
     const btn = document.getElementById(`upanel-btn-${id}`);
-    if (btn) btn.textContent = 'Manage ▴';
+    if (btn) btn.textContent = 'Edit ▴';
     panel.scrollIntoView({behavior:'smooth', block:'nearest'});
-    await loadPanelData(id);
   }
 }
 
-async function loadPanelData(id) {
-  await refreshPanelPages(id);
-  if (!_panelApps) {
-    try {
-      const r = await fetch('/api/meta-apps');
-      _panelApps = r.ok ? await r.json() : [];
-    } catch(e) { _panelApps = []; }
-  }
-  const appSel = document.getElementById(`up-app-${id}`);
-  if (appSel && _panelApps.length) {
-    appSel.innerHTML = _panelApps.map(a =>
-      `<option value="${a.id}">${escHtml(a.name)} (${a.app_type})</option>`
-    ).join('');
-    await loadPanelPageOptions(id);
-  } else if (appSel) {
-    appSel.innerHTML = '<option value="">No apps configured</option>';
+async function togglePermsPanel(id) {
+  const panel = document.getElementById(`uperms-${id}`);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  _closeAllPanels();
+  if (!isOpen) {
+    panel.style.display = 'block';
+    const btn = document.getElementById(`uperms-btn-${id}`);
+    if (btn) btn.textContent = 'Permissions ▴';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    await loadPermsData(id);
   }
 }
+
+async function loadPermsData(id) {
+  await refreshPanelPages(id);
+  await refreshPanelClients(id);
+  // Load meta apps for page assign dropdown
+  if (!_panelApps) {
+    try { const r = await fetch('/api/meta-apps'); _panelApps = r.ok ? await r.json() : []; }
+    catch(e) { _panelApps = []; }
+  }
+  const appSel = document.getElementById(`up-app-${id}`);
+  if (appSel) {
+    appSel.innerHTML = _panelApps.length
+      ? _panelApps.map(a => `<option value="${a.id}">${escHtml(a.name)} (${a.app_type})</option>`).join('')
+      : '<option value="">No apps configured</option>';
+    if (_panelApps.length) await loadPanelPageOptions(id);
+  }
+  // Load clients for client assign dropdown
+  if (!_allClients) {
+    try { const r = await fetch('/api/clients'); _allClients = r.ok ? await r.json() : []; }
+    catch(e) { _allClients = []; }
+  }
+  const cSel = document.getElementById(`up-client-sel-${id}`);
+  if (cSel) {
+    cSel.innerHTML = _allClients.length
+      ? _allClients.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('')
+      : '<option value="">No clients available</option>';
+  }
+}
+
+async function refreshPanelClients(id) {
+  const el = document.getElementById(`up-clients-${id}`);
+  if (!el) return;
+  try {
+    const r = await fetch(`/api/users/${id}/clients`);
+    const clients = r.ok ? await r.json() : [];
+    const countEl = document.getElementById(`up-ccount-${id}`);
+    if (countEl) countEl.textContent = `(${clients.length})`;
+    if (!clients.length) { el.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No clients assigned</span>'; return; }
+    el.innerHTML = clients.map(c => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:500">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.color_tag||'#6c63ff'};margin-right:5px"></span>
+          ${escHtml(c.client_name)}
+        </span>
+        <button onclick="removePanelClient(${id},${c.id})" style="color:var(--error,#ef4444);background:transparent;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;line-height:1">✕</button>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<span style="font-size:12px;color:var(--error)">Failed to load</span>'; }
+}
+
+async function addPanelClient(id) {
+  const sel = document.getElementById(`up-client-sel-${id}`);
+  const st = document.getElementById(`up-client-status-${id}`);
+  const clientId = sel?.value;
+  if (!clientId) { st.textContent = '⚠ Select a client'; st.style.color = 'var(--error,#ef4444)'; return; }
+  st.textContent = 'Assigning…'; st.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}/clients`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({client_id:parseInt(clientId)}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail||'Failed');
+    st.textContent = '✓ Assigned'; st.style.color = 'var(--success,#2ecc71)';
+    setTimeout(()=>{ st.textContent=''; }, 2500);
+    refreshPanelClients(id);
+    loadDashboardStats();
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = 'var(--error,#ef4444)'; }
+}
+
+async function removePanelClient(userId, assignmentId) {
+  try {
+    await fetch(`/api/users/${userId}/clients/${assignmentId}`, {method:'DELETE'});
+    refreshPanelClients(userId);
+    loadDashboardStats();
+  } catch(e) { toast('Failed to remove client', 'error'); }
+}
+
+// loadPanelData: Manage panel only has role/account — no data to load
+async function loadPanelData(id) {}
 
 async function refreshPanelPages(id) {
   const el = document.getElementById(`up-pages-${id}`);
@@ -4030,7 +4148,7 @@ async function removePanelPage(userId, assignmentId) {
   try {
     await fetch(`/api/users/${userId}/pages/${assignmentId}`, {method:'DELETE'});
     refreshPanelPages(userId);
-    loadDashboardUsers();
+    loadDashboardStats();
   } catch(e) { toast('Failed to remove page', 'error'); }
 }
 
