@@ -608,6 +608,8 @@ async def save_user_settings(request: Request):
 
 @app.get("/api/setup/status")
 async def setup_status():
+    from database import DATABASE_URL as _db_url
+    db_type = "sqlite" if _db_url.startswith("sqlite") else "postgresql"
     return {
         "complete": _is_setup_complete(),
         "ai_provider": settings.AI_PROVIDER,
@@ -617,6 +619,7 @@ async def setup_status():
         "has_openai": bool(settings.OPENAI_API_KEY),
         "has_groq": bool(settings.GROQ_API_KEY),
         "has_google": bool(settings.GOOGLE_CLIENT_ID),
+        "db_type": db_type,
     }
 
 # ── Health & frontend ──────────────────────────────────────────────────────────

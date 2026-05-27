@@ -230,6 +230,12 @@ a{color:inherit;text-decoration:none}
   <!-- Body — scrollable -->
   <div style="flex:1;overflow-y:auto;padding:28px 28px 40px">
 
+    <!-- SQLite persistence warning (hidden by default, shown if db_type=sqlite) -->
+    <div id="sqlite-warning-banner" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:20px;color:#92400e;font-size:13px">
+      <strong>⚠ Data stored in SQLite (temporary)</strong> — Users and settings are saved to a local file that is wiped every time the app is redeployed on Render.<br>
+      To keep data permanently, set the <code style="background:#fde68a;padding:1px 5px;border-radius:4px">DATABASE_URL</code> environment variable on Render to a PostgreSQL connection string (e.g. from Supabase or Render's PostgreSQL add-on).
+    </div>
+
     <!-- Stats row -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px">
       <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:18px 20px">
@@ -253,7 +259,7 @@ a{color:inherit;text-decoration:none}
     <!-- Users section -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div style="font-size:16px;font-weight:700;color:var(--text-primary)">Team Members</div>
-      <button onclick="document.getElementById('dashboard-add-user-section').style.display='block';document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});openUserForm()"
+      <button onclick="openDashboardUserForm()"
         style="padding:8px 18px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">+ Add User</button>
     </div>
     <div id="dashboard-users-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">
@@ -262,29 +268,29 @@ a{color:inherit;text-decoration:none}
 
     <!-- Add / Edit user inline form -->
     <div id="dashboard-add-user-section" style="display:none;margin-bottom:28px;background:var(--bg-secondary);border:2px solid var(--accent);border-radius:12px;padding:22px">
-      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px" id="user-form-title-d">Add User</div>
-      <input type="hidden" id="user-form-id">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px" id="d-user-form-title">Add User</div>
+      <input type="hidden" id="d-user-form-id">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Username</label>
-          <input type="text" id="user-form-username" class="form-input" placeholder="jsmith" style="font-size:13px">
+          <input type="text" id="d-user-form-username" class="form-input" placeholder="jsmith" style="font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Email (optional)</label>
-          <input type="email" id="user-form-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
+          <input type="email" id="d-user-form-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Role</label>
-          <select id="user-form-role" class="form-input" style="font-size:13px">
+          <select id="d-user-form-role" class="form-input" style="font-size:13px">
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Interface Access</label>
-          <select id="user-form-access" class="form-input" style="font-size:13px">
+          <select id="d-user-form-access" class="form-input" style="font-size:13px">
             <option value="both">Ads + Posts</option>
             <option value="ads">Ads only</option>
             <option value="posting">Posts only</option>
@@ -292,14 +298,14 @@ a{color:inherit;text-decoration:none}
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
-          <input type="password" id="user-form-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
-          <div id="user-form-pw-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
+          <input type="password" id="d-user-form-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
+          <div id="d-user-form-pw-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button onclick="saveDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save</button>
         <button onclick="document.getElementById('dashboard-add-user-section').style.display='none'" style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Cancel</button>
-        <span id="user-form-status" style="font-size:12px;color:var(--text-dim)"></span>
+        <span id="d-user-form-status" style="font-size:12px;color:var(--text-dim)"></span>
       </div>
     </div>
 
@@ -1665,9 +1671,55 @@ function backToAdminDashboard() {
   showAdminDashboard();
 }
 
+function openDashboardUserForm() {
+  document.getElementById('d-user-form-id').value = '';
+  document.getElementById('d-user-form-title').textContent = 'Add User';
+  document.getElementById('d-user-form-username').value = '';
+  document.getElementById('d-user-form-username').disabled = false;
+  document.getElementById('d-user-form-email').value = '';
+  document.getElementById('d-user-form-role').value = 'user';
+  document.getElementById('d-user-form-access').value = 'both';
+  document.getElementById('d-user-form-password').value = '';
+  document.getElementById('d-user-form-pw-hint').textContent = '';
+  document.getElementById('d-user-form-status').textContent = '';
+  document.getElementById('dashboard-add-user-section').style.display = 'block';
+  document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});
+}
+
 async function saveDashboardUser() {
-  await saveUser();
-  setTimeout(() => { loadDashboardUsers(); loadDashboardStats(); }, 400);
+  const id = document.getElementById('d-user-form-id').value;
+  const username = document.getElementById('d-user-form-username').value.trim();
+  const email = document.getElementById('d-user-form-email').value.trim();
+  const role = document.getElementById('d-user-form-role').value;
+  const access = document.getElementById('d-user-form-access').value;
+  const password = document.getElementById('d-user-form-password').value;
+  const statusEl = document.getElementById('d-user-form-status');
+
+  if (!id && !username) { statusEl.textContent = '⚠ Username required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+  if (!id && !password) { statusEl.textContent = '⚠ Password required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    let r;
+    if (id) {
+      const body = { role, interface_access: access, email: email || null };
+      if (password) body.password = password;
+      r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+      r = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ username, password, email: email || null, role, interface_access: access }) });
+    }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { document.getElementById('dashboard-add-user-section').style.display = 'none'; }, 800);
+    loadDashboardUsers();
+    loadDashboardStats();
+    loadAdminUsers();
+    loadAdminPageAssignUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
 }
 
 async function loadInitialData() {
@@ -3685,19 +3737,21 @@ async function loadAdminDashboard() {
 
 async function loadDashboardStats() {
   try {
-    const [usersRes, appsRes] = await Promise.all([
+    const [usersRes, appsRes, statusRes] = await Promise.all([
       fetch('/api/users').then(r => r.json()),
       fetch('/api/meta-apps').then(r => r.json()),
+      fetch('/api/setup/status').then(r => r.json()),
     ]);
     const activeUsers = usersRes.filter(u => u.is_active).length;
     const totalUsers = usersRes.length;
-    const totalApps = appsRes.length;
     const adsApps = appsRes.filter(a => a.app_type === 'ads').length;
     const postApps = appsRes.filter(a => a.app_type === 'posting').length;
     document.getElementById('stat-total-users').textContent = totalUsers;
     document.getElementById('stat-active-users').textContent = activeUsers;
     document.getElementById('stat-ads-apps').textContent = adsApps;
     document.getElementById('stat-post-apps').textContent = postApps;
+    const warn = document.getElementById('sqlite-warning-banner');
+    if (warn) warn.style.display = statusRes.db_type === 'sqlite' ? 'block' : 'none';
   } catch(e) { console.warn('loadDashboardStats:', e); }
 }
 
@@ -3744,17 +3798,16 @@ async function loadDashboardUsers() {
 }
 
 function dashboardEditUser(id, username, email, role, access) {
-  openUserForm();
-  document.getElementById('user-form-id').value = id;
-  document.getElementById('user-form-title').textContent = 'Edit User';
-  document.getElementById('user-form-username').value = username;
-  document.getElementById('user-form-username').disabled = true;
-  document.getElementById('user-form-email').value = email;
-  document.getElementById('user-form-role').value = role;
-  document.getElementById('user-form-access').value = access;
-  document.getElementById('user-form-password').value = '';
-  document.getElementById('user-form-pw-hint').textContent = 'Leave blank to keep current password';
-  document.getElementById('user-form').style.display = 'block';
+  document.getElementById('d-user-form-id').value = id;
+  document.getElementById('d-user-form-title').textContent = 'Edit User';
+  document.getElementById('d-user-form-username').value = username;
+  document.getElementById('d-user-form-username').disabled = true;
+  document.getElementById('d-user-form-email').value = email || '';
+  document.getElementById('d-user-form-role').value = role;
+  document.getElementById('d-user-form-access').value = access;
+  document.getElementById('d-user-form-password').value = '';
+  document.getElementById('d-user-form-pw-hint').textContent = 'Leave blank to keep current password';
+  document.getElementById('d-user-form-status').textContent = '';
   document.getElementById('dashboard-add-user-section').style.display = 'block';
   document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
@@ -3781,8 +3834,7 @@ async function dashboardToggleActive(id, active, username) {
 }
 
 async function dashboardSaveUser() {
-  await saveUser();
-  setTimeout(loadDashboardUsers, 400);
+  await saveDashboardUser();
 }
 
 // Override saveUser to also refresh dashboard
