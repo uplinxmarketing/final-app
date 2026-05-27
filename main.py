@@ -247,7 +247,8 @@ async def session_middleware(request: Request, call_next):
     if (request.url.path in PUBLIC_PATHS
             or request.url.path.startswith("/static")
             or request.url.path.startswith("/frontend")
-            or request.url.path.startswith("/api/setup")):
+            or request.url.path.startswith("/api/setup")
+            or request.url.path.startswith("/api/auth/")):   # all auth endpoints are public
         return await call_next(request)
 
     token = request.cookies.get(SESSION_COOKIE)
@@ -263,10 +264,13 @@ async def session_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def login_guard(request: Request, call_next):
+    # The new per-user auth system uses /api/auth/* — always allow those through
+    # so both normal users and admins can log in regardless of LOGIN_PASSWORD setting
     if not settings.LOGIN_PASSWORD:
         return await call_next(request)
     path = request.url.path
     if (path in {"/login", "/api/login", "/api/logout", "/health"}
+            or path.startswith("/api/auth/")   # NEW: allow all per-user auth endpoints
             or path.startswith("/frontend/")
             or path.startswith("/static/")):
         return await call_next(request)
@@ -652,6 +656,7 @@ async def do_logout(response: Response):
 class UserLoginRequest(BaseModel):
     username: str
     password: str
+    remember_me: bool = False  # True → 30-day cookie; False → session cookie
 
 class UserCreateRequest(BaseModel):
     username: str
@@ -687,7 +692,9 @@ async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSes
         "username": user.username,
     }
     token = create_session_token(session_data)
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=86400 * 30)
+    # remember_me=True → 30-day persistent cookie; False → session cookie (clears on browser close)
+    cookie_max_age = 86400 * 30 if req.remember_me else None
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=cookie_max_age)
     return {
         "user_id": user.id,
         "username": user.username,
