@@ -714,8 +714,25 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
     await require_admin(request, db)
     result = await db.execute(select(User).order_by(User.created_at))
     users = result.scalars().all()
-    return [
-        {
+
+    # Collect assigned Meta app names per user for the admin overview
+    meta_apps_map: dict[int, str] = {}
+    all_apps_res = await db.execute(select(MetaApp).where(MetaApp.is_active == True))
+    for ma in all_apps_res.scalars().all():
+        meta_apps_map[ma.id] = ma.name
+
+    out = []
+    for u in users:
+        # Summarise page assignments for this user
+        pa_res = await db.execute(
+            select(UserPageAssignment).where(UserPageAssignment.user_id == u.id)
+        )
+        assignments = pa_res.scalars().all()
+        # Unique app names assigned to this user
+        assigned_app_ids = {a.meta_app_db_id for a in assignments if a.meta_app_db_id}
+        assigned_apps = [meta_apps_map.get(aid, f"App #{aid}") for aid in assigned_app_ids]
+        page_count = len(assignments)
+        out.append({
             "id": u.id,
             "username": u.username,
             "email": u.email,
@@ -723,9 +740,10 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
             "interface_access": u.interface_access,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat(),
-        }
-        for u in users
-    ]
+            "assigned_apps": assigned_apps,
+            "page_count": page_count,
+        })
+    return out
 
 
 @app.post("/api/users", status_code=201)
