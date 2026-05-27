@@ -171,6 +171,34 @@ class ConnectedPostingAccount(Base):
         )
 
 
+class MetaApp(Base):
+    """A Meta Developer App (App ID + encrypted App Secret) used for OAuth flows.
+
+    Both 'ads' apps (full ads_management scopes) and 'posting' apps
+    (page/instagram scopes only) are stored here.  Multiple apps of each
+    type are supported so teams can rotate credentials without downtime.
+    """
+    __tablename__ = "meta_apps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    """User-friendly label, e.g. 'Main Ads App'."""
+    app_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    """'ads' or 'posting'."""
+    app_id: Mapped[str] = mapped_column(String, nullable=False)
+    """Facebook App ID — public value, stored as plaintext."""
+    encrypted_app_secret: Mapped[str] = mapped_column(String, nullable=False)
+    """App Secret encrypted with the application Fernet key."""
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<MetaApp id={self.id} name={self.name!r} type={self.app_type!r}>"
+
+
 class ConnectedGoogleAccount(Base):
     """Stores OAuth credentials for a connected Google account."""
 
@@ -628,10 +656,20 @@ class ScheduledPost(Base):
 
 
 async def init_db() -> None:
-    """Create all database tables and enable WAL mode on startup."""
+    """Create all database tables, run schema migrations, and enable WAL mode on startup."""
     async with async_engine.begin() as conn:
         await _enable_wal(conn)
         await conn.run_sync(Base.metadata.create_all)
+        # Schema migrations for columns added after initial release
+        from sqlalchemy import text as _text
+        for _stmt in [
+            "ALTER TABLE connected_meta_accounts ADD COLUMN meta_app_db_id INTEGER",
+            "ALTER TABLE connected_posting_accounts ADD COLUMN meta_app_db_id INTEGER",
+        ]:
+            try:
+                await conn.execute(_text(_stmt))
+            except Exception:
+                pass  # column already exists — normal on subsequent starts
     logger.info("Database tables initialised.")
 
 
