@@ -52,7 +52,9 @@ _connect_args: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False, "timeout": 30}
 elif DATABASE_URL.startswith("postgresql"):
-    _connect_args = {"ssl": "require"}
+    # ssl=require needed for Supabase; statement_cache_size=0 required when
+    # connecting through Supabase's connection pooler (Supavisor)
+    _connect_args = {"ssl": "require", "statement_cache_size": 0}
 
 async_engine = create_async_engine(
     DATABASE_URL,
