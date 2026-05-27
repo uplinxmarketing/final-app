@@ -605,6 +605,53 @@ class QuickCommand(Base):
         return f"<QuickCommand id={self.id} trigger={self.trigger!r}>"
 
 
+class User(Base):
+    """An application user with role-based access control."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String(10), nullable=False, default="user")
+    """Role: 'admin' or 'user'."""
+    interface_access: Mapped[str] = mapped_column(String(10), nullable=False, default="both")
+    """Interface access: 'ads', 'posting', or 'both'."""
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<User id={self.id} username={self.username!r} role={self.role!r}>"
+
+
+class UserPageAssignment(Base):
+    """Links a user to a specific FB page or IG account they are allowed to access."""
+
+    __tablename__ = "user_page_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    page_id: Mapped[str] = mapped_column(String, nullable=False)
+    """FB page ID or IG account ID."""
+    page_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    """'facebook' or 'instagram'."""
+    meta_app_db_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    """FK to meta_apps.id (which app owns this page connection)."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserPageAssignment id={self.id} user_id={self.user_id} "
+            f"page_id={self.page_id!r} platform={self.platform!r}>"
+        )
+
+
 class ScheduledPost(Base):
     """A social media post scheduled for future publication."""
 
@@ -671,6 +718,7 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists — normal on subsequent starts
     logger.info("Database tables initialised.")
+    # Note: first admin user seeding is done in the app lifespan after init_db().
 
 
 # ---------------------------------------------------------------------------

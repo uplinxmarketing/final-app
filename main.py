@@ -26,13 +26,16 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from config import settings
+import base64 as _b64
+
 from database import (
     init_db, get_db,
     ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
     MetaApp,
     Client, ClientAdAccount, ClientInstagramAccount,
     Conversation, Message, ActiveContext,
-    Skill, QuickCommand, ScheduledPost, ImageCache
+    Skill, QuickCommand, ScheduledPost, ImageCache,
+    User, UserPageAssignment,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -55,6 +58,23 @@ from rate_limiter import api_tracker
 logger = setup_logging()
 encryption = FernetEncryption()
 agent = ClaudeAgent()
+
+# ── Password helpers ───────────────────────────────────────────────────────────
+
+def _hash_password(pw: str) -> str:
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac('sha256', pw.encode(), salt.encode(), 260_000)
+    return f"pbkdf2:sha256:260000${salt}${_b64.b64encode(dk).decode()}"
+
+
+def _verify_password(pw: str, hashed: str) -> bool:
+    try:
+        _, rest = hashed.split("pbkdf2:sha256:", 1)
+        iters_s, salt, dk_b64 = rest.split("$")
+        dk = hashlib.pbkdf2_hmac('sha256', pw.encode(), salt.encode(), int(iters_s))
+        return secrets.compare_digest(_b64.b64decode(dk_b64), dk)
+    except Exception:
+        return False
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +110,25 @@ async def lifespan(app: FastAPI):
                     sort_order=0,
                 ))
         await db.commit()
+        break
+    # Auto-seed first admin user if no users exist
+    async for db in get_db():
+        res = await db.execute(select(User).limit(1))
+        if not res.scalar_one_or_none():
+            pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
+            admin = User(
+                username="admin",
+                hashed_password=_hash_password(pw),
+                role="admin",
+                interface_access="both",
+                is_active=True,
+            )
+            db.add(admin)
+            await db.commit()
+            if not settings.LOGIN_PASSWORD:
+                logger.warning("=== FIRST RUN: admin password = %s (save this!) ===", pw)
+            else:
+                logger.info("Auto-created admin user from LOGIN_PASSWORD")
         break
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -171,7 +210,8 @@ PUBLIC_PATHS = {"/health", "/", "/auth/meta", "/auth/meta/callback",
                 "/auth/meta/posting", "/auth/meta/posting/callback",
                 "/auth/google", "/auth/google/callback", "/setup",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
-                "/login", "/api/login", "/api/logout"}
+                "/login", "/api/login", "/api/logout",
+                "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
 
 
 def _login_token() -> str:
@@ -582,6 +622,302 @@ async def do_login(req: LoginRequest, response: Response):
 async def do_logout(response: Response):
     response.delete_cookie(LOGIN_COOKIE)
     return {"success": True}
+
+
+# ── Per-user auth endpoints ────────────────────────────────────────────────────
+
+class UserLoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+    role: str = "user"
+    interface_access: str = "both"
+
+class UserUpdateRequest(BaseModel):
+    role: Optional[str] = None
+    interface_access: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+    email: Optional[str] = None
+
+class PageAssignmentRequest(BaseModel):
+    page_id: str
+    page_name: Optional[str] = None
+    platform: str  # 'facebook' or 'instagram'
+    meta_app_db_id: Optional[int] = None
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == req.username, User.is_active == True))
+    user = result.scalar_one_or_none()
+    if not user or not _verify_password(req.password, user.hashed_password):
+        raise HTTPException(401, "Invalid username or password")
+    session_data = {
+        "user_id": user.id,
+        "user_role": user.role,
+        "user_access": user.interface_access,
+        "username": user.username,
+    }
+    token = create_session_token(session_data)
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=86400 * 30)
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "interface_access": user.interface_access,
+    }
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(LOGIN_COOKIE)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+async def api_auth_me(request: Request, db: AsyncSession = Depends(get_db)):
+    token = request.cookies.get(SESSION_COOKIE)
+    session = verify_session_token(token) if token else None
+    if not session:
+        raise HTTPException(401, "Not authenticated")
+    user_id = session.get("user_id")
+    if not user_id:
+        raise HTTPException(401, "Not authenticated")
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(401, "User not found")
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "interface_access": user.interface_access,
+    }
+
+
+async def require_admin(request: Request, db: AsyncSession = Depends(get_db)):
+    session = get_session(request)
+    if session.get("user_role") != "admin":
+        raise HTTPException(403, "Admin access required")
+
+
+# ── User management endpoints (admin only) ────────────────────────────────────
+
+@app.get("/api/users")
+async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(select(User).order_by(User.created_at))
+    users = result.scalars().all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "role": u.role,
+            "interface_access": u.interface_access,
+            "is_active": u.is_active,
+            "created_at": u.created_at.isoformat(),
+        }
+        for u in users
+    ]
+
+
+@app.post("/api/users", status_code=201)
+async def api_create_user(req: UserCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    existing = await db.execute(select(User).where(User.username == req.username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Username already exists")
+    user = User(
+        username=req.username,
+        email=req.email,
+        hashed_password=_hash_password(req.password),
+        role=req.role,
+        interface_access=req.interface_access,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role, "interface_access": user.interface_access}
+
+
+@app.put("/api/users/{user_id}")
+async def api_update_user(user_id: int, req: UserUpdateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if req.role is not None:
+        user.role = req.role
+    if req.interface_access is not None:
+        user.interface_access = req.interface_access
+    if req.is_active is not None:
+        user.is_active = req.is_active
+    if req.password:
+        user.hashed_password = _hash_password(req.password)
+    if req.email is not None:
+        user.email = req.email
+    await db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/users/{user_id}")
+async def api_delete_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.is_active = False
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Page assignment endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/users/{user_id}/pages")
+async def api_get_user_pages(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    session = get_session(request)
+    # Admin can see anyone's pages; user can only see their own
+    if session.get("user_role") != "admin" and session.get("user_id") != user_id:
+        raise HTTPException(403, "Forbidden")
+    result = await db.execute(
+        select(UserPageAssignment).where(UserPageAssignment.user_id == user_id)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "page_id": r.page_id,
+            "page_name": r.page_name,
+            "platform": r.platform,
+            "meta_app_db_id": r.meta_app_db_id,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api/users/{user_id}/pages", status_code=201)
+async def api_assign_page(user_id: int, req: PageAssignmentRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    assignment = UserPageAssignment(
+        user_id=user_id,
+        page_id=req.page_id,
+        page_name=req.page_name,
+        platform=req.platform,
+        meta_app_db_id=req.meta_app_db_id,
+    )
+    db.add(assignment)
+    await db.commit()
+    await db.refresh(assignment)
+    return {"id": assignment.id}
+
+
+@app.delete("/api/users/{user_id}/pages/{assignment_id}")
+async def api_remove_page_assignment(user_id: int, assignment_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(
+        select(UserPageAssignment).where(
+            UserPageAssignment.id == assignment_id,
+            UserPageAssignment.user_id == user_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Assignment not found")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Meta app pages endpoint (for admin panel page assignments) ─────────────────
+
+@app.get("/api/meta-apps/{meta_app_id}/pages")
+async def api_get_app_pages(
+    meta_app_id: int,
+    platform: str = "facebook",
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return FB pages or IG accounts connected via a specific Meta app."""
+    result = await db.execute(
+        select(ConnectedMetaAccount).where(
+            ConnectedMetaAccount.meta_app_db_id == meta_app_id,
+            ConnectedMetaAccount.is_active == True,
+        )
+    )
+    accounts = result.scalars().all()
+
+    pages = []
+    for acc in accounts:
+        try:
+            token = encryption.decrypt(acc.encrypted_long_token)
+            if platform == "facebook":
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"https://graph.facebook.com/{settings.META_API_VERSION}/me/accounts",
+                        params={"access_token": token, "fields": "id,name,access_token"},
+                    )
+                    if r.status_code == 200:
+                        for p in r.json().get("data", []):
+                            if not any(x["id"] == p["id"] for x in pages):
+                                pages.append({"id": p["id"], "name": p.get("name", p["id"])})
+            else:  # instagram
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"https://graph.facebook.com/{settings.META_API_VERSION}/me/accounts",
+                        params={"access_token": token, "fields": "id,name,instagram_business_account"},
+                    )
+                    if r.status_code == 200:
+                        for p in r.json().get("data", []):
+                            ig = p.get("instagram_business_account")
+                            if ig and not any(x["id"] == ig["id"] for x in pages):
+                                pages.append({"id": ig["id"], "name": p.get("name", ig["id"])})
+        except Exception:
+            pass
+
+    result2 = await db.execute(
+        select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.meta_app_db_id == meta_app_id,
+            ConnectedPostingAccount.is_active == True,
+        )
+    )
+    posting_accounts = result2.scalars().all()
+    for acc in posting_accounts:
+        try:
+            token = encryption.decrypt(acc.encrypted_long_token)
+            if platform == "facebook":
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"https://graph.facebook.com/{settings.META_API_VERSION}/me/accounts",
+                        params={"access_token": token, "fields": "id,name"},
+                    )
+                    if r.status_code == 200:
+                        for p in r.json().get("data", []):
+                            if not any(x["id"] == p["id"] for x in pages):
+                                pages.append({"id": p["id"], "name": p.get("name", p["id"])})
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"https://graph.facebook.com/{settings.META_API_VERSION}/me/accounts",
+                        params={"access_token": token, "fields": "id,name,instagram_business_account"},
+                    )
+                    if r.status_code == 200:
+                        for p in r.json().get("data", []):
+                            ig = p.get("instagram_business_account")
+                            if ig and not any(x["id"] == ig["id"] for x in pages):
+                                pages.append({"id": ig["id"], "name": p.get("name", ig["id"])})
+        except Exception:
+            pass
+
+    return pages
 
 
 @app.get("/", response_class=HTMLResponse)
