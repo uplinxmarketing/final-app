@@ -3823,7 +3823,7 @@ async function loadDashboardUsers() {
           </div>
         </div>
         <!-- Per-user inline management panel -->
-        <div id="upanel-${u.id}" style="display:none;border-top:2px solid var(--accent);background:var(--bg-primary);padding:16px">
+        <div id="upanel-${u.id}" class="user-mgmt-panel" style="display:none;border-top:2px solid var(--accent);background:var(--bg-primary);padding:16px">
           <div style="display:grid;grid-template-columns:160px 160px 1fr;gap:14px;align-items:start">
             <!-- Role & Access -->
             <div style="background:var(--bg-secondary);border-radius:8px;padding:14px">
@@ -3900,9 +3900,9 @@ async function toggleUserPanel(id) {
   if (!panel) return;
   const isOpen = panel.style.display !== 'none';
   // Close all open panels and reset their toggle buttons
-  document.querySelectorAll('[id^="upanel-"]').forEach(p => {
+  document.querySelectorAll('.user-mgmt-panel').forEach(p => {
     p.style.display = 'none';
-    const btnId = 'upanel-btn-' + p.id.replace('upanel-', '');
+    const btnId = p.id.replace('upanel-', 'upanel-btn-');
     const btn = document.getElementById(btnId);
     if (btn) btn.textContent = 'Manage ▾';
   });
