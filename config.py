@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     """Shared team password. When set, a login screen is shown before the app.
     Leave blank to skip the login screen entirely."""
 
+    ADMIN_EMAIL: str = ""
+    """Email address for the built-in admin account. Set via env var to sync on startup."""
+
+    ADMIN_PASSWORD: str = ""
+    """If set, the built-in 'admin' account password is updated to this value on every startup.
+    Use this to set (or reset) the admin password via an environment variable."""
+
     ENCRYPTION_KEY: str = ""
     """Fernet symmetric encryption key (base-64 url-safe, 32 bytes).
 
