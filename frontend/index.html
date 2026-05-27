@@ -266,46 +266,95 @@ a{color:inherit;text-decoration:none}
       <div style="font-size:13px;color:var(--text-dim);padding:20px 0">Loading…</div>
     </div>
 
-    <!-- Add / Edit user inline form -->
+    <!-- ADD new user form -->
     <div id="dashboard-add-user-section" style="display:none;margin-bottom:28px;background:var(--bg-secondary);border:2px solid var(--accent);border-radius:12px;padding:22px">
-      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px" id="d-user-form-title">Add User</div>
-      <input type="hidden" id="d-user-form-id">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:16px">Add New User</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Username</label>
-          <input type="text" id="d-user-form-username" class="form-input" placeholder="jsmith" style="font-size:13px">
+          <input type="text" id="d-new-username" class="form-input" placeholder="jsmith" style="font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Email (optional)</label>
-          <input type="email" id="d-user-form-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
+          <input type="email" id="d-new-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
         <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
+          <input type="password" id="d-new-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
+        </div>
+        <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Role</label>
-          <select id="d-user-form-role" class="form-input" style="font-size:13px">
+          <select id="d-new-role" class="form-input" style="font-size:13px">
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Interface Access</label>
-          <select id="d-user-form-access" class="form-input" style="font-size:13px">
+          <select id="d-new-access" class="form-input" style="font-size:13px">
             <option value="both">Ads + Posts</option>
             <option value="ads">Ads only</option>
             <option value="posting">Posts only</option>
           </select>
         </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Password</label>
-          <input type="password" id="d-user-form-password" class="form-input" placeholder="••••••••" autocomplete="new-password" style="font-size:13px">
-          <div id="d-user-form-pw-hint" style="font-size:10px;color:var(--text-dim);margin-top:3px"></div>
-        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button onclick="saveDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save</button>
+        <button onclick="saveNewDashboardUser()" style="padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Create User</button>
         <button onclick="document.getElementById('dashboard-add-user-section').style.display='none'" style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Cancel</button>
-        <span id="d-user-form-status" style="font-size:12px;color:var(--text-dim)"></span>
+        <span id="d-new-status" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+    <!-- EDIT user — two separate panels side by side -->
+    <div id="dashboard-edit-user-section" style="display:none;margin-bottom:28px;gap:16px;flex-direction:column">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase">
+        Editing: <span id="d-edit-username-label" style="color:var(--accent);text-transform:none;font-size:13px;font-weight:700"></span>
+        <button onclick="closeDashboardEditUser()" style="float:right;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">✕ Close</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- Account Details -->
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:14px">🔐 Account Details</div>
+          <input type="hidden" id="d-acct-id">
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Email (optional)</label>
+            <input type="email" id="d-acct-email" class="form-input" placeholder="j@company.com" style="font-size:13px">
+          </div>
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">New Password</label>
+            <input type="password" id="d-acct-password" class="form-input" placeholder="Leave blank to keep current" autocomplete="new-password" style="font-size:13px">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="saveDashboardAccount()" style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Update Account</button>
+            <span id="d-acct-status" style="font-size:12px;color:var(--text-dim)"></span>
+          </div>
+        </div>
+        <!-- Role & Permissions -->
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:14px">🛡 Role & Permissions</div>
+          <input type="hidden" id="d-role-id">
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Role</label>
+            <select id="d-role-role" class="form-input" style="font-size:13px">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Interface Access</label>
+            <select id="d-role-access" class="form-input" style="font-size:13px">
+              <option value="both">Ads + Posts</option>
+              <option value="ads">Ads only</option>
+              <option value="posting">Posts only</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="saveDashboardPermissions()" style="padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Update Permissions</button>
+            <span id="d-role-status" style="font-size:12px;color:var(--text-dim)"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1672,55 +1721,88 @@ function backToAdminDashboard() {
 }
 
 function openDashboardUserForm() {
-  document.getElementById('d-user-form-id').value = '';
-  document.getElementById('d-user-form-title').textContent = 'Add User';
-  document.getElementById('d-user-form-username').value = '';
-  document.getElementById('d-user-form-username').disabled = false;
-  document.getElementById('d-user-form-email').value = '';
-  document.getElementById('d-user-form-role').value = 'user';
-  document.getElementById('d-user-form-access').value = 'both';
-  document.getElementById('d-user-form-password').value = '';
-  document.getElementById('d-user-form-pw-hint').textContent = '';
-  document.getElementById('d-user-form-status').textContent = '';
+  document.getElementById('d-new-username').value = '';
+  document.getElementById('d-new-email').value = '';
+  document.getElementById('d-new-password').value = '';
+  document.getElementById('d-new-role').value = 'user';
+  document.getElementById('d-new-access').value = 'both';
+  document.getElementById('d-new-status').textContent = '';
+  document.getElementById('dashboard-edit-user-section').style.display = 'none';
   document.getElementById('dashboard-add-user-section').style.display = 'block';
   document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});
 }
 
-async function saveDashboardUser() {
-  const id = document.getElementById('d-user-form-id').value;
-  const username = document.getElementById('d-user-form-username').value.trim();
-  const email = document.getElementById('d-user-form-email').value.trim();
-  const role = document.getElementById('d-user-form-role').value;
-  const access = document.getElementById('d-user-form-access').value;
-  const password = document.getElementById('d-user-form-password').value;
-  const statusEl = document.getElementById('d-user-form-status');
+async function saveNewDashboardUser() {
+  const username = document.getElementById('d-new-username').value.trim();
+  const email = document.getElementById('d-new-email').value.trim();
+  const password = document.getElementById('d-new-password').value;
+  const role = document.getElementById('d-new-role').value;
+  const access = document.getElementById('d-new-access').value;
+  const statusEl = document.getElementById('d-new-status');
 
-  if (!id && !username) { statusEl.textContent = '⚠ Username required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
-  if (!id && !password) { statusEl.textContent = '⚠ Password required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+  if (!username) { statusEl.textContent = '⚠ Username required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
+  if (!password) { statusEl.textContent = '⚠ Password required'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
 
-  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  statusEl.textContent = 'Creating…'; statusEl.style.color = 'var(--text-dim)';
   try {
-    let r;
-    if (id) {
-      const body = { role, interface_access: access, email: email || null };
-      if (password) body.password = password;
-      r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    } else {
-      r = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, password, email: email || null, role, interface_access: access }) });
-    }
+    const r = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username, password, email: email || null, role, interface_access: access }) });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Save failed');
-    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
-    setTimeout(() => { document.getElementById('dashboard-add-user-section').style.display = 'none'; }, 800);
-    loadDashboardUsers();
-    loadDashboardStats();
-    loadAdminUsers();
-    loadAdminPageAssignUsers();
+    if (!r.ok) throw new Error(d.detail || 'Failed to create user');
+    statusEl.textContent = '✓ User created'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { document.getElementById('dashboard-add-user-section').style.display = 'none'; }, 900);
+    loadDashboardUsers(); loadDashboardStats(); loadAdminUsers(); loadAdminPageAssignUsers();
   } catch(e) {
     statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
   }
 }
+
+async function saveDashboardAccount() {
+  const id = document.getElementById('d-acct-id').value;
+  const email = document.getElementById('d-acct-email').value.trim();
+  const password = document.getElementById('d-acct-password').value;
+  const statusEl = document.getElementById('d-acct-status');
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const body = { email: email || null };
+    if (password) body.password = password;
+    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    document.getElementById('d-acct-password').value = '';
+    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    loadDashboardUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
+}
+
+async function saveDashboardPermissions() {
+  const id = document.getElementById('d-role-id').value;
+  const role = document.getElementById('d-role-role').value;
+  const access = document.getElementById('d-role-access').value;
+  const statusEl = document.getElementById('d-role-status');
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ role, interface_access: access }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    loadDashboardUsers();
+  } catch(e) {
+    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
+  }
+}
+
+function closeDashboardEditUser() {
+  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+}
+
+// saveDashboardUser kept for backward compat (dashboardSaveUser calls it)
+async function saveDashboardUser() { await saveNewDashboardUser(); }
 
 async function loadInitialData() {
   _dashboardUnlocked = true;
@@ -3798,18 +3880,23 @@ async function loadDashboardUsers() {
 }
 
 function dashboardEditUser(id, username, email, role, access) {
-  document.getElementById('d-user-form-id').value = id;
-  document.getElementById('d-user-form-title').textContent = 'Edit User';
-  document.getElementById('d-user-form-username').value = username;
-  document.getElementById('d-user-form-username').disabled = true;
-  document.getElementById('d-user-form-email').value = email || '';
-  document.getElementById('d-user-form-role').value = role;
-  document.getElementById('d-user-form-access').value = access;
-  document.getElementById('d-user-form-password').value = '';
-  document.getElementById('d-user-form-pw-hint').textContent = 'Leave blank to keep current password';
-  document.getElementById('d-user-form-status').textContent = '';
-  document.getElementById('dashboard-add-user-section').style.display = 'block';
-  document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth', block:'nearest'});
+  // Account panel
+  document.getElementById('d-acct-id').value = id;
+  document.getElementById('d-acct-email').value = email || '';
+  document.getElementById('d-acct-password').value = '';
+  document.getElementById('d-acct-status').textContent = '';
+  // Role panel
+  document.getElementById('d-role-id').value = id;
+  document.getElementById('d-role-role').value = role;
+  document.getElementById('d-role-access').value = access;
+  document.getElementById('d-role-status').textContent = '';
+  // Username label
+  document.getElementById('d-edit-username-label').textContent = username;
+  // Hide add form, show edit section
+  document.getElementById('dashboard-add-user-section').style.display = 'none';
+  const editSec = document.getElementById('dashboard-edit-user-section');
+  editSec.style.display = 'flex';
+  editSec.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 async function dashboardManagePages(userId, username) {
