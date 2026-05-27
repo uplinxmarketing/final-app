@@ -556,13 +556,50 @@ a{color:inherit;text-decoration:none}
     </div>
 
     <!-- Posts sidebar content -->
-    <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:12px;gap:4px">
+    <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:12px;gap:0">
+
+      <!-- Posting account status -->
       <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">POSTING ACCOUNT</div>
-      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-dim)">Not connected</div>
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">FB PAGES</div>
-      <div id="posts-pages-list" style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px"></div>
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">INSTAGRAM</div>
-      <div id="posts-ig-list" style="display:flex;flex-direction:column;gap:3px"></div>
+      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text-dim)">Not connected</div>
+
+      <!-- AI Model Selector -->
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">AI MODEL</div>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <button onclick="selectProvider('claude')" id="posts-btn-claude" style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">Claude</button>
+        <button onclick="selectProvider('openai')" id="posts-btn-openai" style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">ChatGPT</button>
+        <button onclick="selectProvider('groq')"   id="posts-btn-groq"   style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">Groq</button>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;margin-bottom:5px">
+        <select id="posts-model-select" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:5px 6px;color:var(--text-primary);font-size:11px;cursor:pointer"></select>
+        <button onclick="applyProviderAndModel()" style="padding:5px 8px;border-radius:6px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;cursor:pointer;border:none;white-space:nowrap">Apply</button>
+      </div>
+      <div id="posts-provider-status" style="font-size:10px;color:var(--text-dim);margin-bottom:16px"></div>
+
+      <!-- AI Token Usage -->
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">AI TOKEN USAGE</div>
+      <div id="posts-ai-token-provider" style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px">—</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:4px">
+        <div style="background:var(--bg-primary);border-radius:5px;padding:5px 6px;text-align:center">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="posts-ai-token-in">0</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px">input</div>
+        </div>
+        <div style="background:var(--bg-primary);border-radius:5px;padding:5px 6px;text-align:center">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="posts-ai-token-out">0</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px">output</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:16px" id="posts-ai-token-total">0 tokens this session</div>
+
+      <!-- Meta API Calls -->
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">META API CALLS</div>
+      <div class="api-bar-wrap"><div class="api-bar" id="posts-api-bar" style="width:0%"></div></div>
+      <div class="api-count" id="posts-api-count">0 / 200</div>
+
+      <!-- Quick links -->
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:4px">
+        <button onclick="openModal('settings-modal')" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;text-align:left">⚙️ AI Settings &amp; API Keys</button>
+        <button onclick="openModal('connections-modal')" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;text-align:left">🔗 Connections</button>
+      </div>
     </div>
     <!-- Status indicators -->
     <div style="padding:8px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:5px">
@@ -2141,16 +2178,23 @@ async function applyUpdate() {
 // ── AI token usage ─────────────────────────────────────────────────────────
 const _aiTokens = { input: 0, output: 0 };
 
+function _setTextIfExists(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+
 function updateAiTokens(inputDelta, outputDelta, provider, model) {
   _aiTokens.input  += inputDelta;
   _aiTokens.output += outputDelta;
   const total = _aiTokens.input + _aiTokens.output;
-  document.getElementById('ai-token-in').textContent  = _aiTokens.input.toLocaleString();
-  document.getElementById('ai-token-out').textContent = _aiTokens.output.toLocaleString();
-  document.getElementById('ai-token-total').textContent = `${total.toLocaleString()} tokens this session`;
+  const totalStr = total.toLocaleString() + ' tokens this session';
+  _setTextIfExists('ai-token-in', _aiTokens.input.toLocaleString());
+  _setTextIfExists('ai-token-out', _aiTokens.output.toLocaleString());
+  _setTextIfExists('ai-token-total', totalStr);
+  _setTextIfExists('posts-ai-token-in', _aiTokens.input.toLocaleString());
+  _setTextIfExists('posts-ai-token-out', _aiTokens.output.toLocaleString());
+  _setTextIfExists('posts-ai-token-total', totalStr);
   if (provider && model) {
-    document.getElementById('ai-token-provider').textContent =
-      provider.charAt(0).toUpperCase() + provider.slice(1) + ' / ' + model;
+    const label = provider.charAt(0).toUpperCase() + provider.slice(1) + ' / ' + model;
+    _setTextIfExists('ai-token-provider', label);
+    _setTextIfExists('posts-ai-token-provider', label);
   }
 }
 
@@ -2158,12 +2202,12 @@ async function refreshAiUsage() {
   const data = await api('GET', '/api/ai-usage').catch(() => null);
   if (!data) return;
   if (data.provider && data.model) {
-    document.getElementById('ai-token-provider').textContent =
-      data.provider.charAt(0).toUpperCase() + data.provider.slice(1) + ' / ' + data.model;
+    const label = data.provider.charAt(0).toUpperCase() + data.provider.slice(1) + ' / ' + data.model;
+    _setTextIfExists('ai-token-provider', label);
+    _setTextIfExists('posts-ai-token-provider', label);
   }
   if (data.alltime_total) {
-    document.getElementById('ai-token-alltime').textContent =
-      `All-time: ${data.alltime_total.toLocaleString()} tokens`;
+    _setTextIfExists('ai-token-alltime', `All-time: ${data.alltime_total.toLocaleString()} tokens`);
   }
 }
 
@@ -2172,11 +2216,14 @@ async function refreshApiUsage() {
   const data = await api('GET', '/api/api-usage').catch(() => null);
   if (!data) return;
   const pct = Math.min(100, (data.calls_used / data.calls_limit) * 100);
+  const cls = 'api-bar' + (pct >= 85 ? ' danger' : pct >= 50 ? ' warn' : '');
+  const countStr = `${data.calls_used} / ${data.calls_limit} calls this hour`;
   const bar = document.getElementById('api-bar');
-  bar.style.width = pct + '%';
-  bar.className = 'api-bar' + (pct >= 85 ? ' danger' : pct >= 50 ? ' warn' : '');
-  document.getElementById('api-count').textContent =
-    `${data.calls_used} / ${data.calls_limit} calls this hour`;
+  if (bar) { bar.style.width = pct + '%'; bar.className = cls; }
+  _setTextIfExists('api-count', countStr);
+  const postsBar = document.getElementById('posts-api-bar');
+  if (postsBar) { postsBar.style.width = pct + '%'; postsBar.className = cls; }
+  _setTextIfExists('posts-api-count', `${data.calls_used} / ${data.calls_limit}`);
   const pause = document.getElementById('api-pause-msg');
   if (pause) pause.style.display = data.is_paused ? 'block' : 'none';
 }
@@ -2451,10 +2498,9 @@ async function selectProvider(p) {
   }
   _selectedProvider = p;
   const opts = (PROVIDER_MODELS[p] || []).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
-  const sel = document.getElementById('model-select');
-  if (sel) sel.innerHTML = opts;
-  const panelSel = document.getElementById('panel-model-select');
-  if (panelSel) panelSel.innerHTML = opts;
+  ['model-select', 'panel-model-select', 'posts-model-select'].forEach(id => {
+    const sel = document.getElementById(id); if (sel) sel.innerHTML = opts;
+  });
   highlightProviderBtn(p);
   await applyProviderAndModel();
 }
@@ -2463,7 +2509,7 @@ function highlightProviderBtn(provider) {
   ['claude','openai','groq'].forEach(p => {
     const accent = p === provider;
     const avail = _providerAvailable[p];
-    const ids = ['btn-' + p, 'panel-btn-' + p];
+    const ids = ['btn-' + p, 'panel-btn-' + p, 'posts-btn-' + p];
     ids.forEach(id => {
       const btn = document.getElementById(id);
       if (!btn) return;
@@ -2487,19 +2533,21 @@ function highlightProviderBtn(provider) {
 }
 
 async function applyProviderAndModel() {
-  // Prefer panel select (always visible), fall back to modal select
+  // Prefer panel select or posts-sidebar select (always visible), fall back to modal select
   const panelSel = document.getElementById('panel-model-select');
+  const postsSel = document.getElementById('posts-model-select');
   const modalSel = document.getElementById('model-select');
-  const model = (panelSel && panelSel.value) ? panelSel.value : (modalSel ? modalSel.value : '');
+  const model = (panelSel && panelSel.value) ? panelSel.value
+              : (postsSel && postsSel.value) ? postsSel.value
+              : (modalSel ? modalSel.value : '');
   const providerName = _selectedProvider === 'claude' ? 'Claude' : _selectedProvider === 'openai' ? 'ChatGPT' : 'Groq';
   try {
     const d = await api('POST', '/api/ai-provider/switch', { provider: _selectedProvider, model });
     if (!d) return;
     const status = `✓ Active: ${providerName} — ${d.model}`;
-    const el = document.getElementById('provider-status');
-    if (el) el.textContent = status;
-    const pel = document.getElementById('panel-provider-status');
-    if (pel) pel.textContent = status;
+    _setTextIfExists('provider-status', status);
+    _setTextIfExists('panel-provider-status', status);
+    _setTextIfExists('posts-provider-status', status);
     updateStatusIndicators();
     toast(`Switched to ${providerName} (${d.model})`, 'success');
   } catch(e) {
@@ -2516,21 +2564,19 @@ async function loadProviderStatus() {
     highlightProviderBtn(d.provider);
 
     let status;
+    const selIds = ['model-select', 'panel-model-select', 'posts-model-select'];
     if (d.provider === 'none') {
       status = 'No AI connected — add an API key in Settings';
-      [document.getElementById('model-select'), document.getElementById('panel-model-select')]
-        .forEach(sel => { if (sel) sel.innerHTML = '<option>— no key configured —</option>'; });
+      selIds.forEach(id => { const sel = document.getElementById(id); if (sel) sel.innerHTML = '<option>— no key configured —</option>'; });
     } else {
       const opts = (PROVIDER_MODELS[d.provider] || []).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
-      [document.getElementById('model-select'), document.getElementById('panel-model-select')]
-        .forEach(sel => { if (sel) { sel.innerHTML = opts; sel.value = d.model; } });
+      selIds.forEach(id => { const sel = document.getElementById(id); if (sel) { sel.innerHTML = opts; sel.value = d.model; } });
       const providerName = d.provider === 'claude' ? 'Claude' : d.provider === 'openai' ? 'ChatGPT' : 'Groq';
       status = `Active: ${providerName} — ${d.model}`;
     }
-    const el = document.getElementById('provider-status');
-    if (el) el.textContent = status;
-    const pel = document.getElementById('panel-provider-status');
-    if (pel) pel.textContent = status;
+    _setTextIfExists('provider-status', status);
+    _setTextIfExists('panel-provider-status', status);
+    _setTextIfExists('posts-provider-status', status);
   } catch(e) {}
 }
 
