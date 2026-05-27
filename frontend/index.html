@@ -646,97 +646,134 @@ a{color:inherit;text-decoration:none}
   </main>
 
   <!-- POSTS MANAGER MAIN AREA -->
-  <div id="posts-main" style="display:none;flex:1;flex-direction:column;overflow:hidden;background:var(--bg-secondary)">
+  <div id="posts-main" style="display:none;flex:1;overflow:hidden;background:var(--bg-secondary)">
 
-    <!-- Connect banner -->
-    <div id="posts-connect-banner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:16px;padding:40px;text-align:center">
-      <div style="width:56px;height:56px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(220,38,38,0.25);font-size:26px">📝</div>
-      <h2 style="margin:0;color:var(--text-primary)">Posts Manager</h2>
-      <p style="color:var(--text-secondary);max-width:380px;line-height:1.6;margin:0">Connect a separate Meta app with Page and Instagram permissions to manage your posts.</p>
-      <button onclick="openPostingConnectModal()" style="padding:11px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔗 Connect Posting Account</button>
+    <!-- Left Panel: Pages / Clients -->
+    <div id="posts-pages-panel" style="width:220px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg-primary);display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">CLIENTS &amp; PAGES</div>
+        <button onclick="openPostingConnectModal()" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Connect Account</button>
+      </div>
+      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:6px">
+        <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading pages…</div>
+      </div>
     </div>
 
-    <!-- Composer (shown when connected) -->
-    <div id="posts-composer" style="display:none;flex:1;flex-direction:column;overflow:hidden">
-      <!-- Header -->
-      <div style="padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg-primary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-        <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary)">📝 Create Post</div>
-          <div id="posts-account-label" style="font-size:11px;color:var(--text-dim);margin-top:2px">—</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="loadPostsScheduled()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">📅 Scheduled</button>
-          <button onclick="openPostingConnectModal()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">🔗 Accounts</button>
-        </div>
+    <!-- Workspace -->
+    <div id="posts-workspace" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+
+      <!-- State: no posting account connected -->
+      <div id="posts-connect-banner" style="display:none;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:16px;padding:40px;text-align:center">
+        <div style="width:56px;height:56px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(220,38,38,0.25);font-size:26px">📝</div>
+        <h2 style="margin:0;color:var(--text-primary)">Posts Manager</h2>
+        <p style="color:var(--text-secondary);max-width:380px;line-height:1.6;margin:0">Connect a Meta app with Page and Instagram permissions to manage posts and view your scheduling calendar.</p>
+        <button onclick="openPostingConnectModal()" style="padding:11px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔗 Connect Posting Account</button>
       </div>
-      <!-- Platform tabs -->
-      <div style="padding:10px 20px;display:flex;gap:8px;border-bottom:1px solid var(--border);background:var(--bg-primary);flex-shrink:0">
-        <button id="ptab-facebook" onclick="selectPostPlatform('facebook')"
-          style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">
-          📘 Facebook Page
-        </button>
-        <button id="ptab-instagram" onclick="selectPostPlatform('instagram')"
-          style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">
-          📷 Instagram
-        </button>
+
+      <!-- State: connected, no page selected -->
+      <div id="posts-no-page-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:12px;text-align:center;padding:40px">
+        <div style="font-size:40px">📋</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text-primary)">Select a Page</div>
+        <div style="font-size:13px;color:var(--text-secondary);max-width:300px;line-height:1.5">Choose a Facebook Page or Instagram account from the left panel to view the calendar and compose posts.</div>
       </div>
-      <!-- Body -->
-      <div style="flex:1;overflow-y:auto;padding:20px">
-        <div style="max-width:620px;margin:0 auto">
-          <!-- Account selector -->
-          <div style="margin-bottom:14px">
-            <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
-            <select id="posts-target-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px">
-              <option value="">— Select —</option>
-            </select>
-          </div>
-          <!-- Caption -->
-          <div style="margin-bottom:14px">
-            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
-            <textarea id="post-caption" rows="5" placeholder="Write your caption…"
-              style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:14px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box;line-height:1.5"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
-          </div>
-          <!-- Media URL -->
-          <div style="margin-bottom:14px">
-            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Media URL <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(optional — leave blank for text-only)</span></label>
-            <input type="text" id="post-media-url" placeholder="https://…"
-              style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-          </div>
-          <!-- Post type (Instagram only) -->
-          <div id="post-type-row" style="margin-bottom:14px;display:none">
-            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Post type</label>
-            <div style="display:flex;gap:6px">
-              <button id="ptype-image" onclick="selectPostType('IMAGE')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">🖼️ Image</button>
-              <button id="ptype-reels" onclick="selectPostType('REELS')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">🎬 Reel</button>
-              <button id="ptype-stories" onclick="selectPostType('STORIES')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">✨ Story</button>
+
+      <!-- State: page selected — full interface -->
+      <div id="posts-page-content" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+        <!-- Header -->
+        <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-primary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="posts-selected-page-icon" style="font-size:18px">📘</span>
+            <div>
+              <div id="posts-selected-page-name" style="font-size:14px;font-weight:700;color:var(--text-primary)">Page</div>
+              <div id="posts-account-label" style="font-size:11px;color:var(--text-dim)">—</div>
             </div>
           </div>
-          <!-- Schedule -->
-          <div style="margin-bottom:20px">
-            <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Schedule <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(leave blank = publish now)</span></label>
-            <input type="datetime-local" id="post-schedule-time"
-              style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+          <div style="display:flex;gap:6px;align-items:center">
+            <button id="ptab-btn-calendar" onclick="switchPostsTab('calendar')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">📅 Calendar</button>
+            <button id="ptab-btn-compose" onclick="switchPostsTab('compose')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">✏️ Compose</button>
+            <button id="ptab-btn-feed" onclick="switchPostsTab('feed')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">📰 Feed</button>
+            <button onclick="openPostingConnectModal()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer" title="Manage accounts">⚙️</button>
           </div>
-          <!-- Actions -->
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px">
-            <button onclick="submitPost()" id="post-submit-btn"
-              style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">
-              🚀 Publish / Schedule
-            </button>
-            <button onclick="clearPostComposer()" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Clear</button>
-            <span id="post-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
+        </div>
+
+        <!-- Tab: Calendar -->
+        <div id="posts-tab-calendar" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0">
+            <button onclick="changeCalendarMonth(-1)" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">← Prev</button>
+            <div id="calendar-month-label" style="font-size:15px;font-weight:700;color:var(--text-primary)">Month</div>
+            <button onclick="changeCalendarMonth(1)" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">Next →</button>
           </div>
-          <!-- Scheduled posts list -->
-          <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">SCHEDULED POSTS</div>
-          <div id="posts-recent-list" style="display:flex;flex-direction:column;gap:8px">
-            <div style="font-size:13px;color:var(--text-dim)">No scheduled posts yet.</div>
+          <div style="display:flex;gap:16px;margin-bottom:10px;font-size:11px;color:var(--text-dim);flex-shrink:0">
+            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:4px;vertical-align:middle"></span>Published</span>
+            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:4px;vertical-align:middle"></span>Scheduled</span>
+          </div>
+          <div id="calendar-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;flex-shrink:0"></div>
+          <div id="calendar-day-detail" style="display:none;margin-top:16px;padding:14px;background:var(--bg-primary);border-radius:10px;border:1px solid var(--border)">
+            <div id="calendar-day-detail-title" style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px"></div>
+            <div id="calendar-day-detail-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
+
+        <!-- Tab: Compose -->
+        <div id="posts-tab-compose" style="display:none;flex:1;overflow-y:auto;padding:20px">
+          <div style="max-width:620px;margin:0 auto">
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button id="ptab-facebook" onclick="selectPostPlatform('facebook')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">📘 Facebook Page</button>
+              <button id="ptab-instagram" onclick="selectPostPlatform('instagram')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">📷 Instagram</button>
+            </div>
+            <div style="margin-bottom:14px">
+              <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
+              <select id="posts-target-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
+              <textarea id="post-caption" rows="5" placeholder="Write your caption…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:14px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box;line-height:1.5" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+            </div>
+            <div style="margin-bottom:14px">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Media URL <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(optional)</span></label>
+              <input type="text" id="post-media-url" placeholder="https://…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            </div>
+            <div id="post-type-row" style="margin-bottom:14px;display:none">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Post type</label>
+              <div style="display:flex;gap:6px">
+                <button id="ptype-image" onclick="selectPostType('IMAGE')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">🖼️ Image</button>
+                <button id="ptype-reels" onclick="selectPostType('REELS')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">🎬 Reel</button>
+                <button id="ptype-stories" onclick="selectPostType('STORIES')" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">✨ Story</button>
+              </div>
+            </div>
+            <div style="margin-bottom:20px">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Schedule <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(leave blank = publish now)</span></label>
+              <input type="datetime-local" id="post-schedule-time" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px">
+              <button onclick="submitPost()" id="post-submit-btn" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish / Schedule</button>
+              <button onclick="clearPostComposer()" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Clear</button>
+              <span id="post-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
+            </div>
+            <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">SCHEDULED POSTS</div>
+            <div id="posts-recent-list" style="display:flex;flex-direction:column;gap:8px">
+              <div style="font-size:13px;color:var(--text-dim)">No scheduled posts yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Feed -->
+        <div id="posts-tab-feed" style="display:none;flex:1;overflow-y:auto;padding:20px">
+          <div style="max-width:620px;margin:0 auto">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Published Posts</div>
+              <button onclick="loadFeed()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">🔄 Refresh</button>
+            </div>
+            <div id="posts-feed-list" style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:13px;color:var(--text-dim)">Loading feed…</div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+    </div><!-- end posts-workspace -->
   </div>
 
   <!-- RIGHT CONTEXT PANEL -->
@@ -2659,92 +2696,161 @@ init();
 
 // ── Posts Manager ──────────────────────────────────────────────────────────
 
-let _activeInterface = null; // null = selector shown; 'ads' | 'posts'
+let _activeInterface = null;
 let _postPlatform = 'facebook';
 let _postType = 'IMAGE';
 let _postingConnected = false;
 let _postingPages = [];
 let _postingIgAccounts = [];
+let _myPostingPagesMap = {};
+let _selectedPostPage = null;
+let _postTab = 'calendar';
+let _calYear = new Date().getFullYear();
+let _calMonth = new Date().getMonth() + 1;
+let _calData = {};
+const _MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function showInterfaceSelector() {
   const sel = document.getElementById('interface-selector');
-  if (sel) { sel.style.display = 'flex'; }
+  if (sel) sel.style.display = 'flex';
 }
 
 function enterInterface(iface) {
   _activeInterface = iface;
   const isAds = iface === 'ads';
-
-  // Hide selector
   const sel = document.getElementById('interface-selector');
   if (sel) sel.style.display = 'none';
-
-  // Update mode label in sidebar
   const label = document.getElementById('interface-mode-label');
   if (label) label.textContent = isAds ? '📊 Ad Uploads' : '📝 Post Upload';
-
-  // Sidebar panels
   const adsSide = document.getElementById('ads-sidebar-content');
   const postsSide = document.getElementById('posts-sidebar-content');
   if (adsSide) adsSide.style.display = isAds ? 'flex' : 'none';
-  if (postsSide) { postsSide.style.display = isAds ? 'none' : 'flex'; }
-
-  // Main panels
+  if (postsSide) postsSide.style.display = isAds ? 'none' : 'flex';
   const chatArea = document.getElementById('chat-area');
   const postsMain = document.getElementById('posts-main');
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
-  if (postsMain) postsMain.style.display = isAds ? 'none' : 'flex';
-
-  // Right context panel — only for ads
+  if (postsMain) { postsMain.style.display = isAds ? 'none' : 'flex'; }
   const aside = document.getElementById('context-panel');
   if (aside) aside.style.display = isAds ? '' : 'none';
-
   if (!isAds) loadPostingInterface();
 }
 
-// Legacy alias
 function switchInterface(iface) { enterInterface(iface); }
 
 async function loadPostingInterface() {
+  loadMyPostingPages();
   try {
     const accounts = await fetch('/api/accounts/posting').then(r => r.json());
     if (!Array.isArray(accounts) || accounts.length === 0) {
-      showPostsConnect(); return;
+      showPostsWorkspace('connect'); return;
     }
     _postingConnected = true;
     const current = accounts.find(a => a.is_current) || accounts[0];
     const label = document.getElementById('posts-account-label');
     if (label) label.textContent = `Connected as ${current.user_name || current.facebook_user_id}`;
     updatePostingAccountStatus(current);
-    const banner = document.getElementById('posts-connect-banner');
-    const composer = document.getElementById('posts-composer');
-    if (banner) banner.style.display = 'none';
-    if (composer) { composer.style.display = 'flex'; composer.style.flexDirection = 'column'; }
     await loadPostingPagesAndIG();
+    showPostsWorkspace(_selectedPostPage ? 'content' : 'no-page');
   } catch(e) {
-    showPostsConnect();
+    showPostsWorkspace('connect');
   }
+}
+
+function showPostsWorkspace(state) {
+  const banner = document.getElementById('posts-connect-banner');
+  const noPage = document.getElementById('posts-no-page-state');
+  const content = document.getElementById('posts-page-content');
+  if (banner) banner.style.display = state === 'connect' ? 'flex' : 'none';
+  if (noPage) noPage.style.display = state === 'no-page' ? 'flex' : 'none';
+  if (content) { content.style.display = state === 'content' ? 'flex' : 'none'; if (state === 'content') content.style.flexDirection = 'column'; }
 }
 
 function showPostsConnect() {
   _postingConnected = false;
-  const banner = document.getElementById('posts-connect-banner');
-  const composer = document.getElementById('posts-composer');
-  if (banner) { banner.style.display = 'flex'; banner.style.flexDirection = 'column'; }
-  if (composer) composer.style.display = 'none';
+  showPostsWorkspace('connect');
   updatePostingAccountStatus(null);
 }
 
 function updatePostingAccountStatus(account) {
   const el = document.getElementById('posts-account-status');
   if (!el) return;
-  if (!account) {
-    el.innerHTML = 'Not connected';
-    el.style.color = 'var(--text-dim)';
-    return;
-  }
+  if (!account) { el.innerHTML = 'Not connected'; el.style.color = 'var(--text-dim)'; return; }
   el.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:6px;vertical-align:middle"></span><strong>${account.user_name || 'Connected'}</strong>`;
   el.style.color = 'var(--text-primary)';
+}
+
+async function loadMyPostingPages() {
+  const listEl = document.getElementById('posts-client-list');
+  if (!listEl) return;
+  try {
+    const pages = await fetch('/api/posting/my-pages').then(r => r.ok ? r.json() : []);
+    _myPostingPagesMap = {};
+    if (!pages || !pages.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">No pages assigned yet.<br><span style="font-size:11px">Ask your admin to assign pages.</span></div>';
+      return;
+    }
+    pages.forEach(p => { _myPostingPagesMap[p.id] = p; });
+    listEl.innerHTML = pages.map(p => {
+      const icon = p.platform === 'instagram' ? '📷' : '📘';
+      const isSelected = _selectedPostPage && _selectedPostPage.id === p.id;
+      return `<div id="page-item-${p.id}" onclick="selectPostPageById('${p.id}')"
+        style="padding:8px 10px;border-radius:7px;cursor:pointer;margin-bottom:2px;background:${isSelected ? 'rgba(220,38,38,0.1)' : 'transparent'};border:1px solid ${isSelected ? 'var(--accent)' : 'transparent'};transition:background 0.12s">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:14px;flex-shrink:0">${icon}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--text-primary);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name || p.id}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;padding-left:21px">${p.platform === 'instagram' ? 'Instagram' : 'Facebook Page'}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Error loading pages.</div>';
+  }
+}
+
+function selectPostPageById(id) {
+  const page = _myPostingPagesMap[id];
+  if (page) selectPostPage(page);
+}
+
+function selectPostPage(page) {
+  _selectedPostPage = page;
+  const icon = page.platform === 'instagram' ? '📷' : '📘';
+  const iconEl = document.getElementById('posts-selected-page-icon');
+  const nameEl = document.getElementById('posts-selected-page-name');
+  if (iconEl) iconEl.textContent = icon;
+  if (nameEl) nameEl.textContent = page.name || page.id;
+  document.querySelectorAll('[id^="page-item-"]').forEach(el => {
+    const isThis = el.id === `page-item-${page.id}`;
+    el.style.background = isThis ? 'rgba(220,38,38,0.1)' : 'transparent';
+    el.style.borderColor = isThis ? 'var(--accent)' : 'transparent';
+  });
+  if (_postingConnected) {
+    showPostsWorkspace('content');
+    selectPostPlatform(page.platform || 'facebook');
+    const sel = document.getElementById('posts-target-select');
+    if (sel) sel.value = page.id;
+    switchPostsTab(_postTab);
+  } else {
+    showPostsWorkspace('connect');
+  }
+}
+
+function switchPostsTab(tab) {
+  _postTab = tab;
+  ['calendar','compose','feed'].forEach(t => {
+    const btn = document.getElementById(`ptab-btn-${t}`);
+    const panel = document.getElementById(`posts-tab-${t}`);
+    const active = t === tab;
+    if (btn) {
+      btn.style.background = active ? 'var(--accent)' : 'transparent';
+      btn.style.color = active ? '#fff' : 'var(--text-secondary)';
+      btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+    }
+    if (panel) { panel.style.display = active ? 'flex' : 'none'; if (active) panel.style.flexDirection = 'column'; }
+  });
+  if (tab === 'calendar') loadCalendar();
+  else if (tab === 'feed') loadFeed();
+  else if (tab === 'compose') loadPostsScheduled();
 }
 
 async function loadPostingPagesAndIG() {
@@ -2757,7 +2863,7 @@ async function loadPostingPagesAndIG() {
     _postingIgAccounts = Array.isArray(igAccounts) ? igAccounts : [];
     renderPostingsSidebar();
     populatePostTargetSelect();
-    loadPostsScheduled();
+    await loadMyPostingPages();
   } catch(e) { console.warn('loadPostingPagesAndIG:', e); }
 }
 
@@ -2785,6 +2891,7 @@ function populatePostTargetSelect() {
     o.textContent = _postPlatform === 'facebook' ? (p.name||p.id) : `@${p.username||p.name}`;
     sel.appendChild(o);
   });
+  if (_selectedPostPage) sel.value = _selectedPostPage.id;
 }
 
 function selectPostPlatform(platform) {
@@ -2816,15 +2923,152 @@ function selectPostType(type) {
 }
 
 function selectPostingPage(pageId) {
-  selectPostPlatform('facebook');
-  const sel = document.getElementById('posts-target-select');
-  if (sel) sel.value = pageId;
+  const page = _postingPages.find(p => p.id === pageId);
+  if (page) { selectPostPage({id: page.id, name: page.name, platform: 'facebook'}); }
+  else { selectPostPlatform('facebook'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = pageId; }
 }
 
 function selectPostingIG(igId) {
-  selectPostPlatform('instagram');
-  const sel = document.getElementById('posts-target-select');
-  if (sel) sel.value = igId;
+  const acc = _postingIgAccounts.find(a => a.id === igId);
+  if (acc) { selectPostPage({id: acc.id, name: acc.name || acc.username, platform: 'instagram'}); }
+  else { selectPostPlatform('instagram'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = igId; }
+}
+
+// ── Calendar ────────────────────────────────────────────────────────────────
+
+async function loadCalendar() {
+  if (!_selectedPostPage) return;
+  const label = document.getElementById('calendar-month-label');
+  if (label) label.textContent = `${_MONTH_NAMES[_calMonth-1]} ${_calYear}`;
+  renderCalendarShell();
+  try {
+    const r = await fetch(`/api/posting/calendar?page_id=${encodeURIComponent(_selectedPostPage.id)}&year=${_calYear}&month=${_calMonth}`);
+    if (!r.ok) { renderCalendarGrid({}); return; }
+    _calData = await r.json();
+    renderCalendarGrid(_calData.days || {});
+  } catch(e) { renderCalendarGrid({}); }
+}
+
+function renderCalendarShell() {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  grid.innerHTML = dayNames.map(d =>
+    `<div style="text-align:center;font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--text-dim);padding:6px 0;text-transform:uppercase">${d}</div>`
+  ).join('') + `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-dim);font-size:13px">Loading…</div>`;
+}
+
+function renderCalendarGrid(days) {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const headers = dayNames.map(d =>
+    `<div style="text-align:center;font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--text-dim);padding:6px 0;text-transform:uppercase">${d}</div>`
+  ).join('');
+  const daysInMonth = new Date(_calYear, _calMonth, 0).getDate();
+  const firstDow = new Date(_calYear, _calMonth - 1, 1).getDay();
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === _calYear && (today.getMonth() + 1) === _calMonth;
+  let cells = '';
+  for (let i = 0; i < firstDow; i++) cells += `<div style="min-height:58px"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayData = days[String(d)] || {scheduled: [], published: []};
+    const hasSched = dayData.scheduled.length > 0;
+    const hasPub = dayData.published.length > 0;
+    const hasPosts = hasSched || hasPub;
+    const isToday = isCurrentMonth && d === today.getDate();
+    const baseBorder = isToday ? 'var(--accent)' : 'var(--border)';
+    const mouseHandlers = hasPosts ? `onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${baseBorder}'"` : '';
+    cells += `<div onclick="${hasPosts ? 'showCalendarDay(' + d + ')' : ''}" ${mouseHandlers} style="min-height:58px;border-radius:6px;padding:5px 6px;cursor:${hasPosts ? 'pointer' : 'default'};background:${isToday ? 'rgba(220,38,38,0.08)' : 'var(--bg-primary)'};border:1px solid ${baseBorder};transition:border-color 0.12s">
+      <div style="font-size:12px;font-weight:${isToday ? 700 : 500};color:${isToday ? 'var(--accent)' : 'var(--text-primary)'}">${d}</div>
+      <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+        ${hasPub ? '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block" title="' + dayData.published.length + ' published"></span>' : ''}
+        ${hasSched ? '<span style="width:7px;height:7px;border-radius:50%;background:#f59e0b;display:inline-block" title="' + dayData.scheduled.length + ' scheduled"></span>' : ''}
+      </div>
+    </div>`;
+  }
+  grid.innerHTML = headers + cells;
+}
+
+function showCalendarDay(day) {
+  const detailEl = document.getElementById('calendar-day-detail');
+  const titleEl = document.getElementById('calendar-day-detail-title');
+  const listEl = document.getElementById('calendar-day-detail-list');
+  if (!detailEl) return;
+  const dayData = (_calData.days || {})[String(day)] || {scheduled: [], published: []};
+  if (!dayData.scheduled.length && !dayData.published.length) return;
+  if (titleEl) titleEl.textContent = `${_MONTH_NAMES[_calMonth-1]} ${day}, ${_calYear}`;
+  let html = '';
+  dayData.published.forEach(p => {
+    html += `<div style="padding:10px 12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid #22c55e">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.5px">✓ Published</span>
+        <span style="font-size:11px;color:var(--text-dim)">${p.created_time ? new Date(p.created_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${p.message || '(no caption)'}</div>
+    </div>`;
+  });
+  dayData.scheduled.forEach(p => {
+    html += `<div style="padding:10px 12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid #f59e0b">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.5px">⏱ Scheduled</span>
+        <span style="font-size:11px;color:var(--text-dim)">${p.time ? new Date(p.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${p.caption || '(no caption)'}</div>
+    </div>`;
+  });
+  if (listEl) listEl.innerHTML = html;
+  detailEl.style.display = 'block';
+}
+
+function changeCalendarMonth(delta) {
+  _calMonth += delta;
+  if (_calMonth > 12) { _calMonth = 1; _calYear++; }
+  if (_calMonth < 1) { _calMonth = 12; _calYear--; }
+  const detail = document.getElementById('calendar-day-detail');
+  if (detail) detail.style.display = 'none';
+  loadCalendar();
+}
+
+// ── Feed ────────────────────────────────────────────────────────────────────
+
+async function loadFeed() {
+  const el = document.getElementById('posts-feed-list');
+  if (!_selectedPostPage) {
+    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Select a page to view its feed.</div>';
+    return;
+  }
+  if (_selectedPostPage.platform === 'instagram') {
+    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Feed view is only available for Facebook Pages.</div>';
+    return;
+  }
+  if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Loading feed…</div>';
+  try {
+    const r = await fetch(`/api/posting/feed?page_id=${encodeURIComponent(_selectedPostPage.id)}&limit=20`);
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      if (el) el.innerHTML = `<div style="font-size:13px;color:var(--error)">${e.detail || 'Failed to load feed — check posting account connection.'}</div>`;
+      return;
+    }
+    const posts = await r.json();
+    if (!posts.length) {
+      if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No published posts found.</div>';
+      return;
+    }
+    if (el) el.innerHTML = posts.map(p => `
+      <div style="padding:14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:6px">${(p.message || p.story || '(no text)').substring(0,280)}${(p.message||p.story||'').length>280?'…':''}</div>
+            <div style="font-size:11px;color:var(--text-dim)">${p.created_time ? new Date(p.created_time).toLocaleString() : ''}</div>
+            ${p.permalink_url ? `<a href="${p.permalink_url}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent);text-decoration:none;margin-top:4px;display:inline-block">View on Facebook →</a>` : ''}
+          </div>
+          ${p.full_picture ? `<img src="${p.full_picture}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:7px;flex-shrink:0">` : ''}
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--error)">Failed to load feed.</div>';
+  }
 }
 
 async function submitPost() {
@@ -2834,25 +3078,23 @@ async function submitPost() {
   const scheduleTime = document.getElementById('post-schedule-time').value;
   const statusEl = document.getElementById('post-status-msg');
   const btn = document.getElementById('post-submit-btn');
-
   if (!target) { statusEl.textContent = '⚠ Select a page or account.'; statusEl.style.color='var(--error)'; return; }
   if (!caption && !mediaUrl) { statusEl.textContent = '⚠ Add a caption or media URL.'; statusEl.style.color='var(--error)'; return; }
-
   btn.disabled = true; btn.textContent = 'Publishing…';
   statusEl.textContent = '';
   try {
     const endpoint = _postPlatform === 'facebook' ? '/api/posting/publish/facebook' : '/api/posting/publish/instagram';
     const body = _postPlatform === 'facebook'
-      ? { page_id: target, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null }
-      : { instagram_id: target, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null };
-
-    const r = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      ? {page_id: target, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null}
+      : {instagram_id: target, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null};
+    const r = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Failed to publish');
     statusEl.textContent = scheduleTime ? '✓ Scheduled!' : '✓ Published!';
     statusEl.style.color = 'var(--success)';
     clearPostComposer();
     setTimeout(loadPostsScheduled, 800);
+    if (!scheduleTime) setTimeout(loadCalendar, 2000);
   } catch(e) {
     statusEl.textContent = '⚠ ' + e.message;
     statusEl.style.color = 'var(--error)';
@@ -2879,7 +3121,7 @@ async function loadPostsScheduled() {
     el.innerHTML = posts.slice(0,10).map(p => `
       <div style="padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.platform==='instagram'?'📷':'📘'} ${p.page_name||p.platform||'Post'}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.platform==='instagram'?'📷':'📘'} ${p.page_id||p.platform||'Post'}</span>
           <span style="font-size:11px;color:var(--text-dim)">${p.scheduled_time ? new Date(p.scheduled_time).toLocaleString() : 'Immediate'}</span>
         </div>
         <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${(p.content||'').substring(0,120)}${(p.content||'').length>120?'…':''}</div>

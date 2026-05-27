@@ -2508,6 +2508,172 @@ async def api_posting_scheduled(request: Request, db: AsyncSession = Depends(get
     ]
 
 
+@app.get("/api/posting/my-pages")
+async def api_posting_my_pages(request: Request, db: AsyncSession = Depends(get_db)):
+    """Pages accessible to the current user: assigned pages for users, all Meta pages for admins."""
+    session = get_session(request)
+    user_id = session.get("user_id")
+    role = session.get("user_role", "user")
+
+    if role == "admin":
+        try:
+            token = await get_posting_token(request, db)
+            pages_result = await meta_api.get_pages(token)
+            if pages_result.get("success"):
+                pages = pages_result["data"]
+                out = [{"id": p["id"], "name": p.get("name", ""), "platform": "facebook"} for p in pages]
+                async with httpx.AsyncClient(timeout=15) as client:
+                    for p in pages:
+                        r = await client.get(
+                            f"{settings.meta_graph_base_url}/{p['id']}",
+                            params={"fields": "instagram_business_account{id,name,username}", "access_token": token},
+                        )
+                        if r.status_code == 200:
+                            iba = r.json().get("instagram_business_account")
+                            if iba:
+                                out.append({
+                                    "id": iba["id"],
+                                    "name": iba.get("name") or f"@{iba.get('username', '')}",
+                                    "platform": "instagram",
+                                    "page_id": p["id"],
+                                })
+                return out
+        except HTTPException:
+            pass
+        # Fallback: all distinct assigned pages from DB
+        result = await db.execute(select(UserPageAssignment))
+        rows = result.scalars().all()
+        seen: set = set()
+        out = []
+        for r in rows:
+            if r.page_id not in seen:
+                seen.add(r.page_id)
+                out.append({"id": r.page_id, "name": r.page_name or r.page_id, "platform": r.platform})
+        return out
+
+    if not user_id:
+        return []
+    result = await db.execute(
+        select(UserPageAssignment).where(UserPageAssignment.user_id == user_id)
+    )
+    rows = result.scalars().all()
+    return [
+        {"id": r.page_id, "name": r.page_name or r.page_id, "platform": r.platform, "meta_app_db_id": r.meta_app_db_id}
+        for r in rows
+    ]
+
+
+@app.get("/api/posting/calendar")
+async def api_posting_calendar(
+    page_id: str,
+    year: int,
+    month: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Calendar data for a page/month: scheduled posts from DB + published posts from Meta API."""
+    import calendar as _cal
+    from datetime import timezone as _tz
+
+    _, last_day = _cal.monthrange(year, month)
+    month_start = datetime(year, month, 1, tzinfo=_tz.utc)
+    month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=_tz.utc)
+
+    sched_result = await db.execute(
+        select(ScheduledPost).where(
+            ((ScheduledPost.page_id == page_id) | (ScheduledPost.instagram_id == page_id)),
+            ScheduledPost.status == "pending",
+            ScheduledPost.scheduled_time >= month_start,
+            ScheduledPost.scheduled_time <= month_end,
+        )
+    )
+    scheduled = sched_result.scalars().all()
+
+    published: list = []
+    try:
+        token = await get_posting_token(request, db)
+        async with httpx.AsyncClient(timeout=15) as client:
+            page_r = await client.get(
+                f"{settings.meta_graph_base_url}/{page_id}",
+                params={"fields": "access_token", "access_token": token},
+            )
+        page_token = page_r.json().get("access_token", token) if page_r.status_code == 200 else token
+        async with httpx.AsyncClient(timeout=20) as client:
+            feed_r = await client.get(
+                f"{settings.meta_graph_base_url}/{page_id}/feed",
+                params={
+                    "fields": "id,message,created_time,story,full_picture",
+                    "since": int(month_start.timestamp()),
+                    "until": int(month_end.timestamp()),
+                    "limit": 100,
+                    "access_token": page_token,
+                },
+            )
+        if feed_r.status_code == 200:
+            published = feed_r.json().get("data", [])
+    except HTTPException:
+        pass
+
+    days: dict = {}
+    for p in scheduled:
+        if p.scheduled_time:
+            day = str(p.scheduled_time.day)
+            days.setdefault(day, {"scheduled": [], "published": []})
+            days[day]["scheduled"].append({
+                "id": p.id,
+                "caption": (p.caption or "")[:120],
+                "time": p.scheduled_time.isoformat(),
+                "platform": p.platform,
+            })
+    for p in published:
+        ct = p.get("created_time", "")
+        if ct:
+            try:
+                dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+                day = str(dt.day)
+                days.setdefault(day, {"scheduled": [], "published": []})
+                days[day]["published"].append({
+                    "id": p.get("id"),
+                    "message": (p.get("message") or p.get("story", ""))[:120],
+                    "created_time": ct,
+                    "image": p.get("full_picture"),
+                })
+            except Exception:
+                pass
+
+    return {"year": year, "month": month, "days": days}
+
+
+@app.get("/api/posting/feed")
+async def api_posting_feed(
+    page_id: str,
+    limit: int = 20,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Published posts feed for a Facebook page."""
+    token = await get_posting_token(request, db)
+    async with httpx.AsyncClient(timeout=15) as client:
+        page_r = await client.get(
+            f"{settings.meta_graph_base_url}/{page_id}",
+            params={"fields": "access_token", "access_token": token},
+        )
+    page_token = page_r.json().get("access_token", token) if page_r.status_code == 200 else token
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(
+            f"{settings.meta_graph_base_url}/{page_id}/feed",
+            params={
+                "fields": "id,message,created_time,story,full_picture,permalink_url",
+                "limit": min(limit, 50),
+                "access_token": page_token,
+            },
+        )
+    if r.status_code != 200:
+        err = r.json().get("error", {}).get("message", "Failed to load feed")
+        raise HTTPException(502, err)
+    return r.json().get("data", [])
+
+
 # ── Scheduled posts ────────────────────────────────────────────────────────────
 
 @app.get("/api/scheduled-posts")
