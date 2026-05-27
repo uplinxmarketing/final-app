@@ -82,7 +82,11 @@ _bg_tasks: list[asyncio.Task] = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    try:
+        await init_db()
+    except Exception as _exc:
+        logger.error(f"STARTUP FAILED — database init error: {type(_exc).__name__}: {_exc}")
+        raise
     async for db in get_db():
         await initialize_default_skills(db)
         await initialize_default_quick_commands(db)

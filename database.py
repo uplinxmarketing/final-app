@@ -52,11 +52,7 @@ _connect_args: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False, "timeout": 30}
 elif DATABASE_URL.startswith("postgresql"):
-    import ssl as _ssl
-    _ssl_ctx = _ssl.create_default_context()
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = _ssl.CERT_NONE
-    _connect_args = {"ssl": _ssl_ctx}
+    _connect_args = {"ssl": "require"}
 
 async_engine = create_async_engine(
     DATABASE_URL,
@@ -730,8 +726,8 @@ async def init_db() -> None:
         # Schema migrations for columns added after initial release
         from sqlalchemy import text as _text
         for _stmt in [
-            "ALTER TABLE connected_meta_accounts ADD COLUMN meta_app_db_id INTEGER",
-            "ALTER TABLE connected_posting_accounts ADD COLUMN meta_app_db_id INTEGER",
+            "ALTER TABLE connected_meta_accounts ADD COLUMN IF NOT EXISTS meta_app_db_id INTEGER",
+            "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS meta_app_db_id INTEGER",
         ]:
             try:
                 await conn.execute(_text(_stmt))
