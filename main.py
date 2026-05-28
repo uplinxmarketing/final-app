@@ -255,6 +255,7 @@ async def session_middleware(request: Request, call_next):
     if (request.url.path in PUBLIC_PATHS
             or request.url.path.startswith("/static")
             or request.url.path.startswith("/frontend")
+            or request.url.path.startswith("/admin")    # admin has its own auth
             or request.url.path.startswith("/api/setup")
             or request.url.path.startswith("/api/auth/")):   # all auth endpoints are public
         return await call_next(request)
