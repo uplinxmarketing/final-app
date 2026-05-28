@@ -242,6 +242,28 @@ class LoginReq(BaseModel):
     password: str
 
 
+@router.post("/api/auth/seed-admin")
+async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
+    """Recovery: creates default admin@uplinx.com / admin123 if no staff exist."""
+    staff_exist = await db.execute(select(func.count()).select_from(StaffMember))
+    if (staff_exist.scalar() or 0) > 0:
+        return {"ok": False, "detail": "Staff already exist — use normal login."}
+    role_r = await db.execute(select(CRMRole).where(CRMRole.name == "Administrator"))
+    role = role_r.scalar_one_or_none()
+    if not role:
+        role = CRMRole(name="Administrator", permissions={"*": {"*": True}})
+        db.add(role)
+        await db.flush()
+    admin = StaffMember(
+        first_name="Admin", last_name="User", email="admin@uplinx.com",
+        hashed_password=_hash_pw("admin123"),
+        role_id=role.id, is_admin=True,
+    )
+    db.add(admin)
+    await db.commit()
+    return {"ok": True, "detail": "Admin created. Email: admin@uplinx.com / Password: admin123"}
+
+
 @router.post("/api/auth/login")
 async def admin_login(req: LoginReq, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(StaffMember).where(
@@ -1823,6 +1845,7 @@ async def init_admin_db(engine) -> None:
             db.add(CRMCurrency(code="GBP", name="British Pound", symbol="£"))
 
         # Seed default admin staff if none exist
+        await db.flush()  # ensure roles are visible to this query
         staff_exist = await db.execute(select(func.count()).select_from(StaffMember))
         if (staff_exist.scalar() or 0) == 0:
             admin_role_r = await db.execute(select(CRMRole).where(CRMRole.name == "Administrator"))

@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Uplinx Admin</title>
+<meta name="theme-color" content="#DC2626">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
 :root{
@@ -26,12 +29,15 @@ button{font-family:inherit}
 ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
 
 /* ── LOGIN ── */
-#login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1e2a3b 0%,#2563eb 100%)}
-.lc{background:white;border-radius:16px;padding:48px 40px;width:420px;box-shadow:var(--sh-lg)}
-.lc-logo{text-align:center;margin-bottom:32px}
-.lc-logo h1{font-size:26px;font-weight:700;color:var(--primary);letter-spacing:-.5px}
-.lc-logo p{color:var(--muted);font-size:13px;margin-top:4px}
-.err-box{background:#fee2e2;color:#dc2626;padding:10px 12px;border-radius:var(--r);margin-bottom:16px;font-size:13px;display:none}
+#login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fff5f5 0%,#fef2f2 100%);padding:24px;font-family:'DM Sans',sans-serif}
+.lc{background:#fff;border:1px solid #fca5a5;border-radius:20px;padding:48px 40px;width:100%;max-width:400px;box-shadow:0 12px 40px rgba(220,38,38,.1),0 2px 8px rgba(0,0,0,.04)}
+.lc-logo{display:flex;align-items:center;gap:12px;margin-bottom:36px;justify-content:center}
+.lc-logo-icon{width:46px;height:46px;background:#dc2626;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(220,38,38,.35);flex-shrink:0}
+.lc-logo-text{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#1a1a1a;letter-spacing:1px}
+.lc-logo-text span{display:block;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;color:#9ca3af;margin-top:1px;letter-spacing:0}
+.lc h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#1a1a1a;text-align:center;margin-bottom:6px}
+.lc .sub{font-size:13px;color:#9ca3af;text-align:center;margin-bottom:28px}
+.err-box{color:#dc2626;font-size:12px;text-align:center;display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;margin-bottom:14px}
 
 /* ── SHARED FORM ── */
 .fg{margin-bottom:16px}
@@ -272,15 +278,29 @@ tbody tr:hover .ta{opacity:1}
 <div id="login-page">
   <div class="lc">
     <div class="lc-logo">
-      <h1><i class="fa-solid fa-bolt"></i> Uplinx</h1>
-      <p>Admin Panel — Sign in to continue</p>
+      <div class="lc-logo-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="white"/></svg>
+      </div>
+      <div class="lc-logo-text">UPLINX<span>Admin Panel</span></div>
     </div>
+    <h2>Welcome back</h2>
+    <p class="sub">Sign in to your admin account</p>
     <div class="err-box" id="lerr"></div>
-    <div class="fg"><label>Email</label><input type="email" id="lemail" class="fc" placeholder="admin@uplinx.com" autofocus></div>
-    <div class="fg"><label>Password</label><input type="password" id="lpw" class="fc" placeholder="••••••••"></div>
-    <button class="btn btn-primary btn-full btn-lg" id="lbtn" onclick="doLogin()">
-      <i class="fa-solid fa-right-to-bracket"></i> Sign In
+    <div class="fg">
+      <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL</label>
+      <input type="email" id="lemail" class="fc" placeholder="admin@uplinx.com" autofocus
+        style="background:#fff5f5;border-color:#fca5a5">
+    </div>
+    <div class="fg">
+      <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">PASSWORD</label>
+      <input type="password" id="lpw" class="fc" placeholder="••••••••"
+        style="background:#fff5f5;border-color:#fca5a5">
+    </div>
+    <button id="lbtn" onclick="doLogin()"
+      style="width:100%;padding:13px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer;box-shadow:0 4px 16px rgba(220,38,38,.30);transition:background .15s,transform .1s;letter-spacing:.2px">
+      Sign In →
     </button>
+    <p style="font-size:11px;color:#d1d5db;text-align:center;margin-top:20px">Uplinx Admin · Management Platform</p>
   </div>
 </div>
 
@@ -584,7 +604,7 @@ async function doLogin() {
 
   const btn = document.getElementById('lbtn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spin" style="width:15px;height:15px;border-width:2px"></span> Signing in…';
+  btn.textContent = 'Signing in…';
 
   try {
     const r = await fetch('/admin/api/auth/login', {
@@ -598,7 +618,7 @@ async function doLogin() {
     err.textContent = 'Connection error. Please try again.'; err.style.display = 'block';
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Sign In';
+    btn.textContent = 'Sign In →';
   }
 }
 
