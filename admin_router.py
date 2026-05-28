@@ -244,7 +244,7 @@ class LoginReq(BaseModel):
 
 @router.post("/api/auth/seed-admin")
 async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
-    """Recovery: creates default admin@uplinx.com / admin123 if no staff exist."""
+    """Recovery: creates default admin account if no staff exist."""
     staff_exist = await db.execute(select(func.count()).select_from(StaffMember))
     if (staff_exist.scalar() or 0) > 0:
         return {"ok": False, "detail": "Staff already exist — use normal login."}
@@ -255,13 +255,13 @@ async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
         db.add(role)
         await db.flush()
     admin = StaffMember(
-        first_name="Admin", last_name="User", email="admin@uplinx.com",
-        hashed_password=_hash_pw("admin123"),
+        first_name="Uplinx", last_name="Admin", email="uplinxmarketing@gmail.com",
+        hashed_password=_hash_pw("@UPlinx2026!!"),
         role_id=role.id, is_admin=True,
     )
     db.add(admin)
     await db.commit()
-    return {"ok": True, "detail": "Admin created. Email: admin@uplinx.com / Password: admin123"}
+    return {"ok": True, "detail": "Admin created. Email: uplinxmarketing@gmail.com"}
 
 
 @router.post("/api/auth/login")
@@ -1851,8 +1851,8 @@ async def init_admin_db(engine) -> None:
             admin_role_r = await db.execute(select(CRMRole).where(CRMRole.name == "Administrator"))
             admin_role = admin_role_r.scalar_one_or_none()
             admin = StaffMember(
-                first_name="Admin", last_name="User", email="admin@uplinx.com",
-                hashed_password=_hash_pw("admin123"),
+                first_name="Uplinx", last_name="Admin", email="uplinxmarketing@gmail.com",
+                hashed_password=_hash_pw("@UPlinx2026!!"),
                 role_id=admin_role.id if admin_role else None,
                 is_admin=True,
             )
