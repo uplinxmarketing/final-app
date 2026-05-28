@@ -107,6 +107,9 @@ textarea.fc{resize:vertical;min-height:80px}
 .dp-item:hover{background:var(--bg)}
 .dp-item i{width:15px;color:var(--muted);font-size:13px;flex-shrink:0}
 .dp-div{height:1px;background:var(--border);margin:3px 0}
+.dp-lang{padding:8px 15px;display:flex;align-items:center;gap:10px;font-size:13px}
+.dp-lang label{color:var(--muted);font-size:12px;white-space:nowrap}
+.dp-lang select{flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:#fff;cursor:pointer;font-family:inherit}
 
 /* Quick create grid */
 .qc-grid{padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:3px}
@@ -159,6 +162,13 @@ textarea.fc{resize:vertical;min-height:80px}
 .sb-div{height:1px;background:rgba(255,255,255,.07);margin:6px 0}
 .sb-tip{display:none;position:absolute;left:calc(var(--sb-c) + 6px);top:50%;transform:translateY(-50%);background:rgba(0,0,0,.85);color:#fff;padding:4px 9px;border-radius:5px;font-size:12px;white-space:nowrap;pointer-events:none;z-index:1200}
 #sidebar.collapsed .ni-item:hover .sb-tip{display:block}
+/* Section labels inside collapsed groups */
+.ni-section{padding:6px 13px 3px 44px;font-size:10px;font-weight:700;color:rgba(148,163,184,.55);text-transform:uppercase;letter-spacing:.6px;pointer-events:none;white-space:nowrap}
+/* Setup hover-only mode */
+#sidebar.setup-hover .ni-item[data-g="setup"]{opacity:0;pointer-events:none;transition:opacity .18s}
+#sidebar.setup-hover:hover .ni-item[data-g="setup"]{opacity:1;pointer-events:auto}
+/* My Account section at bottom */
+.sb-bottom{border-top:1px solid rgba(255,255,255,.07);padding:4px 0 6px}
 
 /* ── MAIN ── */
 #main{margin-left:var(--sb-w);margin-top:var(--tb-h);min-height:calc(100vh - var(--tb-h));transition:margin-left .22s ease;padding:22px}
@@ -335,13 +345,20 @@ tbody tr:hover .ta{opacity:1}
         <div class="qc-grid">
           <div class="qc-item" onclick="qc('invoice')"><i class="fa-solid fa-file-invoice-dollar"></i>Invoice</div>
           <div class="qc-item" onclick="qc('proposal')"><i class="fa-solid fa-file-alt"></i>Proposal</div>
+          <div class="qc-item" onclick="qc('estimate')"><i class="fa-solid fa-file-pen"></i>Estimate</div>
+          <div class="qc-item" onclick="qc('credit-note')"><i class="fa-solid fa-file-circle-minus"></i>Credit Note</div>
           <div class="qc-item" onclick="qc('customer')"><i class="fa-solid fa-building"></i>Customer</div>
+          <div class="qc-item" onclick="qc('contact')"><i class="fa-solid fa-address-card"></i>Contact</div>
           <div class="qc-item" onclick="qc('project')"><i class="fa-solid fa-folder"></i>Project</div>
           <div class="qc-item" onclick="qc('task')"><i class="fa-solid fa-circle-check"></i>Task</div>
           <div class="qc-item" onclick="qc('lead')"><i class="fa-solid fa-bullseye"></i>Lead</div>
           <div class="qc-item" onclick="qc('expense')"><i class="fa-solid fa-receipt"></i>Expense</div>
           <div class="qc-item" onclick="qc('contract')"><i class="fa-solid fa-file-signature"></i>Contract</div>
+          <div class="qc-item" onclick="qc('subscription')"><i class="fa-solid fa-rotate"></i>Subscription</div>
           <div class="qc-item" onclick="qc('staff')"><i class="fa-solid fa-user-plus"></i>Staff Member</div>
+          <div class="qc-item" onclick="qc('ticket')"><i class="fa-solid fa-ticket"></i>Ticket</div>
+          <div class="qc-item" onclick="qc('reminder')"><i class="fa-solid fa-bell"></i>Reminder</div>
+          <div class="qc-item" onclick="qc('note')"><i class="fa-solid fa-note-sticky"></i>Note</div>
           <div class="qc-item" onclick="qc('event')"><i class="fa-regular fa-calendar-plus"></i>Event</div>
         </div>
       </div>
@@ -399,10 +416,21 @@ tbody tr:hover .ta{opacity:1}
       <div class="sb-urole" id="sb-role">Staff</div>
     </div>
     <i class="fa-solid fa-chevron-down sb-uchev" style="color:#64748b;font-size:10px;flex-shrink:0"></i>
-    <div class="dp" id="dp-user" style="top:100%;left:0;min-width:190px">
+    <div class="dp" id="dp-user" style="top:100%;left:0;min-width:210px">
       <div class="dp-item" onclick="nav('profile');closeAll()"><i class="fa-solid fa-user"></i> My Profile</div>
       <div class="dp-item" onclick="nav('timesheets');closeAll()"><i class="fa-regular fa-clock"></i> My Timesheets</div>
       <div class="dp-item" onclick="nav('edit-profile');closeAll()"><i class="fa-solid fa-pen"></i> Edit Profile</div>
+      <div class="dp-div"></div>
+      <div class="dp-lang">
+        <label><i class="fa-solid fa-globe" style="margin-right:5px"></i>Language</label>
+        <select id="lang-select" onchange="setLang(this.value)">
+          <option value="en">English</option>
+          <option value="ar">Arabic (عربي)</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+        </select>
+      </div>
       <div class="dp-div"></div>
       <div class="dp-item" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</div>
     </div>
@@ -421,6 +449,7 @@ tbody tr:hover .ta{opacity:1}
       <div class="sb-tip">Customers</div>
     </div>
 
+    <!-- Sales -->
     <div class="ni-item" id="ng-sales" onclick="toggleNG('sales')">
       <div class="ni-ico"><i class="fa-solid fa-chart-line"></i></div>
       <div class="ni-lbl">Sales</div>
@@ -429,11 +458,16 @@ tbody tr:hover .ta{opacity:1}
     </div>
     <div class="ni-children" id="nc-sales">
       <div class="ni-child" data-p="proposals" onclick="nav('proposals')"><i class="fa-solid fa-file-alt"></i> Proposals</div>
+      <div class="ni-child" data-p="estimates" onclick="nav('estimates')"><i class="fa-solid fa-file-pen"></i> Estimates</div>
+      <div class="ni-child" data-p="estimate-requests" onclick="nav('estimate-requests')"><i class="fa-solid fa-paper-plane"></i> Estimate Requests</div>
       <div class="ni-child" data-p="invoices" onclick="nav('invoices')"><i class="fa-solid fa-file-invoice"></i> Invoices</div>
+      <div class="ni-child" data-p="credit-notes" onclick="nav('credit-notes')"><i class="fa-solid fa-file-circle-minus"></i> Credit Notes</div>
       <div class="ni-child" data-p="payments" onclick="nav('payments')"><i class="fa-solid fa-credit-card"></i> Payments</div>
+      <div class="ni-child" data-p="subscriptions" onclick="nav('subscriptions')"><i class="fa-solid fa-rotate"></i> Subscriptions</div>
       <div class="ni-child" data-p="items" onclick="nav('items')"><i class="fa-solid fa-box"></i> Items</div>
     </div>
 
+    <!-- Lead Packages -->
     <div class="ni-item" id="ng-pkgs" onclick="toggleNG('pkgs')">
       <div class="ni-ico"><i class="fa-solid fa-tags"></i></div>
       <div class="ni-lbl">Lead Packages</div>
@@ -475,6 +509,19 @@ tbody tr:hover .ta{opacity:1}
       <div class="sb-tip">Leads</div>
     </div>
 
+    <!-- Support -->
+    <div class="ni-item" id="ng-support" onclick="toggleNG('support')">
+      <div class="ni-ico"><i class="fa-solid fa-headset"></i></div>
+      <div class="ni-lbl">Support</div>
+      <i class="fa-solid fa-chevron-right ni-chev"></i>
+      <div class="sb-tip">Support</div>
+    </div>
+    <div class="ni-children" id="nc-support">
+      <div class="ni-child" data-p="tickets" onclick="nav('tickets')"><i class="fa-solid fa-ticket"></i> Tickets</div>
+      <div class="ni-child" data-p="knowledge-base" onclick="nav('knowledge-base')"><i class="fa-solid fa-book-open"></i> Knowledge Base</div>
+    </div>
+
+    <!-- Utilities -->
     <div class="ni-item" id="ng-util" onclick="toggleNG('util')">
       <div class="ni-ico"><i class="fa-solid fa-toolbox"></i></div>
       <div class="ni-lbl">Utilities</div>
@@ -483,6 +530,8 @@ tbody tr:hover .ta{opacity:1}
     </div>
     <div class="ni-children" id="nc-util">
       <div class="ni-child" data-p="calendar" onclick="nav('calendar')"><i class="fa-regular fa-calendar"></i> Calendar</div>
+      <div class="ni-child" data-p="reminders" onclick="nav('reminders')"><i class="fa-solid fa-bell"></i> All Reminders</div>
+      <div class="ni-child" data-p="goals" onclick="nav('goals')"><i class="fa-solid fa-trophy"></i> Goals</div>
       <div class="ni-child" data-p="media" onclick="nav('media')"><i class="fa-regular fa-images"></i> Media / Files</div>
       <div class="ni-child" data-p="bulk-pdf" onclick="nav('bulk-pdf')"><i class="fa-solid fa-file-pdf"></i> Bulk PDF Export</div>
       <div class="ni-child" data-p="announcements" onclick="nav('announcements')"><i class="fa-solid fa-bullhorn"></i> Announcements</div>
@@ -492,7 +541,7 @@ tbody tr:hover .ta{opacity:1}
 
     <div class="sb-div"></div>
 
-    <!-- Meta Ads Tool — linked module -->
+    <!-- Meta Ads Tool — linked module, do not modify -->
     <div class="ni-item" onclick="window.open('/ads','_blank')">
       <div class="ni-ico"><i class="fa-brands fa-meta"></i></div>
       <div class="ni-lbl">Meta Ads Tool</div>
@@ -502,26 +551,75 @@ tbody tr:hover .ta{opacity:1}
 
     <div class="sb-div"></div>
 
-    <div class="ni-item" id="ng-setup" onclick="toggleNG('setup')">
+    <!-- Reports -->
+    <div class="ni-item" id="ng-reports" onclick="toggleNG('reports')">
+      <div class="ni-ico"><i class="fa-solid fa-chart-bar"></i></div>
+      <div class="ni-lbl">Reports</div>
+      <i class="fa-solid fa-chevron-right ni-chev"></i>
+      <div class="sb-tip">Reports</div>
+    </div>
+    <div class="ni-children" id="nc-reports">
+      <div class="ni-child" data-p="report-sales" onclick="nav('report-sales')"><i class="fa-solid fa-chart-line"></i> Sales</div>
+      <div class="ni-child" data-p="report-leads" onclick="nav('report-leads')"><i class="fa-solid fa-bullseye"></i> Leads</div>
+      <div class="ni-child" data-p="report-leads-staff" onclick="nav('report-leads-staff')"><i class="fa-solid fa-users"></i> Leads by Staff</div>
+      <div class="ni-child" data-p="report-expenses" onclick="nav('report-expenses')"><i class="fa-solid fa-receipt"></i> Expenses</div>
+      <div class="ni-child" data-p="report-expenses-detailed" onclick="nav('report-expenses-detailed')"><i class="fa-solid fa-list-ul"></i> Expenses Detailed</div>
+      <div class="ni-child" data-p="report-expenses-income" onclick="nav('report-expenses-income')"><i class="fa-solid fa-scale-balanced"></i> Expenses vs Income</div>
+      <div class="ni-child" data-p="report-kb" onclick="nav('report-kb')"><i class="fa-solid fa-book"></i> KB Articles</div>
+    </div>
+
+    <!-- Setup -->
+    <div class="ni-item" id="ng-setup" data-g="setup" onclick="toggleNG('setup')">
       <div class="ni-ico"><i class="fa-solid fa-sliders"></i></div>
       <div class="ni-lbl">Setup</div>
       <i class="fa-solid fa-chevron-right ni-chev"></i>
       <div class="sb-tip">Setup</div>
     </div>
     <div class="ni-children" id="nc-setup">
+      <div class="ni-section">Customers</div>
       <div class="ni-child" data-p="staff" onclick="nav('staff')"><i class="fa-solid fa-users"></i> Staff</div>
       <div class="ni-child" data-p="customer-groups" onclick="nav('customer-groups')"><i class="fa-solid fa-layer-group"></i> Customer Groups</div>
+      <div class="ni-child" data-p="custom-fields-customers" onclick="nav('custom-fields-customers')"><i class="fa-solid fa-pen-to-square"></i> Custom Fields</div>
+      <div class="ni-child" data-p="tags-customers" onclick="nav('tags-customers')"><i class="fa-solid fa-tag"></i> Tags</div>
+      <div class="ni-section">Leads</div>
       <div class="ni-child" data-p="lead-sources" onclick="nav('lead-sources')"><i class="fa-solid fa-project-diagram"></i> Lead Sources</div>
       <div class="ni-child" data-p="lead-statuses" onclick="nav('lead-statuses')"><i class="fa-solid fa-flag"></i> Lead Statuses</div>
+      <div class="ni-child" data-p="custom-fields-leads" onclick="nav('custom-fields-leads')"><i class="fa-solid fa-pen-to-square"></i> Custom Fields</div>
+      <div class="ni-section">Finance</div>
       <div class="ni-child" data-p="tax-rates" onclick="nav('tax-rates')"><i class="fa-solid fa-percent"></i> Tax Rates</div>
       <div class="ni-child" data-p="currencies" onclick="nav('currencies')"><i class="fa-solid fa-coins"></i> Currencies</div>
       <div class="ni-child" data-p="payment-modes" onclick="nav('payment-modes')"><i class="fa-solid fa-wallet"></i> Payment Modes</div>
+      <div class="ni-section">Contracts</div>
       <div class="ni-child" data-p="contract-types" onclick="nav('contract-types')"><i class="fa-solid fa-file-contract"></i> Contract Types</div>
+      <div class="ni-section">Support</div>
+      <div class="ni-child" data-p="ticket-priorities" onclick="nav('ticket-priorities')"><i class="fa-solid fa-fire"></i> Ticket Priorities</div>
+      <div class="ni-child" data-p="ticket-statuses" onclick="nav('ticket-statuses')"><i class="fa-solid fa-circle-half-stroke"></i> Ticket Statuses</div>
+      <div class="ni-section">Estimate Requests</div>
+      <div class="ni-child" data-p="estimate-request-forms" onclick="nav('estimate-request-forms')"><i class="fa-solid fa-wpforms"></i> Request Forms</div>
+      <div class="ni-section">General</div>
+      <div class="ni-child" data-p="gdpr" onclick="nav('gdpr')"><i class="fa-solid fa-shield-halved"></i> GDPR</div>
+      <div class="ni-child" data-p="roles" onclick="nav('roles')"><i class="fa-solid fa-user-shield"></i> Roles &amp; Permissions</div>
       <div class="ni-child" data-p="email-templates" onclick="nav('email-templates')"><i class="fa-solid fa-envelope-open-text"></i> Email Templates</div>
-      <div class="ni-child" data-p="roles" onclick="nav('roles')"><i class="fa-solid fa-shield-halved"></i> Roles</div>
       <div class="ni-child" data-p="settings" onclick="nav('settings')"><i class="fa-solid fa-cog"></i> Settings</div>
     </div>
   </nav>
+
+  <!-- My Account (bottom section) -->
+  <div class="sb-bottom">
+    <div class="ni-item" id="ng-myaccount" onclick="toggleNG('myaccount')">
+      <div class="ni-ico"><i class="fa-solid fa-circle-user"></i></div>
+      <div class="ni-lbl">My Account</div>
+      <i class="fa-solid fa-chevron-right ni-chev"></i>
+      <div class="sb-tip">My Account</div>
+    </div>
+    <div class="ni-children" id="nc-myaccount">
+      <div class="ni-child" data-p="my-account-overview" onclick="nav('my-account-overview')"><i class="fa-solid fa-house"></i> Overview</div>
+      <div class="ni-child" data-p="my-account-billing" onclick="nav('my-account-billing')"><i class="fa-solid fa-credit-card"></i> Billing</div>
+      <div class="ni-child" data-p="my-account-company" onclick="nav('my-account-company')"><i class="fa-solid fa-building"></i> Company Details</div>
+      <div class="ni-child" data-p="my-account-invoices" onclick="nav('my-account-invoices')"><i class="fa-solid fa-file-invoice"></i> Invoices</div>
+      <div class="ni-child" data-p="my-account-support" onclick="nav('my-account-support')"><i class="fa-solid fa-life-ring"></i> Support</div>
+    </div>
+  </div>
 </div>
 
 <!-- MAIN CONTENT -->
@@ -647,6 +745,11 @@ function showApp() {
 
   if (sbCollapsed) document.getElementById('sidebar').classList.add('collapsed');
 
+  // Restore language
+  const savedLang = localStorage.getItem('adm_lang') || 'en';
+  const langSel = document.getElementById('lang-select');
+  if (langSel) langSel.value = savedLang;
+
   openNGs.forEach(g => {
     const el = document.getElementById('ng-' + g);
     if (el) el.classList.add('open');
@@ -663,19 +766,83 @@ function showApp() {
 // NAVIGATION
 // ═══════════════════════════════
 const PAGES = {
-  dashboard: pgDashboard, customers: pgCustomers, 'new-customer': pgNewCustomer,
-  proposals: pgProposals, invoices: pgInvoices, payments: pgPayments, items: pgItems,
-  'lead-packages': pgLeadPackages, 'lead-pkg-settings': pgLeadPkgSettings,
-  expenses: pgExpenses, contracts: pgContracts, projects: pgProjects,
-  tasks: pgTasks, leads: pgLeads, calendar: pgCalendar, media: pgMedia,
-  'bulk-pdf': pgBulkPdf, announcements: pgAnnouncements,
-  'activity-log': pgActivityLog, 'pipe-log': pgPipeLog,
-  staff: pgStaff, 'customer-groups': pgCustomerGroups,
-  'lead-sources': pgLeadSources, 'lead-statuses': pgLeadStatuses,
-  'tax-rates': pgTaxRates, currencies: pgCurrencies,
-  'payment-modes': pgPaymentModes, 'contract-types': pgContractTypes,
-  'email-templates': pgEmailTemplates, roles: pgRoles, settings: pgSettings,
-  todo: pgTodo, profile: pgProfile, 'edit-profile': pgEditProfile,
+  // Core
+  dashboard: pgDashboard,
+  customers: pgCustomers,
+  'new-customer': pgNewCustomer,
+  // Sales
+  proposals: pgProposals,
+  estimates: pgEstimates,
+  'estimate-requests': pgEstimateRequests,
+  invoices: pgInvoices,
+  'credit-notes': pgCreditNotes,
+  payments: pgPayments,
+  subscriptions: pgSubscriptions,
+  items: pgItems,
+  // Lead Packages
+  'lead-packages': pgLeadPackages,
+  'lead-pkg-settings': pgLeadPkgSettings,
+  // Top-level
+  expenses: pgExpenses,
+  contracts: pgContracts,
+  projects: pgProjects,
+  tasks: pgTasks,
+  leads: pgLeads,
+  // Support
+  tickets: pgTickets,
+  'knowledge-base': pgKnowledgeBase,
+  // Utilities
+  calendar: pgCalendar,
+  reminders: pgReminders,
+  goals: pgGoals,
+  media: pgMedia,
+  'bulk-pdf': pgBulkPdf,
+  announcements: pgAnnouncements,
+  'activity-log': pgActivityLog,
+  'pipe-log': pgPipeLog,
+  // Reports
+  'report-sales': pgReportSales,
+  'report-leads': pgReportLeads,
+  'report-leads-staff': pgReportLeadsStaff,
+  'report-expenses': pgReportExpenses,
+  'report-expenses-detailed': pgReportExpensesDetailed,
+  'report-expenses-income': pgReportExpensesIncome,
+  'report-kb': pgReportKb,
+  // Setup — Customers
+  staff: pgStaff,
+  'customer-groups': pgCustomerGroups,
+  'custom-fields-customers': pgCustomFieldsCustomers,
+  'tags-customers': pgTagsCustomers,
+  // Setup — Leads
+  'lead-sources': pgLeadSources,
+  'lead-statuses': pgLeadStatuses,
+  'custom-fields-leads': pgCustomFieldsLeads,
+  // Setup — Finance
+  'tax-rates': pgTaxRates,
+  currencies: pgCurrencies,
+  'payment-modes': pgPaymentModes,
+  // Setup — Contracts
+  'contract-types': pgContractTypes,
+  // Setup — Support
+  'ticket-priorities': pgTicketPriorities,
+  'ticket-statuses': pgTicketStatuses,
+  // Setup — Estimate Requests
+  'estimate-request-forms': pgEstimateRequestForms,
+  // Setup — General
+  gdpr: pgGdpr,
+  roles: pgRoles,
+  'email-templates': pgEmailTemplates,
+  settings: pgSettings,
+  // My Account
+  'my-account-overview': pgMyAccountOverview,
+  'my-account-billing': pgMyAccountBilling,
+  'my-account-company': pgMyAccountCompany,
+  'my-account-invoices': pgMyAccountInvoices,
+  'my-account-support': pgMyAccountSupport,
+  // User
+  todo: pgTodo,
+  profile: pgProfile,
+  'edit-profile': pgEditProfile,
   timesheets: pgTimesheets,
 };
 
@@ -729,13 +896,17 @@ function toTitle(s) {
   return s.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 }
 
-// Page stubs — replaced part by part
+// ── Page stubs (replaced part by part) ──
 function pgDashboard(){return pgPlaceholder('Dashboard')}
 function pgCustomers(){return pgPlaceholder('Customers')}
 function pgNewCustomer(){return pgPlaceholder('New Customer')}
 function pgProposals(){return pgPlaceholder('Proposals')}
+function pgEstimates(){return pgPlaceholder('Estimates')}
+function pgEstimateRequests(){return pgPlaceholder('Estimate Requests')}
 function pgInvoices(){return pgPlaceholder('Invoices')}
+function pgCreditNotes(){return pgPlaceholder('Credit Notes')}
 function pgPayments(){return pgPlaceholder('Payments')}
+function pgSubscriptions(){return pgPlaceholder('Subscriptions')}
 function pgItems(){return pgPlaceholder('Items')}
 function pgLeadPackages(){return pgPlaceholder('Lead Packages')}
 function pgLeadPkgSettings(){return pgPlaceholder('Lead Package Settings')}
@@ -744,23 +915,46 @@ function pgContracts(){return pgPlaceholder('Contracts')}
 function pgProjects(){return pgPlaceholder('Projects')}
 function pgTasks(){return pgPlaceholder('Tasks')}
 function pgLeads(){return pgPlaceholder('Leads')}
+function pgTickets(){return pgPlaceholder('Tickets')}
+function pgKnowledgeBase(){return pgPlaceholder('Knowledge Base')}
 function pgCalendar(){return pgPlaceholder('Calendar')}
+function pgReminders(){return pgPlaceholder('All Reminders')}
+function pgGoals(){return pgPlaceholder('Goals')}
 function pgMedia(){return pgPlaceholder('Media / Files')}
 function pgBulkPdf(){return pgPlaceholder('Bulk PDF Export')}
 function pgAnnouncements(){return pgPlaceholder('Announcements')}
 function pgActivityLog(){return pgPlaceholder('Activity Log')}
 function pgPipeLog(){return pgPlaceholder('Ticket Pipe Log')}
+function pgReportSales(){return pgPlaceholder('Sales Report')}
+function pgReportLeads(){return pgPlaceholder('Leads Report')}
+function pgReportLeadsStaff(){return pgPlaceholder('Leads by Staff Report')}
+function pgReportExpenses(){return pgPlaceholder('Expenses Report')}
+function pgReportExpensesDetailed(){return pgPlaceholder('Expenses Detailed Report')}
+function pgReportExpensesIncome(){return pgPlaceholder('Expenses vs Income Report')}
+function pgReportKb(){return pgPlaceholder('KB Articles Report')}
 function pgStaff(){return pgPlaceholder('Staff')}
 function pgCustomerGroups(){return pgPlaceholder('Customer Groups')}
+function pgCustomFieldsCustomers(){return pgPlaceholder('Custom Fields – Customers')}
+function pgTagsCustomers(){return pgPlaceholder('Tags – Customers')}
 function pgLeadSources(){return pgPlaceholder('Lead Sources')}
 function pgLeadStatuses(){return pgPlaceholder('Lead Statuses')}
+function pgCustomFieldsLeads(){return pgPlaceholder('Custom Fields – Leads')}
 function pgTaxRates(){return pgPlaceholder('Tax Rates')}
 function pgCurrencies(){return pgPlaceholder('Currencies')}
 function pgPaymentModes(){return pgPlaceholder('Payment Modes')}
 function pgContractTypes(){return pgPlaceholder('Contract Types')}
+function pgTicketPriorities(){return pgPlaceholder('Ticket Priorities')}
+function pgTicketStatuses(){return pgPlaceholder('Ticket Statuses')}
+function pgEstimateRequestForms(){return pgPlaceholder('Estimate Request Forms')}
+function pgGdpr(){return pgPlaceholder('GDPR')}
+function pgRoles(){return pgPlaceholder('Roles & Permissions')}
 function pgEmailTemplates(){return pgPlaceholder('Email Templates')}
-function pgRoles(){return pgPlaceholder('Roles')}
 function pgSettings(){return pgPlaceholder('Settings')}
+function pgMyAccountOverview(){return pgPlaceholder('My Account – Overview')}
+function pgMyAccountBilling(){return pgPlaceholder('My Account – Billing')}
+function pgMyAccountCompany(){return pgPlaceholder('My Account – Company Details')}
+function pgMyAccountInvoices(){return pgPlaceholder('My Account – Invoices')}
+function pgMyAccountSupport(){return pgPlaceholder('My Account – Support')}
 function pgTodo(){return pgPlaceholder('My To-Do')}
 function pgProfile(){return pgPlaceholder('My Profile')}
 function pgEditProfile(){return pgPlaceholder('Edit Profile')}
@@ -804,6 +998,14 @@ function closeAll() {
 
 function toggleAO() { document.getElementById('ao').classList.toggle('show'); }
 function closeAO() { document.getElementById('ao').classList.remove('show'); }
+
+// ═══════════════════════════════
+// LANGUAGE
+// ═══════════════════════════════
+function setLang(code) {
+  localStorage.setItem('adm_lang', code);
+  toast('Language preference saved', 'success');
+}
 
 // ═══════════════════════════════
 // SEARCH
@@ -911,9 +1113,11 @@ async function postAnnouncement() {
 function qc(type) {
   closeAll();
   const m = {
-    invoice:'invoices', proposal:'proposals', customer:'new-customer',
+    invoice:'invoices', proposal:'proposals', estimate:'estimates',
+    'credit-note':'credit-notes', customer:'new-customer', contact:'customers',
     project:'projects', task:'tasks', lead:'leads', expense:'expenses',
-    contract:'contracts', staff:'staff', event:'calendar'
+    contract:'contracts', subscription:'subscriptions', staff:'staff',
+    ticket:'tickets', reminder:'reminders', note:'activity-log', event:'calendar'
   };
   nav(m[type] || type);
 }
