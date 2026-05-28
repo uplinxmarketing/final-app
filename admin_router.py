@@ -271,6 +271,44 @@ async def admin_me(staff: StaffMember = Depends(get_current_admin)):
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+@router.get("/api/search")
+async def global_search(
+    q: str = "",
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not q or len(q) < 2:
+        return {"customers": [], "invoices": [], "projects": [], "tasks": [], "leads": []}
+    like = f"%{q}%"
+    customers = (await db.execute(
+        select(CRMCustomer.id, CRMCustomer.company_name.label("name"))
+        .where(CRMCustomer.company_name.ilike(like)).limit(5)
+    )).mappings().all()
+    invoices = (await db.execute(
+        select(CRMInvoice.id, CRMInvoice.invoice_number.label("name"))
+        .where(CRMInvoice.invoice_number.ilike(like)).limit(5)
+    )).mappings().all()
+    projects = (await db.execute(
+        select(CRMProject.id, CRMProject.name)
+        .where(CRMProject.name.ilike(like)).limit(5)
+    )).mappings().all()
+    tasks = (await db.execute(
+        select(CRMTask.id, CRMTask.name)
+        .where(CRMTask.name.ilike(like)).limit(5)
+    )).mappings().all()
+    leads = (await db.execute(
+        select(CRMLead.id, CRMLead.first_name.label("name"))
+        .where(CRMLead.first_name.ilike(like) | CRMLead.last_name.ilike(like) | CRMLead.company.ilike(like)).limit(5)
+    )).mappings().all()
+    return {
+        "customers": [dict(r) for r in customers],
+        "invoices": [dict(r) for r in invoices],
+        "projects": [dict(r) for r in projects],
+        "tasks": [dict(r) for r in tasks],
+        "leads": [dict(r) for r in leads],
+    }
+
+
 @router.get("/api/dashboard/stats")
 async def dashboard_stats(
     staff: StaffMember = Depends(get_current_admin),
