@@ -52,28 +52,7 @@ _connect_args: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False, "timeout": 30}
 elif DATABASE_URL.startswith("postgresql"):
-    import socket as _socket
-    from urllib.parse import urlparse as _urlparse
-    try:
-        _pu = _urlparse(DATABASE_URL)
-        _host = _pu.hostname or ""
-        _port = _pu.port or 5432
-        print(f"[DB] Resolving host={_host!r} port={_port} to IPv4 ...", flush=True)
-        _ipv4_addrs = _socket.getaddrinfo(_host, _port, _socket.AF_INET, _socket.SOCK_STREAM)
-        print(f"[DB] IPv4 results: {_ipv4_addrs}", flush=True)
-        if _ipv4_addrs:
-            _ipv4 = _ipv4_addrs[0][4][0]
-            try:
-                with open("/etc/hosts", "a") as _hf:
-                    _hf.write(f"\n{_ipv4} {_host}\n")
-                print(f"[DB] /etc/hosts pinned: {_ipv4} {_host}", flush=True)
-            except Exception as _he:
-                print(f"[DB] /etc/hosts write FAILED: {_he}", flush=True)
-        else:
-            print(f"[DB] No IPv4 found for {_host!r} — host is IPv6-only, connection will fail", flush=True)
-    except Exception as _dns_err:
-        print(f"[DB] IPv4 resolution error: {_dns_err}", flush=True)
-    # statement_cache_size=0 required for Supabase's Supavisor pooler
+    # statement_cache_size=0 required for Supabase's Supavisor pooler (transaction mode)
     _connect_args = {"ssl": "require", "statement_cache_size": 0}
 
 async_engine = create_async_engine(
