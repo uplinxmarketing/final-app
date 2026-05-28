@@ -55,13 +55,13 @@ elif DATABASE_URL.startswith("postgresql"):
     # statement_cache_size=0 required for Supabase's Supavisor pooler (transaction mode)
     _connect_args = {"ssl": "require", "statement_cache_size": 0}
 
-async_engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    future=True,
-    connect_args=_connect_args,
-    pool_pre_ping=True,
-)
+_engine_kwargs: dict = dict(echo=False, future=True, connect_args=_connect_args)
+if DATABASE_URL.startswith("postgresql"):
+    # Supabase transaction pooler: keep a small pool, recycle to avoid stale connections.
+    # pool_pre_ping is omitted — it adds an extra round-trip per query over the network.
+    _engine_kwargs.update(pool_size=3, max_overflow=2, pool_recycle=300, pool_timeout=30)
+
+async_engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
 AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
     bind=async_engine,
