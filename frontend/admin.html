@@ -992,6 +992,7 @@ function showApp() {
     if (el) el.classList.add('open');
   });
 
+  filterSidebar();
   const hash = location.hash.replace('#', '');
   const saved = localStorage.getItem('adm_page');
   nav(hash || saved || 'dashboard');
@@ -1082,6 +1083,36 @@ const PAGES = {
   'edit-profile': pgEditProfile,
   timesheets: pgTimesheets,
 };
+
+// ═══════════════════════════════
+// PERMISSIONS
+// ═══════════════════════════════
+function hasPerm(module, action) {
+  if (!CU) return false;
+  if (CU.is_admin) return true;
+  return !!(CU.permissions?.[module]?.[action]);
+}
+
+function filterSidebar() {
+  if (!CU || CU.is_admin) return; // admin sees everything
+  const moduleMap = {
+    'customers': 'customers', 'leads': 'leads', 'estimates': 'estimates',
+    'proposals': 'proposals', 'invoices': 'invoices', 'payments': 'payments',
+    'credit-notes': 'credit_notes', 'subscriptions': 'subscriptions',
+    'expenses': 'expenses', 'contracts': 'contracts', 'projects': 'projects',
+    'tasks': 'tasks', 'timesheets': 'time_tracking', 'tickets': 'tickets',
+    'knowledge-base': 'knowledge_base', 'calendar': 'calendar',
+    'goals': 'goals', 'reports': 'reports',
+    'staff': 'staff', 'roles': 'roles', 'settings': 'settings',
+  };
+  document.querySelectorAll('[data-p]').forEach(el => {
+    const page = el.dataset.p;
+    const mod = moduleMap[page];
+    if (mod && !hasPerm(mod, 'view')) {
+      el.style.display = 'none';
+    }
+  });
+}
 
 function nav(page) {
   closeAll();
@@ -1197,7 +1228,133 @@ function pgTicketPriorities(){return pgPlaceholder('Ticket Priorities')}
 function pgTicketStatuses(){return pgPlaceholder('Ticket Statuses')}
 function pgEstimateRequestForms(){return pgPlaceholder('Estimate Request Forms')}
 function pgGdpr(){return pgPlaceholder('GDPR')}
-function pgRoles(){return pgPlaceholder('Roles & Permissions')}
+async function pgRoles(){
+  const [rolesR, matR] = await Promise.all([apiGet('/api/roles'), apiGet('/api/roles/capabilities')]);
+  const roles = await rolesR.json();
+  const {matrix, labels} = await matR.json();
+  window._roleMatrix = matrix; window._roleLabels = labels; window._allRoles = roles;
+  return `<div class="pg-hdr">
+    <h1 class="pg-title">Roles &amp; Permissions</h1>
+    ${CU?.is_admin ? `<button class="btn-pri" onclick="openRoleModal()"><i class="fa-solid fa-plus"></i> New Role</button>` : ''}
+  </div>
+  <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:14px 18px;font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #f3f4f6">Roles (${roles.length})</div>
+      <div id="role-list">
+        ${roles.map(r=>`<div class="role-list-item" data-id="${r.id}" onclick="selectRole(${r.id})" style="padding:14px 18px;cursor:pointer;border-bottom:1px solid #f9fafb;transition:background .1s">
+          <div style="font-weight:600;font-size:14px;color:#111">${r.name}</div>
+          <div style="font-size:12px;color:#9ca3af;margin-top:2px">${r.staff_count} staff member${r.staff_count===1?'':'s'}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div id="role-detail"><div class="card" style="text-align:center;padding:48px;color:#9ca3af"><i class="fa-solid fa-user-shield" style="font-size:32px;margin-bottom:12px;display:block"></i><p>Select a role to view and edit its permissions</p></div></div>
+  </div>
+  <div id="role-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;padding:28px;width:440px;max-width:95vw">
+      <h3 id="role-modal-title" style="margin:0 0 20px">New Role</h3>
+      <div class="fg"><label class="lbl">ROLE NAME</label><input id="rm-name" class="fc" placeholder="e.g. Media Buyer"></div>
+      <div class="fg" style="margin-bottom:20px"><label class="lbl">DESCRIPTION</label><textarea id="rm-desc" class="fc" rows="2" placeholder="Optional description"></textarea></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn-sec" onclick="closeRoleModal()">Cancel</button>
+        <button class="btn-pri" onclick="saveRoleFromModal()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function selectRole(id) {
+  window._editRoleId = id;
+  const r = (window._allRoles||[]).find(x=>x.id===id);
+  if (!r) return;
+  document.querySelectorAll('.role-list-item').forEach(el=>el.style.background=el.dataset.id==id?'#f5f3ff':'');
+  const matrix = window._roleMatrix||{};
+  const labels = window._roleLabels||{};
+  const perms = r.permissions||{};
+  const isWildcard = perms['*']?.['*'];
+  const canEdit = CU?.is_admin;
+  let capHtml = isWildcard
+    ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;font-size:13px;color:#92400e;font-weight:600"><i class="fa-solid fa-crown"></i> Full Administrator — bypasses all permission checks</div>`
+    : Object.entries(matrix).map(([mod,caps])=>`
+      <div style="margin-bottom:18px">
+        <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f3f4f6">${labels[mod]||mod}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 20px">
+          ${Object.entries(caps).map(([cap,capLabel])=>`
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:${canEdit?'pointer':'default'}">
+              <input type="checkbox" ${perms[mod]?.[cap]?'checked':''} ${canEdit?'':'disabled'}
+                onchange="toggleRolePerm(${r.id},'${mod}','${cap}',this.checked)"
+                style="accent-color:#6366f1;width:14px;height:14px">
+              ${capLabel}
+            </label>`).join('')}
+        </div>
+      </div>`).join('');
+  document.getElementById('role-detail').innerHTML = `<div class="card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <div style="font-size:20px;font-weight:700;color:#111">${r.name}</div>
+        ${r.description?`<div style="font-size:13px;color:#6b7280;margin-top:4px">${r.description}</div>`:''}
+        <div style="font-size:12px;color:#9ca3af;margin-top:4px">${r.staff_count} staff member${r.staff_count===1?'':'s'}</div>
+      </div>
+      ${canEdit?`<div style="display:flex;gap:8px">
+        <button class="btn-sec" onclick="openRoleModal(${r.id})"><i class="fa-solid fa-pen"></i> Rename</button>
+        ${r.staff_count===0?`<button class="btn-sec" style="color:#dc2626;border-color:#dc2626" onclick="deleteRole(${r.id})"><i class="fa-solid fa-trash"></i></button>`:''}
+      </div>`:''}
+    </div>
+    ${capHtml}
+  </div>`;
+}
+
+async function toggleRolePerm(roleId, mod, cap, val) {
+  const r = (window._allRoles||[]).find(x=>x.id===roleId);
+  if (!r) return;
+  const perms = JSON.parse(JSON.stringify(r.permissions||{}));
+  if (!perms[mod]) perms[mod]={};
+  perms[mod][cap] = val;
+  const res = await fetch(`/admin/api/roles/${roleId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:r.name,description:r.description,permissions:perms})});
+  if (res.ok) { r.permissions=perms; toast('Permission saved','success'); }
+  else toast('Failed to save','error');
+}
+
+function openRoleModal(id) {
+  const modal = document.getElementById('role-modal');
+  if (id) {
+    const r = (window._allRoles||[]).find(x=>x.id===id);
+    document.getElementById('role-modal-title').textContent='Rename Role';
+    document.getElementById('rm-name').value=r?.name||'';
+    document.getElementById('rm-desc').value=r?.description||'';
+    modal.dataset.editId=id;
+  } else {
+    document.getElementById('role-modal-title').textContent='New Role';
+    document.getElementById('rm-name').value=''; document.getElementById('rm-desc').value='';
+    delete modal.dataset.editId;
+  }
+  modal.style.display='flex';
+}
+function closeRoleModal(){ document.getElementById('role-modal').style.display='none'; }
+
+async function saveRoleFromModal(){
+  const modal = document.getElementById('role-modal');
+  const name = document.getElementById('rm-name').value.trim();
+  const description = document.getElementById('rm-desc').value.trim();
+  if (!name) { toast('Name is required','error'); return; }
+  const editId = modal.dataset.editId;
+  let res;
+  if (editId) {
+    const r = (window._allRoles||[]).find(x=>x.id==editId);
+    res = await fetch(`/admin/api/roles/${editId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,description,permissions:r?.permissions||{}})});
+  } else {
+    res = await fetch('/admin/api/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,description})});
+  }
+  closeRoleModal();
+  if (res.ok) { toast('Saved','success'); nav('roles'); }
+  else { const d=await res.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function deleteRole(id){
+  if (!confirm('Delete this role? This cannot be undone.')) return;
+  const res = await fetch(`/admin/api/roles/${id}`,{method:'DELETE'});
+  if (res.ok) { toast('Role deleted','success'); nav('roles'); }
+  else { const d=await res.json(); toast(d.detail||'Failed to delete','error'); }
+}
 function pgEmailTemplates(){return pgPlaceholder('Email Templates')}
 function pgSettings(){return pgPlaceholder('Settings')}
 function pgMyAccountOverview(){return pgPlaceholder('My Account – Overview')}

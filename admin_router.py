@@ -20,7 +20,8 @@ from sqlalchemy.orm import selectinload
 
 from database import get_db
 from admin_models import (
-    AdminBase, CRMRole, StaffMember, CRMCustomer, CRMContact, CRMNote,
+    AdminBase, CRMRole, CRMApp, CRMUserAppAccess, CRMUserAppClientAccess,
+    StaffMember, CRMCustomer, CRMContact, CRMNote,
     CRMLead, CRMLeadSource, CRMLeadStatus, CRMProject, CRMProjectMember,
     CRMTask, CRMTaskComment, CRMTimesheet, CRMInvoice, CRMProposal,
     CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
@@ -35,6 +36,95 @@ from admin_models import (
 )
 
 router = APIRouter(prefix="/admin")
+
+# ── Capability matrix ─────────────────────────────────────────────────────────
+# { module_key: { capability_key: display_label } }
+CAPABILITY_MATRIX: dict[str, dict[str, str]] = {
+    "dashboard":      {"view": "View Dashboard"},
+    "customers":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "import": "Import", "export": "Export"},
+    "leads":          {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "convert": "Convert to Customer", "import": "Import"},
+    "estimates":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client"},
+    "proposals":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client"},
+    "invoices":       {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client", "record_payment": "Record Payment"},
+    "payments":       {"view": "View", "create": "Create", "delete": "Delete"},
+    "credit_notes":   {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "subscriptions":  {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "expenses":       {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "contracts":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "projects":       {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "tasks":          {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "time_tracking":  {"view": "View", "create": "Log Time", "edit": "Edit", "delete": "Delete"},
+    "tickets":        {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "close": "Close"},
+    "knowledge_base": {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "calendar":       {"view": "View", "create": "Create Events", "edit": "Edit", "delete": "Delete"},
+    "goals":          {"view": "View", "create": "Create", "edit": "Edit"},
+    "reports":        {"view": "View", "export": "Export"},
+    "settings":       {"view": "View", "edit": "Edit Settings"},
+    "staff":          {"view": "View Staff", "create": "Create", "edit": "Edit", "delete": "Delete"},
+    "roles":          {"view": "View Roles", "create": "Create", "edit": "Edit", "delete": "Delete"},
+}
+
+MODULE_LABELS: dict[str, str] = {
+    "dashboard": "Dashboard", "customers": "Customers", "leads": "Leads",
+    "estimates": "Estimates", "proposals": "Proposals", "invoices": "Invoices",
+    "payments": "Payments", "credit_notes": "Credit Notes", "subscriptions": "Subscriptions",
+    "expenses": "Expenses", "contracts": "Contracts", "projects": "Projects",
+    "tasks": "Tasks", "time_tracking": "Time Tracking", "tickets": "Tickets",
+    "knowledge_base": "Knowledge Base", "calendar": "Calendar", "goals": "Goals & Reports",
+    "reports": "Reports", "settings": "Settings", "staff": "Staff Management", "roles": "Roles",
+}
+
+# Default role permission sets (is_admin handles Administrator fully)
+_DEFAULT_ROLES = [
+    ("Administrator", "Full access — bypasses all permission checks", {"*": {"*": True}}),
+    ("Account Manager", "Manages clients, projects, invoices, and leads end-to-end", {
+        "dashboard": {"view": True},
+        "customers": {"view": True, "create": True, "edit": True, "delete": True, "import": True, "export": True},
+        "leads": {"view": True, "create": True, "edit": True, "delete": True, "convert": True},
+        "estimates": {"view": True, "create": True, "edit": True, "send": True},
+        "proposals": {"view": True, "create": True, "edit": True, "send": True},
+        "invoices": {"view": True, "create": True, "edit": True, "send": True, "record_payment": True},
+        "payments": {"view": True, "create": True},
+        "contracts": {"view": True, "create": True, "edit": True},
+        "projects": {"view": True, "create": True, "edit": True},
+        "tasks": {"view": True, "create": True, "edit": True, "delete": True},
+        "time_tracking": {"view": True, "create": True, "edit": True},
+        "calendar": {"view": True, "create": True, "edit": True},
+        "reports": {"view": True, "export": True},
+    }),
+    ("Media Buyer", "Runs paid media campaigns; limited CRM access", {
+        "dashboard": {"view": True},
+        "customers": {"view": True},
+        "projects": {"view": True},
+        "tasks": {"view": True, "create": True, "edit": True},
+        "time_tracking": {"view": True, "create": True, "edit": True},
+        "calendar": {"view": True, "create": True},
+    }),
+    ("Copywriter", "Content creation and knowledge base management", {
+        "dashboard": {"view": True},
+        "customers": {"view": True},
+        "projects": {"view": True},
+        "tasks": {"view": True, "create": True, "edit": True},
+        "time_tracking": {"view": True, "create": True, "edit": True},
+        "knowledge_base": {"view": True, "create": True, "edit": True},
+        "calendar": {"view": True},
+    }),
+    ("Sales", "Leads, proposals, estimates, and new client acquisition", {
+        "dashboard": {"view": True},
+        "customers": {"view": True, "create": True},
+        "leads": {"view": True, "create": True, "edit": True, "delete": True, "convert": True, "import": True},
+        "estimates": {"view": True, "create": True, "edit": True, "send": True},
+        "proposals": {"view": True, "create": True, "edit": True, "send": True},
+        "contracts": {"view": True, "create": True, "edit": True},
+        "calendar": {"view": True, "create": True},
+    }),
+    ("Contractor", "External contractor — tasks and time tracking only", {
+        "dashboard": {"view": True},
+        "projects": {"view": True},
+        "tasks": {"view": True, "create": True, "edit": True},
+        "time_tracking": {"view": True, "create": True, "edit": True},
+    }),
+]
 
 # ── Password helpers ──────────────────────────────────────────────────────────
 
@@ -98,15 +188,68 @@ def _perm(staff: StaffMember, module: str, action: str) -> bool:
     """Check if staff has a given permission, respecting role + overrides."""
     if staff.is_admin:
         return True
-    # Check overrides first
     overrides = staff.permission_overrides or {}
     mod_overrides = overrides.get(module, {})
     if action in mod_overrides:
         return bool(mod_overrides[action])
-    # Fall back to role
     if staff.role and staff.role.permissions:
-        return bool(staff.role.permissions.get(module, {}).get(action, False))
+        rp = staff.role.permissions
+        # Wildcard role (Administrator JSON)
+        if rp.get("*", {}).get("*"):
+            return True
+        return bool(rp.get(module, {}).get(action, False))
     return False
+
+
+def _effective_perms(staff: StaffMember) -> dict:
+    """Return a flat { module: { action: bool } } dict of effective permissions."""
+    if staff.is_admin:
+        return {m: {a: True for a in caps} for m, caps in CAPABILITY_MATRIX.items()}
+    result: dict[str, dict[str, bool]] = {}
+    role_perms = {}
+    if staff.role and staff.role.permissions:
+        rp = staff.role.permissions
+        if rp.get("*", {}).get("*"):
+            return {m: {a: True for a in caps} for m, caps in CAPABILITY_MATRIX.items()}
+        role_perms = rp
+    overrides = staff.permission_overrides or {}
+    for module, caps in CAPABILITY_MATRIX.items():
+        result[module] = {}
+        for action in caps:
+            mod_ov = overrides.get(module, {})
+            if action in mod_ov:
+                result[module][action] = bool(mod_ov[action])
+            else:
+                result[module][action] = bool(role_perms.get(module, {}).get(action, False))
+    return result
+
+
+async def can_manage_client_in_app(
+    staff: StaffMember, app_key: str, client_id: int, db: AsyncSession
+) -> bool:
+    """Returns True if staff can manage the given client in the given app."""
+    if staff.is_admin:
+        return True
+    app_r = await db.execute(select(CRMApp).where(CRMApp.key == app_key, CRMApp.is_active == True))
+    app = app_r.scalar_one_or_none()
+    if not app:
+        return False
+    access_r = await db.execute(
+        select(CRMUserAppAccess).where(
+            CRMUserAppAccess.staff_id == staff.id,
+            CRMUserAppAccess.app_id == app.id,
+        )
+    )
+    if not access_r.scalar_one_or_none():
+        return False
+    client_r = await db.execute(
+        select(CRMUserAppClientAccess).where(
+            CRMUserAppClientAccess.staff_id == staff.id,
+            CRMUserAppClientAccess.app_id == app.id,
+            CRMUserAppClientAccess.client_id == client_id,
+        )
+    )
+    return client_r.scalar_one_or_none() is not None
 
 
 async def _log(db: AsyncSession, staff: StaffMember, module: str, action: str,
@@ -138,6 +281,7 @@ def _staff_dict(s: StaffMember) -> dict:
         "last_login": s.last_login.isoformat() if s.last_login else None,
         "last_ip": s.last_ip,
         "force_password_change": s.force_password_change,
+        "permissions": _effective_perms(s),
         "created_at": s.created_at.isoformat(),
     }
 
@@ -736,40 +880,164 @@ async def delete_staff(staff_id: int, staff: StaffMember = Depends(get_current_a
 
 class RoleReq(BaseModel):
     name: str
+    description: Optional[str] = None
     permissions: Optional[dict] = None
+
+
+@router.get("/api/roles/capabilities")
+async def get_capability_matrix(staff: StaffMember = Depends(get_current_admin)):
+    """Returns the full capability matrix used for role editing."""
+    return {"matrix": CAPABILITY_MATRIX, "labels": MODULE_LABELS}
 
 
 @router.get("/api/roles")
 async def list_roles(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(CRMRole).order_by(CRMRole.name))
-    return [{"id": ro.id, "name": ro.name, "permissions": ro.permissions, "created_at": ro.created_at.isoformat()} for ro in r.scalars().all()]
+    roles = (await db.execute(select(CRMRole).order_by(CRMRole.name))).scalars().all()
+    # Count staff per role
+    counts_r = await db.execute(
+        select(StaffMember.role_id, func.count().label("n"))
+        .where(StaffMember.role_id != None)
+        .group_by(StaffMember.role_id)
+    )
+    counts = {row.role_id: row.n for row in counts_r}
+    return [
+        {
+            "id": ro.id, "name": ro.name, "description": ro.description,
+            "permissions": ro.permissions,
+            "staff_count": counts.get(ro.id, 0),
+            "created_at": ro.created_at.isoformat(),
+        }
+        for ro in roles
+    ]
 
 
 @router.post("/api/roles")
 async def create_role(req: RoleReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    if not staff.is_admin:
-        raise HTTPException(403)
-    ro = CRMRole(name=req.name, permissions=req.permissions or {})
+    if not _perm(staff, "roles", "create"):
+        raise HTTPException(403, "No permission")
+    ro = CRMRole(name=req.name, description=req.description, permissions=req.permissions or {})
     db.add(ro)
-    await db.flush()
-    return {"id": ro.id}
+    await db.commit()
+    await db.refresh(ro)
+    return {"id": ro.id, "name": ro.name}
 
 
 @router.put("/api/roles/{role_id}")
 async def update_role(role_id: int, req: RoleReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "roles", "edit"):
+        raise HTTPException(403, "No permission")
     r = await db.execute(select(CRMRole).where(CRMRole.id == role_id))
     ro = r.scalar_one_or_none()
     if not ro:
         raise HTTPException(404)
     ro.name = req.name
+    if req.description is not None:
+        ro.description = req.description
     if req.permissions is not None:
         ro.permissions = req.permissions
+    await db.commit()
     return {"ok": True}
 
 
 @router.delete("/api/roles/{role_id}")
 async def delete_role(role_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "roles", "delete"):
+        raise HTTPException(403, "No permission")
+    # Don't delete if staff assigned to it
+    count_r = await db.execute(select(func.count()).select_from(StaffMember).where(StaffMember.role_id == role_id))
+    if (count_r.scalar() or 0) > 0:
+        raise HTTPException(400, "Cannot delete role: staff members are still assigned to it.")
     await db.execute(delete(CRMRole).where(CRMRole.id == role_id))
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Apps ──────────────────────────────────────────────────────────────────────
+
+@router.get("/api/apps")
+async def list_apps(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    apps = (await db.execute(select(CRMApp).order_by(CRMApp.name))).scalars().all()
+    return [{"id": a.id, "key": a.key, "name": a.name, "description": a.description,
+             "icon": a.icon, "base_url": a.base_url, "is_active": a.is_active} for a in apps]
+
+
+@router.get("/api/apps/my-access")
+async def my_app_access(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Returns apps the current user can access (for the app launcher)."""
+    if staff.is_admin:
+        apps = (await db.execute(select(CRMApp).where(CRMApp.is_active == True))).scalars().all()
+        return [{"id": a.id, "key": a.key, "name": a.name, "icon": a.icon, "base_url": a.base_url} for a in apps]
+    rows = await db.execute(
+        select(CRMApp).join(CRMUserAppAccess, CRMUserAppAccess.app_id == CRMApp.id)
+        .where(CRMUserAppAccess.staff_id == staff.id, CRMApp.is_active == True)
+    )
+    apps = rows.scalars().all()
+    return [{"id": a.id, "key": a.key, "name": a.name, "icon": a.icon, "base_url": a.base_url} for a in apps]
+
+
+@router.get("/api/staff/{staff_id}/app-access")
+async def get_staff_app_access(
+    staff_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+):
+    if not staff.is_admin and staff.id != staff_id:
+        raise HTTPException(403)
+    apps = (await db.execute(select(CRMApp).order_by(CRMApp.name))).scalars().all()
+    access_rows = (await db.execute(
+        select(CRMUserAppAccess).where(CRMUserAppAccess.staff_id == staff_id)
+    )).scalars().all()
+    access_by_app = {row.app_id: row for row in access_rows}
+    client_rows = (await db.execute(
+        select(CRMUserAppClientAccess).where(CRMUserAppClientAccess.staff_id == staff_id)
+    )).scalars().all()
+    clients_by_app: dict[int, list[int]] = {}
+    for cr in client_rows:
+        clients_by_app.setdefault(cr.app_id, []).append(cr.client_id)
+    return [
+        {
+            "app_id": a.id, "key": a.key, "name": a.name, "icon": a.icon,
+            "is_active": a.is_active,
+            "has_access": a.id in access_by_app,
+            "client_ids": clients_by_app.get(a.id, []),
+        }
+        for a in apps
+    ]
+
+
+class AppAccessReq(BaseModel):
+    app_id: int
+    grant: bool
+    client_ids: Optional[list[int]] = None  # None = don't change; [] = all removed
+
+
+@router.put("/api/staff/{staff_id}/app-access")
+async def set_staff_app_access(
+    staff_id: int, req: AppAccessReq,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+):
+    if not staff.is_admin:
+        raise HTTPException(403, "Admin only")
+    if req.grant:
+        existing = (await db.execute(
+            select(CRMUserAppAccess).where(
+                CRMUserAppAccess.staff_id == staff_id, CRMUserAppAccess.app_id == req.app_id
+            )
+        )).scalar_one_or_none()
+        if not existing:
+            db.add(CRMUserAppAccess(staff_id=staff_id, app_id=req.app_id, granted_by=staff.id))
+    else:
+        await db.execute(delete(CRMUserAppAccess).where(
+            CRMUserAppAccess.staff_id == staff_id, CRMUserAppAccess.app_id == req.app_id
+        ))
+        await db.execute(delete(CRMUserAppClientAccess).where(
+            CRMUserAppClientAccess.staff_id == staff_id, CRMUserAppClientAccess.app_id == req.app_id
+        ))
+    if req.grant and req.client_ids is not None:
+        await db.execute(delete(CRMUserAppClientAccess).where(
+            CRMUserAppClientAccess.staff_id == staff_id, CRMUserAppClientAccess.app_id == req.app_id
+        ))
+        for cid in req.client_ids:
+            db.add(CRMUserAppClientAccess(staff_id=staff_id, app_id=req.app_id, client_id=cid))
+    await db.commit()
     return {"ok": True}
 
 
@@ -2703,14 +2971,22 @@ async def init_admin_db(engine) -> None:
         # Default roles
         roles_exist = await db.execute(select(func.count()).select_from(CRMRole))
         if (roles_exist.scalar() or 0) == 0:
-            default_roles = [
-                CRMRole(name="Administrator", permissions={"*": {"*": True}}),
-                CRMRole(name="Manager", permissions={}),
-                CRMRole(name="Sales", permissions={"proposals": {"view": True, "create": True}, "leads": {"view": True, "create": True}}),
-                CRMRole(name="Copywriter", permissions={"tasks": {"view": True, "create": True}}),
-            ]
-            for ro in default_roles:
-                db.add(ro)
+            for rname, rdesc, rperms in _DEFAULT_ROLES:
+                db.add(CRMRole(name=rname, description=rdesc, permissions=rperms))
+
+        # Seed Meta Ads app record
+        app_exist = await db.execute(select(func.count()).select_from(CRMApp))
+        if (app_exist.scalar() or 0) == 0:
+            from config import settings as _s
+            base = _s.BASE_URL.rstrip("/")
+            db.add(CRMApp(
+                key="meta-ads-upload",
+                name="Meta Ads Upload",
+                description="Upload and manage Meta (Facebook/Instagram) ad campaigns for clients.",
+                icon="fa-meta",
+                base_url=base,
+                is_active=True,
+            ))
 
         # Default payment modes
         pm_exist = await db.execute(select(func.count()).select_from(CRMPaymentMode))
