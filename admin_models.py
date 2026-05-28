@@ -67,7 +67,7 @@ class StaffMember(AdminBase):
 
     role: Mapped[Optional[CRMRole]] = relationship("CRMRole", back_populates="staff")
     timesheets: Mapped[list["CRMTimesheet"]] = relationship("CRMTimesheet", back_populates="staff", cascade="all, delete-orphan")
-    notes: Mapped[list["CRMStaffNote"]] = relationship("CRMStaffNote", back_populates="staff", cascade="all, delete-orphan")
+    notes: Mapped[list["CRMStaffNote"]] = relationship("CRMStaffNote", foreign_keys="CRMStaffNote.staff_id", back_populates="staff", cascade="all, delete-orphan")
 
     @property
     def full_name(self) -> str:
@@ -434,6 +434,7 @@ class CRMContract(AdminBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     customer: Mapped[Optional[CRMCustomer]] = relationship("CRMCustomer", back_populates="contracts")
+    project: Mapped[Optional["CRMProject"]] = relationship("CRMProject", back_populates="contracts", foreign_keys=[project_id])
     contract_type: Mapped[Optional[CRMContractType]] = relationship("CRMContractType")
 
 
