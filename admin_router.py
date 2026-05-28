@@ -2983,7 +2983,7 @@ async def init_admin_db(engine) -> None:
                 key="meta-ads-upload",
                 name="Meta Ads Upload",
                 description="Upload and manage Meta (Facebook/Instagram) ad campaigns for clients.",
-                icon="fa-meta",
+                icon="fa-solid fa-rectangle-ad",
                 base_url=base,
                 is_active=True,
             ))
