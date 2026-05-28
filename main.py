@@ -54,6 +54,7 @@ from skills_manager import (
 )
 from claude_agent import ClaudeAgent, invalidate_account_cache, invalidate_system_prompt, _system_prompt_cache
 from rate_limiter import api_tracker
+from admin_router import router as admin_router, init_admin_db
 
 logger = setup_logging()
 encryption = FernetEncryption()
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("Auto-created admin from LOGIN_PASSWORD")
         break
+    await init_admin_db(async_engine)
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
     logger.info("Uplinx Meta Manager started")
@@ -206,6 +208,7 @@ async def _token_refresh_loop() -> None:
 # ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Uplinx Meta Manager", version="1.0.0", lifespan=lifespan)
+app.include_router(admin_router)
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
