@@ -1055,78 +1055,238 @@ class CustomerReq(BaseModel):
     state: Optional[str] = None
     zip_code: Optional[str] = None
     country: Optional[str] = None
+    billing_address: Optional[str] = None
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_zip: Optional[str] = None
+    billing_country: Optional[str] = None
+    shipping_address: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_zip: Optional[str] = None
+    shipping_country: Optional[str] = None
     group_ids: Optional[list] = None
     tags: Optional[list] = None
     allow_portal_login: bool = False
     is_active: bool = True
+    # Contact included in create form
+    contact_first_name: Optional[str] = None
+    contact_last_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+def _contact_dict(ct: "CRMContact") -> dict:
+    return {
+        "id": ct.id, "customer_id": ct.customer_id,
+        "full_name": ct.full_name, "first_name": ct.first_name, "last_name": ct.last_name,
+        "email": ct.email, "phone": ct.phone, "title": ct.title,
+        "is_primary": ct.is_primary, "can_login": ct.can_login,
+        "allow_portal": ct.allow_portal, "is_active": ct.is_active,
+        "email_opt_ins": ct.email_opt_ins or {},
+        "last_login": ct.last_login.isoformat() if ct.last_login else None,
+        "created_at": ct.created_at.isoformat(),
+    }
 
 
 @router.get("/api/customers")
 async def list_customers(
     q: Optional[str] = None,
     is_active: Optional[bool] = None,
+    country: Optional[str] = None,
+    tag: Optional[str] = None,
     staff: StaffMember = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    if not _perm(staff, "customers", "view"):
+        raise HTTPException(403)
     query = select(CRMCustomer).options(selectinload(CRMCustomer.contacts))
     if q:
         query = query.where(CRMCustomer.company_name.ilike(f"%{q}%"))
     if is_active is not None:
         query = query.where(CRMCustomer.is_active == is_active)
+    if country:
+        query = query.where(CRMCustomer.country == country)
     query = query.order_by(CRMCustomer.company_name)
     r = await db.execute(query)
     customers = r.scalars().all()
     result = []
     for c in customers:
+        if tag and tag not in (c.tags or []):
+            continue
         d = _customer_dict(c)
         primary = next((ct for ct in c.contacts if ct.is_primary), None) or (c.contacts[0] if c.contacts else None)
-        if primary:
-            d["primary_contact"] = {"name": primary.full_name, "email": primary.email, "phone": primary.phone}
+        d["primary_contact"] = {"id": primary.id, "name": primary.full_name, "email": primary.email, "phone": primary.phone} if primary else None
         result.append(d)
     return result
 
 
 @router.post("/api/customers")
 async def create_customer(req: CustomerReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    c = CRMCustomer(**req.model_dump())
+    if not _perm(staff, "customers", "create"):
+        raise HTTPException(403)
+    data = req.model_dump()
+    contact_first = data.pop("contact_first_name", None)
+    contact_last = data.pop("contact_last_name", None)
+    contact_email = data.pop("contact_email", None)
+    contact_phone = data.pop("contact_phone", None)
+    c = CRMCustomer(**data, created_by=staff.id)
     db.add(c)
     await db.flush()
+    if contact_first or contact_last:
+        ct = CRMContact(
+            customer_id=c.id,
+            first_name=contact_first or "Contact",
+            last_name=contact_last or "",
+            email=contact_email,
+            phone=contact_phone,
+            is_primary=True,
+        )
+        db.add(ct)
     await _log(db, staff, "customers", "created", c.id, c.company_name)
+    await db.commit()
     return {"id": c.id}
 
 
 @router.get("/api/customers/{cid}")
 async def get_customer(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(CRMCustomer).where(CRMCustomer.id == cid)
-                         .options(selectinload(CRMCustomer.contacts), selectinload(CRMCustomer.notes)))
+    if not _perm(staff, "customers", "view"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMCustomer).where(CRMCustomer.id == cid)
+        .options(selectinload(CRMCustomer.contacts), selectinload(CRMCustomer.notes))
+    )
     c = r.scalar_one_or_none()
     if not c:
         raise HTTPException(404)
     d = _customer_dict(c)
-    d["contacts"] = [{"id": ct.id, "full_name": ct.full_name, "email": ct.email,
-                       "phone": ct.phone, "title": ct.title, "is_primary": ct.is_primary,
-                       "is_active": ct.is_active} for ct in c.contacts]
-    d["notes"] = [{"id": n.id, "content": n.content, "created_at": n.created_at.isoformat()} for n in c.notes]
+    d["contacts"] = [_contact_dict(ct) for ct in c.contacts]
+    d["notes"] = [{"id": n.id, "content": n.content,
+                   "author": n.author_id, "created_at": n.created_at.isoformat()} for n in c.notes]
     return d
 
 
 @router.put("/api/customers/{cid}")
 async def update_customer(cid: int, req: CustomerReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "customers", "edit"):
+        raise HTTPException(403)
     r = await db.execute(select(CRMCustomer).where(CRMCustomer.id == cid))
     c = r.scalar_one_or_none()
     if not c:
         raise HTTPException(404)
-    for k, v in req.model_dump(exclude_unset=True).items():
+    data = req.model_dump(exclude_unset=True)
+    data.pop("contact_first_name", None); data.pop("contact_last_name", None)
+    data.pop("contact_email", None); data.pop("contact_phone", None)
+    for k, v in data.items():
         setattr(c, k, v)
     c.updated_at = _utcnow()
     await _log(db, staff, "customers", "updated", c.id, c.company_name)
+    await db.commit()
     return {"ok": True}
 
 
 @router.delete("/api/customers/{cid}")
 async def delete_customer(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "customers", "delete"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMCustomer).where(CRMCustomer.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    await _log(db, staff, "customers", "deleted", c.id, c.company_name)
     await db.execute(delete(CRMCustomer).where(CRMCustomer.id == cid))
+    await db.commit()
     return {"ok": True}
+
+
+@router.get("/api/customers/{cid}/financial-summary")
+async def customer_financial_summary(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "customers", "view_financial_summary"):
+        return {"total_invoiced": 0, "total_paid": 0, "outstanding": 0, "overdue": 0}
+    now = _utcnow()
+    invoices = (await db.execute(
+        select(CRMInvoice).where(CRMInvoice.customer_id == cid)
+    )).scalars().all()
+    total_invoiced = sum(float(i.total or 0) for i in invoices)
+    total_paid = sum(float(i.amount_paid or 0) for i in invoices)
+    outstanding = sum(float((i.total or 0) - (i.amount_paid or 0)) for i in invoices if i.status not in ("paid", "cancelled"))
+    overdue = sum(float((i.total or 0) - (i.amount_paid or 0)) for i in invoices
+                  if i.status not in ("paid", "cancelled") and i.due_date and i.due_date < now)
+    return {"total_invoiced": total_invoiced, "total_paid": total_paid, "outstanding": outstanding, "overdue": overdue}
+
+
+@router.get("/api/customers/{cid}/statement")
+async def customer_statement(
+    cid: int,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    from datetime import date as _date
+    if not _perm(staff, "customers", "view_statement"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMCustomer).where(CRMCustomer.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    try:
+        dt_from = datetime.fromisoformat(date_from) if date_from else None
+        dt_to = datetime.fromisoformat(date_to) if date_to else None
+    except ValueError:
+        dt_from = dt_to = None
+
+    inv_q = select(CRMInvoice).where(CRMInvoice.customer_id == cid)
+    if dt_from:
+        inv_q = inv_q.where(CRMInvoice.created_at >= dt_from)
+    if dt_to:
+        inv_q = inv_q.where(CRMInvoice.created_at <= dt_to)
+    invoices = (await db.execute(inv_q.order_by(CRMInvoice.created_at))).scalars().all()
+
+    pay_q = select(CRMPayment).join(CRMInvoice, CRMPayment.invoice_id == CRMInvoice.id).where(CRMInvoice.customer_id == cid)
+    if dt_from:
+        pay_q = pay_q.where(CRMPayment.date >= dt_from)
+    if dt_to:
+        pay_q = pay_q.where(CRMPayment.date <= dt_to)
+    payments = (await db.execute(pay_q.order_by(CRMPayment.date))).scalars().all()
+
+    # Build chronological rows
+    rows = []
+    for inv in invoices:
+        rows.append({
+            "date": inv.created_at.date().isoformat(),
+            "type": "Invoice",
+            "ref": inv.invoice_number or f"INV-{inv.id}",
+            "amount_in": float(inv.total or 0),
+            "amount_out": 0,
+        })
+    for pay in payments:
+        rows.append({
+            "date": (pay.date or pay.created_at).date().isoformat() if pay.date or pay.created_at else "",
+            "type": "Payment",
+            "ref": pay.transaction_id or f"PAY-{pay.id}",
+            "amount_in": 0,
+            "amount_out": float(pay.amount or 0),
+        })
+    rows.sort(key=lambda x: x["date"])
+
+    balance = 0.0
+    for row in rows:
+        balance += row["amount_in"] - row["amount_out"]
+        row["balance"] = round(balance, 2)
+
+    total_invoiced = sum(r["amount_in"] for r in rows)
+    total_paid = sum(r["amount_out"] for r in rows)
+    return {
+        "customer": _customer_dict(c),
+        "period_from": date_from, "period_to": date_to,
+        "rows": rows,
+        "totals": {
+            "invoiced": round(total_invoiced, 2),
+            "paid": round(total_paid, 2),
+            "balance": round(balance, 2),
+        }
+    }
 
 
 # Contacts CRUD
@@ -1137,31 +1297,47 @@ class ContactReq(BaseModel):
     phone: Optional[str] = None
     title: Optional[str] = None
     is_primary: bool = False
+    can_login: bool = False
     allow_portal: bool = False
+    email_opt_ins: Optional[dict] = None
 
 
 @router.post("/api/customers/{cid}/contacts")
 async def add_contact(cid: int, req: ContactReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    ct = CRMContact(customer_id=cid, **req.model_dump())
+    if not _perm(staff, "customers", "manage_contacts"):
+        raise HTTPException(403)
+    data = req.model_dump()
+    ct = CRMContact(customer_id=cid, **data)
+    if ct.is_primary:
+        await db.execute(update(CRMContact).where(CRMContact.customer_id == cid).values(is_primary=False))
     db.add(ct)
-    await db.flush()
-    return {"id": ct.id}
+    await db.commit()
+    await db.refresh(ct)
+    return _contact_dict(ct)
 
 
 @router.put("/api/contacts/{ct_id}")
 async def update_contact(ct_id: int, req: ContactReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "customers", "manage_contacts"):
+        raise HTTPException(403)
     r = await db.execute(select(CRMContact).where(CRMContact.id == ct_id))
     ct = r.scalar_one_or_none()
     if not ct:
         raise HTTPException(404)
+    if req.is_primary:
+        await db.execute(update(CRMContact).where(CRMContact.customer_id == ct.customer_id).values(is_primary=False))
     for k, v in req.model_dump(exclude_unset=True).items():
         setattr(ct, k, v)
+    await db.commit()
     return {"ok": True}
 
 
 @router.delete("/api/contacts/{ct_id}")
 async def delete_contact(ct_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "customers", "manage_contacts"):
+        raise HTTPException(403)
     await db.execute(delete(CRMContact).where(CRMContact.id == ct_id))
+    await db.commit()
     return {"ok": True}
 
 
@@ -1174,13 +1350,15 @@ class NoteReq(BaseModel):
 async def add_customer_note(cid: int, req: NoteReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     n = CRMNote(customer_id=cid, author_id=staff.id, content=req.content)
     db.add(n)
-    await db.flush()
-    return {"id": n.id}
+    await db.commit()
+    await db.refresh(n)
+    return {"id": n.id, "content": n.content, "created_at": n.created_at.isoformat()}
 
 
 @router.delete("/api/notes/{note_id}")
 async def delete_note(note_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(CRMNote).where(CRMNote.id == note_id))
+    await db.commit()
     return {"ok": True}
 
 

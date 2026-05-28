@@ -178,11 +178,25 @@ class CRMCustomer(AdminBase):
     state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     zip_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Billing address (separate from main/shipping)
+    billing_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    billing_city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    billing_state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    billing_zip: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    billing_country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Shipping address
+    shipping_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shipping_city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    shipping_state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    shipping_zip: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    shipping_country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     # Groups: stored as JSON array of group IDs
     group_ids: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
     tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
     allow_portal_login: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    converted_from_lead_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_leads.id", ondelete="SET NULL"), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
@@ -207,7 +221,14 @@ class CRMContact(AdminBase):
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     title: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    can_login: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     allow_portal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hashed_password: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # email_opt_ins: { receives_invoice, receives_estimate, receives_proposal, receives_contract, receives_task, receives_project, receives_ticket }
+    email_opt_ins: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=lambda: {
+        "receives_invoice": True, "receives_estimate": True, "receives_proposal": True,
+        "receives_contract": True, "receives_task": True, "receives_project": True, "receives_ticket": True,
+    })
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
