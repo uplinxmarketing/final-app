@@ -3142,6 +3142,46 @@ async def init_admin_db(engine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(AdminBase.metadata.create_all)
 
+    # ── Schema migrations: ADD COLUMN IF NOT EXISTS for columns added post-initial-deploy ──
+    _migrations = [
+        # crm_roles
+        "ALTER TABLE crm_roles ADD COLUMN IF NOT EXISTS description TEXT",
+        # crm_staff — Module 03 additions
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_ip VARCHAR(45)",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_password_change_at TIMESTAMPTZ",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(128)",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        # crm_customers — Module 08 additions
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_address TEXT",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_city VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_state VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_zip VARCHAR(20)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_country VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_address TEXT",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_city VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_state VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_zip VARCHAR(20)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_country VARCHAR(100)",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS converted_from_lead_id INTEGER REFERENCES crm_leads(id) ON DELETE SET NULL",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES crm_staff(id) ON DELETE SET NULL",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        # crm_contacts — Module 08 additions
+        "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS can_login BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS hashed_password TEXT",
+        "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS email_opt_ins JSONB",
+    ]
+    async with engine.begin() as conn:
+        for sql in _migrations:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # column already exists or unsupported (SQLite < 3.37)
+
     # Seed from a short session
     from sqlalchemy.ext.asyncio import AsyncSession as _AS, async_sessionmaker as _asm
     session_factory = _asm(bind=engine, expire_on_commit=False)
