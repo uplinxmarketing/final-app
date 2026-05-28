@@ -52,8 +52,22 @@ _connect_args: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False, "timeout": 30}
 elif DATABASE_URL.startswith("postgresql"):
-    # ssl=require needed for Supabase; statement_cache_size=0 required when
-    # connecting through Supabase's connection pooler (Supavisor)
+    # Pre-resolve hostname to IPv4 so uvloop doesn't try IPv6 on hosts that
+    # only have AAAA records (causes ENETUNREACH on Render's containers).
+    import socket as _socket
+    from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse
+    try:
+        _pu = _urlparse(DATABASE_URL)
+        _host = _pu.hostname or ""
+        _ipv4_addrs = _socket.getaddrinfo(_host, _pu.port or 5432, _socket.AF_INET, _socket.SOCK_STREAM)
+        if _ipv4_addrs:
+            _ipv4 = _ipv4_addrs[0][4][0]
+            _new_netloc = _pu.netloc.replace(_host, _ipv4, 1)
+            DATABASE_URL = _urlunparse(_pu._replace(netloc=_new_netloc))
+            logger.info("Resolved DB host %r → IPv4 %r", _host, _ipv4)
+    except Exception as _dns_err:
+        logger.warning("IPv4 pre-resolution failed (%s), using original hostname", _dns_err)
+    # statement_cache_size=0 required for Supabase's Supavisor pooler
     _connect_args = {"ssl": "require", "statement_cache_size": 0}
 
 async_engine = create_async_engine(
