@@ -89,6 +89,11 @@ async def get_current_admin(
     return staff
 
 
+async def _require_staff(request: Request, db: AsyncSession) -> StaffMember:
+    """Direct (non-Depends) version of get_current_admin for use inside endpoint bodies."""
+    return await get_current_admin(request, db)
+
+
 def _perm(staff: StaffMember, module: str, action: str) -> bool:
     """Check if staff has a given permission, respecting role + overrides."""
     if staff.is_admin:

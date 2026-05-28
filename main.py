@@ -265,7 +265,8 @@ async def login_guard(request: Request, call_next):
         return await call_next(request)
     path = request.url.path
     if (path in {"/login", "/api/login", "/api/logout", "/health"}
-            or path.startswith("/api/auth/")   # NEW: allow all per-user auth endpoints
+            or path.startswith("/api/auth/")   # per-user auth endpoints
+            or path.startswith("/admin")        # admin has its own auth system
             or path.startswith("/frontend/")
             or path.startswith("/static/")):
         return await call_next(request)
