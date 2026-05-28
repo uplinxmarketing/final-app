@@ -280,6 +280,77 @@ tbody tr:hover .ta{opacity:1}
 .stat-card .val{font-size:24px;font-weight:700;color:var(--text);margin:4px 0}
 .stat-card .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
 .stat-card .ic{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:10px}
+
+/* ── DASHBOARD ── */
+.dsh-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.dsh-greeting{font-size:22px;font-weight:700;color:var(--text);font-family:'Syne',sans-serif}
+.dsh-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+.dsh-grid .span2{grid-column:span 2}
+.dsh-grid .span3{grid-column:span 3}
+.dsh-w{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;transition:box-shadow .18s}
+.dsh-w:hover{box-shadow:var(--sh-md)}
+.dsh-w.dragging{opacity:.45;border:2px dashed var(--primary)}
+.dsh-w.drag-over{border:2px dashed var(--success);background:#f0fdf4}
+.dsh-wh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafa}
+.dsh-wh-drag{cursor:grab;color:var(--muted);font-size:12px;flex-shrink:0;padding:2px 4px}
+.dsh-wh-drag:active{cursor:grabbing}
+.dsh-wh-title{flex:1;font-size:13px;font-weight:600;color:var(--text)}
+.dsh-wh-act button{background:none;border:none;cursor:pointer;padding:3px 7px;border-radius:4px;color:var(--muted);font-size:12px;transition:var(--tr)}
+.dsh-wh-act button:hover{background:var(--bg);color:var(--text)}
+.dsh-wb{padding:14px}
+/* Mini stat widgets */
+.dsh-stat-num{font-size:30px;font-weight:700;line-height:1;margin-bottom:3px}
+.dsh-stat-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.dsh-bar{height:5px;border-radius:3px;background:var(--bg);overflow:hidden}
+.dsh-bar-fill{height:100%;border-radius:3px;transition:width .4s ease;min-width:3px}
+/* Overview rows */
+.ov-row{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px}
+.ov-row:last-child{border-bottom:none}
+.ov-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+/* Income chart */
+.ic-bars{display:flex;align-items:flex-end;gap:3px;height:100px;margin:8px 0}
+.ic-bw{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%}
+.ic-b{width:100%;background:var(--primary);border-radius:3px 3px 0 0;opacity:.8;cursor:pointer;min-height:3px;transition:opacity .15s}
+.ic-b:hover{opacity:1}
+.ic-bl{font-size:9px;color:var(--muted)}
+.ic-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.ic-mc{text-align:center;padding:8px;background:var(--bg);border-radius:var(--r)}
+.ic-mv{font-size:15px;font-weight:700}
+.ic-ml{font-size:11px;color:var(--muted);margin-top:1px}
+/* Widget table */
+.wt{width:100%;border-collapse:collapse;font-size:12px}
+.wt th{padding:5px 7px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+.wt td{padding:7px 7px;border-bottom:1px solid var(--border);vertical-align:middle}
+.wt tr:last-child td{border-bottom:none}
+.wt tr:hover td{background:var(--bg)}
+/* My projects */
+.pj-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)}
+.pj-row:last-child{border-bottom:none}
+.pj-bar{flex:1;height:5px;background:var(--bg);border-radius:3px;overflow:hidden;min-width:50px}
+.pj-bf{height:100%;background:var(--primary);border-radius:3px}
+/* Calendar */
+.cal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px}
+.cal-nav button{background:none;border:1px solid var(--border);border-radius:5px;padding:2px 8px;cursor:pointer;font-size:12px;transition:var(--tr)}
+.cal-nav button:hover{background:var(--bg)}
+.cal-mtitle{font-size:13px;font-weight:600}
+.cal-g{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:11px}
+.cal-dow{color:var(--muted);padding:3px 0;font-weight:600}
+.cal-d{padding:5px 2px;border-radius:5px;cursor:pointer;transition:background .12s;line-height:1.2}
+.cal-d:hover{background:var(--bg)}
+.cal-d.td{background:var(--primary);color:#fff;font-weight:700;border-radius:5px}
+.cal-d.om{color:#d1d5db}
+.cal-d.ev::after{content:'';display:block;width:4px;height:4px;background:var(--success);border-radius:50%;margin:2px auto 0}
+/* Dashboard options modal list */
+.dov-list{list-style:none;padding:0;margin:0;max-height:420px;overflow-y:auto}
+.dov-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px;user-select:none}
+.dov-item.dragging{opacity:.4}
+.dov-item.drag-over{border-top:2px solid var(--primary);background:#eff6ff}
+.dov-drag{cursor:grab;color:var(--muted);flex-shrink:0;font-size:13px}
+.dov-drag:active{cursor:grabbing}
+.dov-lbl{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer}
+.dov-lbl input{width:14px;height:14px;accent-color:var(--primary);cursor:pointer}
+@media(max-width:900px){.dsh-grid{grid-template-columns:repeat(2,1fr)}.dsh-grid .span3{grid-column:span 2}}
+@media(max-width:600px){.dsh-grid{grid-template-columns:1fr}.dsh-grid .span2,.dsh-grid .span3{grid-column:span 1}}
 </style>
 </head>
 <body>
@@ -897,7 +968,20 @@ function toTitle(s) {
 }
 
 // ── Page stubs (replaced part by part) ──
-function pgDashboard(){return pgPlaceholder('Dashboard')}
+function pgDashboard(){
+  const now = new Date();
+  const ds = now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  return `<div class="dsh-header">
+    <div>
+      <div class="dsh-greeting" id="dsh-greeting">Welcome!</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px">${ds}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-secondary btn-sm" onclick="openDashboardOptions()"><i class="fa-solid fa-sliders"></i> Dashboard Options</button>
+    </div>
+  </div>
+  <div id="dsh-grid" class="dsh-grid"></div>`;
+}
 function pgCustomers(){return pgPlaceholder('Customers')}
 function pgNewCustomer(){return pgPlaceholder('New Customer')}
 function pgProposals(){return pgPlaceholder('Proposals')}
@@ -1913,6 +1997,553 @@ async function deletePolyNote(nid, containerId, relType, relId) {
     try { await DEL(`/notes/${nid}`); renderNotesPanel(containerId, relType, relId); }
     catch(e) { toast(e.message,'error'); }
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DASHBOARD — Part 3
+// ═══════════════════════════════════════════════════════════════════════
+
+const DSH_WIDGETS = [
+  {id:'storage',        title:'Quota / Storage',          icon:'fa-hard-drive',          span:1},
+  {id:'inv_awaiting',   title:'Invoices Awaiting Payment', icon:'fa-file-invoice-dollar', span:1},
+  {id:'leads_converted',title:'Converted Leads',           icon:'fa-user-check',          span:1},
+  {id:'proj_active',    title:'Projects In Progress',      icon:'fa-diagram-project',     span:1},
+  {id:'tasks_not_done', title:'Tasks Not Finished',        icon:'fa-list-check',          span:1},
+  {id:'inv_overview',   title:'Invoice Overview',          icon:'fa-chart-pie',           span:1},
+  {id:'est_overview',   title:'Estimate Overview',         icon:'fa-file-lines',          span:1},
+  {id:'prop_overview',  title:'Proposal Overview',         icon:'fa-handshake',           span:1},
+  {id:'income_chart',   title:'Income',                    icon:'fa-chart-bar',           span:2},
+  {id:'my_tasks',       title:'My Tasks',                  icon:'fa-square-check',        span:2},
+  {id:'my_projects',    title:'My Projects',               icon:'fa-folder-open',         span:1},
+  {id:'my_reminders',   title:'My Reminders',              icon:'fa-bell',                span:1},
+  {id:'announcements',  title:'Announcements',             icon:'fa-bullhorn',            span:1},
+  {id:'activity',       title:'Latest Activity',           icon:'fa-clock-rotate-left',   span:1},
+  {id:'calendar',       title:'Calendar',                  icon:'fa-calendar-days',       span:2},
+  {id:'payments',       title:'Payment Records',           icon:'fa-credit-card',         span:1},
+  {id:'contracts_exp',  title:'Contracts Expiring Soon',   icon:'fa-file-contract',       span:1},
+  {id:'my_todos',       title:'My To Do Items',            icon:'fa-check-double',        span:2},
+  {id:'leads_overview', title:'Leads Overview',            icon:'fa-filter',              span:2},
+  {id:'proj_status',    title:'Project Status Distribution',icon:'fa-chart-donut',        span:1},
+  {id:'proj_activity',  title:'Latest Project Activity',   icon:'fa-history',             span:1},
+  {id:'goals',          title:'Goals Progress',            icon:'fa-bullseye',            span:1},
+  {id:'subscriptions',  title:'Subscriptions Overview',    icon:'fa-repeat',              span:1},
+  {id:'unbilled_time',  title:'Unbilled Time',             icon:'fa-stopwatch',           span:2},
+];
+
+let _dshStats = null, _dshLayout = null, _dshDragSrc = null, _dovSrc = null;
+let _calYear = null, _calMonth = null;
+const OV_COLORS = ['#6366f1','#f59e0b','#ef4444','#8b5cf6','#10b981','#3b82f6','#ec4899'];
+const MONTHS_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+window.init_dashboard = async function() {
+  const h = new Date().getHours();
+  const word = h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening';
+  const fn = CU ? (CU.first_name || CU.email || 'there') : 'there';
+  const el = document.getElementById('dsh-greeting');
+  if (el) el.textContent = `Good ${word}, ${fn}!`;
+
+  const [lr, sr] = await Promise.allSettled([
+    GET('/dashboard/layout').catch(() => null),
+    GET('/dashboard/stats').catch(() => ({}))
+  ]);
+  _dshLayout = lr.value?.layout || null;
+  _dshStats  = sr.value || {};
+
+  if (!Array.isArray(_dshLayout)) {
+    _dshLayout = DSH_WIDGETS.map((w, i) => ({id: w.id, visible: true, span: w.span, order: i}));
+  }
+  _calYear  = _calYear  || new Date().getFullYear();
+  _calMonth = _calMonth !== null ? _calMonth : new Date().getMonth();
+  renderDashboard();
+};
+
+function renderDashboard() {
+  const grid = document.getElementById('dsh-grid');
+  if (!grid) return;
+  const visible = [..._dshLayout]
+    .filter(l => l.visible !== false)
+    .sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+
+  grid.innerHTML = visible.map(l => {
+    const def = DSH_WIDGETS.find(w => w.id === l.id);
+    if (!def) return '';
+    const sp = l.span || def.span || 1;
+    return `<div class="dsh-w${sp > 1 ? ` span${sp}` : ''}" data-wid="${l.id}"
+      draggable="true"
+      ondragstart="dshDragStart(event)" ondragover="dshDragOver(event)"
+      ondrop="dshDrop(event)" ondragleave="dshDragLeave(event)" ondragend="dshDragEnd(event)">
+      <div class="dsh-wh">
+        <span class="dsh-wh-drag" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>
+        <span class="dsh-wh-title"><i class="fa-solid ${def.icon}" style="color:var(--primary);margin-right:6px;font-size:12px"></i>${def.title}</span>
+        <div class="dsh-wh-act"><button onclick="dshHideWidget('${l.id}')" title="Hide"><i class="fa-solid fa-eye-slash"></i></button></div>
+      </div>
+      <div class="dsh-wb" id="wb-${l.id}">${dshWidget(l.id, _dshStats || {})}</div>
+    </div>`;
+  }).join('');
+}
+
+function dshWidget(id, s) {
+  const M = {
+    storage: wStorage, inv_awaiting: wInvAwaiting, leads_converted: wLeadsConverted,
+    proj_active: wProjActive, tasks_not_done: wTasksNotDone,
+    inv_overview: wInvOverview, est_overview: wEstOverview, prop_overview: wPropOverview,
+    income_chart: wIncomeChart, my_tasks: wMyTasks, my_projects: wMyProjects,
+    my_reminders: wMyReminders, announcements: wAnnouncements, activity: wActivity,
+    calendar: wCalendar, payments: wPayments, contracts_exp: wContractsExp,
+    my_todos: wMyTodos, leads_overview: wLeadsOverview, proj_status: wProjStatus,
+    proj_activity: wProjActivity, goals: wGoals, subscriptions: wSubscriptions,
+    unbilled_time: wUnbilledTime,
+  };
+  try { return M[id] ? M[id](s) : `<div class="es"><p>Unknown widget</p></div>`; }
+  catch(e) { return `<div class="es"><p>Widget error</p></div>`; }
+}
+
+// Drag-drop (grid)
+function dshDragStart(e) { _dshDragSrc = e.currentTarget; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+function dshDragOver(e)  { e.preventDefault(); if (e.currentTarget !== _dshDragSrc) e.currentTarget.classList.add('drag-over'); }
+function dshDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function dshDragEnd(e)   { e.currentTarget.classList.remove('dragging'); }
+function dshDrop(e) {
+  e.preventDefault();
+  const t = e.currentTarget;
+  t.classList.remove('drag-over');
+  if (!_dshDragSrc || _dshDragSrc === t) return;
+  const sId = _dshDragSrc.dataset.wid, tId = t.dataset.wid;
+  const si = _dshLayout.findIndex(l => l.id === sId);
+  const ti = _dshLayout.findIndex(l => l.id === tId);
+  if (si < 0 || ti < 0) return;
+  const so = _dshLayout[si].order ?? si, to = _dshLayout[ti].order ?? ti;
+  _dshLayout[si].order = to; _dshLayout[ti].order = so;
+  renderDashboard(); saveDshLayout();
+}
+
+function dshHideWidget(id) {
+  const l = _dshLayout.find(x => x.id === id);
+  if (l) { l.visible = false; renderDashboard(); saveDshLayout(); }
+  toast('Widget hidden — restore via Dashboard Options', 'info');
+}
+
+async function saveDshLayout() {
+  try { await PUT('/dashboard/layout', {layout: _dshLayout}); } catch(e) {}
+}
+
+function openDashboardOptions() {
+  const sorted = [..._dshLayout].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+  openModal(`
+    <div class="mh"><div class="mh-title"><i class="fa-solid fa-sliders"></i> Dashboard Options</div><button class="mc" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+    <div style="padding:10px 16px;background:#f9fafb;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)">
+      Drag rows to reorder. Check/uncheck to show or hide widgets.
+    </div>
+    <ul class="dov-list" id="dov-list">
+      ${sorted.map(l => {
+        const def = DSH_WIDGETS.find(w => w.id === l.id);
+        if (!def) return '';
+        const sp = l.span || def.span || 1;
+        const spLabel = sp === 1 ? 'Normal' : sp === 2 ? 'Wide' : 'Full';
+        return `<li class="dov-item" data-wid="${l.id}" draggable="true"
+          ondragstart="dovDragStart(event)" ondragover="dovDragOver(event)"
+          ondrop="dovDrop(event)" ondragleave="this.classList.remove('drag-over')" ondragend="this.classList.remove('dragging')">
+          <i class="fa-solid fa-grip-vertical dov-drag"></i>
+          <label class="dov-lbl">
+            <input type="checkbox" onchange="dovToggle('${l.id}',this.checked)" ${l.visible !== false ? 'checked' : ''}>
+            <i class="fa-solid ${def.icon}" style="color:var(--primary);width:15px"></i>
+            ${def.title}
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="dovCycleSpan('${l.id}',this)" style="font-size:11px;padding:2px 8px">${spLabel}</button>
+        </li>`;
+      }).join('')}
+    </ul>
+    <div class="mf">
+      <button class="btn btn-secondary" onclick="dovReset()"><i class="fa-solid fa-rotate-left"></i> Reset Default</button>
+      <button class="btn btn-primary" onclick="dovSave()"><i class="fa-solid fa-check"></i> Save & Close</button>
+    </div>`);
+}
+
+function dovDragStart(e) { _dovSrc = e.currentTarget; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+function dovDragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function dovDrop(e) {
+  e.preventDefault();
+  const t = e.currentTarget;
+  t.classList.remove('drag-over');
+  if (!_dovSrc || _dovSrc === t) return;
+  const list = document.getElementById('dov-list');
+  const items = [...list.children];
+  const si = items.indexOf(_dovSrc), ti = items.indexOf(t);
+  if (si < ti) list.insertBefore(_dovSrc, t.nextSibling);
+  else list.insertBefore(_dovSrc, t);
+}
+function dovToggle(id, checked) {
+  const l = _dshLayout.find(x => x.id === id);
+  if (l) l.visible = checked;
+}
+function dovCycleSpan(id, btn) {
+  const l = _dshLayout.find(x => x.id === id);
+  if (!l) return;
+  const def = DSH_WIDGETS.find(w => w.id === id);
+  const cur = l.span || def.span || 1;
+  l.span = cur >= 3 ? 1 : cur + 1;
+  btn.textContent = l.span === 1 ? 'Normal' : l.span === 2 ? 'Wide' : 'Full';
+}
+function dovReset() {
+  _dshLayout = DSH_WIDGETS.map((w, i) => ({id: w.id, visible: true, span: w.span, order: i}));
+  closeModal(); renderDashboard(); saveDshLayout();
+  toast('Dashboard reset to default', 'success');
+}
+function dovSave() {
+  const list = document.getElementById('dov-list');
+  if (list) [...list.children].forEach((li, i) => {
+    const l = _dshLayout.find(x => x.id === li.dataset.wid);
+    if (l) l.order = i;
+  });
+  closeModal(); renderDashboard(); saveDshLayout();
+  toast('Dashboard layout saved', 'success');
+}
+
+// ── Currency / format helpers ─────────────────────────────────────────────────
+function fmtCur(v, sym='€') {
+  return sym + Number(v || 0).toLocaleString('en', {minimumFractionDigits:0, maximumFractionDigits:0});
+}
+
+// ── Widget renderers ──────────────────────────────────────────────────────────
+
+function _statMini(num, lbl, pct, color) {
+  return `<div style="text-align:center;padding:14px 12px">
+    <div class="dsh-stat-num" style="color:${color}">${num}</div>
+    <div class="dsh-stat-lbl">${lbl}</div>
+    <div class="dsh-bar"><div class="dsh-bar-fill" style="width:${Math.min(100,pct)}%;background:${color}"></div></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">${pct}% of total</div>
+  </div>`;
+}
+
+function wStorage(s) {
+  const fc = s.storage?.file_count ?? 0, lim = s.storage?.limit_gb ?? 5;
+  const pct = Math.min(100, Math.round(fc / Math.max(lim * 100, 1) * 100));
+  return `<div style="text-align:center;padding:14px 12px">
+    <div class="dsh-stat-num" style="color:var(--info)">${fc}</div>
+    <div class="dsh-stat-lbl">Files / ${lim} GB storage</div>
+    <div class="dsh-bar"><div class="dsh-bar-fill" style="width:${pct}%;background:var(--info)"></div></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">${pct}% used</div>
+  </div>`;
+}
+function wInvAwaiting(s)    { return _statMini(s.invoices_awaiting??0, 'Invoices awaiting payment', s.invoices_total?Math.round((s.invoices_awaiting??0)/s.invoices_total*100):0, 'var(--danger)'); }
+function wLeadsConverted(s) { return _statMini(s.leads_converted??0, 'Leads converted', s.leads_total?Math.round((s.leads_converted??0)/s.leads_total*100):0, 'var(--success)'); }
+function wProjActive(s)     { return _statMini(s.projects_active??0, 'Projects in progress', s.projects_total?Math.round((s.projects_active??0)/s.projects_total*100):0, 'var(--info)'); }
+function wTasksNotDone(s)   { return _statMini(s.tasks_not_done??0, 'Tasks not finished', s.tasks_total?Math.round((s.tasks_not_done??0)/s.tasks_total*100):0, '#374151'); }
+
+function _ovChart(items) {
+  if (!items?.length) return `<div class="es" style="padding:20px 0"><p>No data yet</p></div>`;
+  const total = items.reduce((s,i) => s+(i.count||0), 0) || 1;
+  return `
+    <div style="height:8px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:10px">
+      ${items.map((it,i) => `<div style="flex:${it.count||1};background:${OV_COLORS[i%OV_COLORS.length]}" title="${it.status}: ${it.count}"></div>`).join('')}
+    </div>
+    ${items.map((it,i) => `<div class="ov-row">
+      <span class="ov-dot" style="background:${OV_COLORS[i%OV_COLORS.length]}"></span>
+      <span style="flex:1;text-transform:capitalize;margin-left:7px">${esc((it.status||'').replace(/_/g,' '))}</span>
+      <b>${it.count}</b>
+      <span style="color:var(--muted);margin-left:8px;min-width:32px;text-align:right">${Math.round(it.count/total*100)}%</span>
+    </div>`).join('')}`;
+}
+function wInvOverview(s)  { return _ovChart(s.invoice_overview); }
+function wEstOverview(s)  { return _ovChart(s.estimate_overview); }
+function wPropOverview(s) { return _ovChart(s.proposal_overview); }
+
+function wIncomeChart(s) {
+  const inc = s.income || {}, m = inc.monthly || Array(12).fill(0);
+  const yr = inc.year || new Date().getFullYear();
+  const max = Math.max(...m, 1);
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <span style="font-size:12px;color:var(--muted)">Income ${yr}</span>
+    <button class="btn btn-ghost btn-sm" onclick="nav('report-sales')">Full Report →</button>
+  </div>
+  <div class="ic-bars">
+    ${m.map((v,i) => {
+      const h = Math.max(3, Math.round(v/max*100));
+      return `<div class="ic-bw" title="${MONTHS_S[i]}: ${fmtCur(v)}">
+        <div style="flex:1;display:flex;align-items:flex-end;width:100%">
+          <div class="ic-b" style="height:${h}%"></div>
+        </div>
+        <div class="ic-bl">${MONTHS_S[i].slice(0,1)}</div>
+      </div>`;
+    }).join('')}
+  </div>
+  <div class="ic-metrics">
+    <div class="ic-mc"><div class="ic-mv" style="color:var(--warning)">${fmtCur(inc.outstanding||0)}</div><div class="ic-ml">Outstanding</div></div>
+    <div class="ic-mc"><div class="ic-mv" style="color:var(--danger)">${fmtCur(inc.past_due||0)}</div><div class="ic-ml">Past Due</div></div>
+    <div class="ic-mc"><div class="ic-mv" style="color:var(--success)">${fmtCur(inc.paid||0)}</div><div class="ic-ml">Paid</div></div>
+  </div>`;
+}
+
+const TASK_SC = {not_started:'#94a3b8',in_progress:'var(--info)',testing:'var(--warning)',awaiting_feedback:'#f97316',complete:'var(--success)'};
+const TASK_PC = {urgent:'var(--danger)',high:'#f97316',normal:'var(--info)',low:'var(--success)'};
+
+function wMyTasks(s) {
+  const tasks = s.my_tasks || [];
+  if (!tasks.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-list-check"></i><p>No open tasks assigned to you</p></div>`;
+  return `<div style="overflow-x:auto"><table class="wt"><thead><tr>
+    <th>#</th><th>Task</th><th>Status</th><th>Due</th><th>Priority</th>
+  </tr></thead><tbody>
+    ${tasks.map(t => `<tr>
+      <td style="color:var(--muted)">${t.id}</td>
+      <td><div style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</div>
+        ${t.project_name?`<div style="font-size:11px;color:var(--muted)">${esc(t.project_name)}</div>`:''}
+      </td>
+      <td><span style="background:${TASK_SC[t.status]||'#94a3b8'}22;color:${TASK_SC[t.status]||'#94a3b8'};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${(t.status||'').replace(/_/g,' ')}</span></td>
+      <td style="font-size:12px;color:${t.due_date&&new Date(t.due_date)<new Date()?'var(--danger)':'var(--muted)'}">${t.due_date?fmtDate(t.due_date):'-'}</td>
+      <td style="font-size:12px;font-weight:600;color:${TASK_PC[t.priority]||'var(--muted)'}">${t.priority||'normal'}</td>
+    </tr>`).join('')}
+  </tbody></table></div>
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('tasks')">View All Tasks →</button></div>`;
+}
+
+const PROJ_SC = {not_started:'#94a3b8',in_progress:'var(--info)',on_hold:'var(--warning)',cancelled:'var(--danger)',finished:'var(--success)'};
+
+function wMyProjects(s) {
+  const ps = s.my_projects || [];
+  if (!ps.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-folder-open"></i><p>No projects assigned</p></div>`;
+  return `${ps.map(p => `<div class="pj-row">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <span style="font-size:11px;color:${PROJ_SC[p.status]||'var(--muted)'};font-weight:600">${(p.status||'').replace(/_/g,' ')}</span>
+        <div class="pj-bar"><div class="pj-bf" style="width:${p.progress||0}%;background:${PROJ_SC[p.status]||'var(--primary)'}"></div></div>
+        <span style="font-size:11px;color:var(--muted);flex-shrink:0">${p.progress||0}%</span>
+      </div>
+    </div>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('projects')">View All →</button></div>`;
+}
+
+function wMyReminders(s) {
+  const rs = s.my_reminders || [];
+  if (!rs.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-bell"></i><p>No upcoming reminders</p></div>`;
+  return `${rs.map(r => `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+    <div style="width:34px;height:34px;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <i class="fa-solid fa-bell" style="color:var(--primary)"></i>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500">${esc(r.description||'')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="fa-solid fa-clock"></i> ${fmtDate(r.remind_at)} · ${esc(r.rel_type||'')}</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="dismissReminder(${r.id})" title="Dismiss"><i class="fa-solid fa-check"></i></button>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('reminders')">All Reminders →</button></div>`;
+}
+
+function wAnnouncements(s) {
+  const as = s.announcements || [];
+  if (!as.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-bullhorn"></i><p>No announcements</p></div>`;
+  return `${as.map(a => `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
+    <div style="font-size:13px">${esc((a.content||'').slice(0,120))}${(a.content||'').length>120?'…':''}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px">${relTime(a.created_at)}</div>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('announcements')">View All →</button></div>`;
+}
+
+function wActivity(s) {
+  const as = s.activity || [];
+  if (!as.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-clock-rotate-left"></i><p>No activity yet</p></div>`;
+  return `${as.map(a => `<div style="display:flex;gap:9px;padding:7px 0;border-bottom:1px solid var(--border)">
+    <div style="width:6px;height:6px;border-radius:50%;background:var(--primary);margin-top:5px;flex-shrink:0"></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px">${esc(a.description||'')}</div>
+      <div style="font-size:11px;color:var(--muted)">${esc(a.user||'System')} · ${relTime(a.date)}</div>
+    </div>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('activity-log')">View All →</button></div>`;
+}
+
+function wCalendar(s) {
+  const evts = s.calendar_events || [];
+  return buildCalHtml(evts);
+}
+
+function buildCalHtml(evts) {
+  const now = new Date(), cy = _calYear, cm = _calMonth;
+  const first = new Date(cy, cm, 1), last = new Date(cy, cm+1, 0);
+  const startDow = (first.getDay()+6)%7;
+  const MNAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  let cells = ['Mo','Tu','We','Th','Fr','Sa','Su'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<startDow;i++) cells+=`<div class="cal-d om"></div>`;
+  for(let d=1;d<=last.getDate();d++){
+    const isT = now.getFullYear()===cy&&now.getMonth()===cm&&now.getDate()===d;
+    const hasE = evts.some(e=>{const ed=new Date(e.start_date);return ed.getFullYear()===cy&&ed.getMonth()===cm&&ed.getDate()===d;});
+    cells+=`<div class="cal-d${isT?' td':''}${hasE?' ev':''}">${d}</div>`;
+  }
+  const trail=(7-(startDow+last.getDate())%7)%7;
+  for(let i=0;i<trail;i++) cells+=`<div class="cal-d om"></div>`;
+  return `<div class="cal-hdr">
+    <div class="cal-nav" style="display:flex;gap:4px">
+      <button onclick="calNav(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+      <button onclick="calNav(0)">Today</button>
+      <button onclick="calNav(1)"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    <div class="cal-mtitle">${MNAMES[cm]} ${cy}</div>
+    <button class="btn btn-ghost btn-sm" onclick="nav('calendar')">Expand →</button>
+  </div>
+  <div class="cal-g">${cells}</div>`;
+}
+
+function calNav(dir) {
+  if (dir===0){_calYear=new Date().getFullYear();_calMonth=new Date().getMonth();}
+  else {_calMonth+=dir;if(_calMonth>11){_calMonth=0;_calYear++;}if(_calMonth<0){_calMonth=11;_calYear--;}}
+  const wb=document.getElementById('wb-calendar');
+  if(wb) wb.innerHTML=buildCalHtml(_dshStats?.calendar_events||[]);
+}
+
+function wPayments(s) {
+  const ps = s.recent_payments || [];
+  if (!ps.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-credit-card"></i><p>No payments yet</p></div>`;
+  return `${ps.slice(0,6).map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+    <div>
+      <div style="font-size:13px;font-weight:500">${esc(p.invoice_number||'')}</div>
+      <div style="font-size:11px;color:var(--muted)">${fmtDate(p.date)}</div>
+    </div>
+    <div style="font-weight:600;color:var(--success)">${fmtCur(p.amount)}</div>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('payments')">All Payments →</button></div>`;
+}
+
+function wContractsExp(s) {
+  const cs = s.expiring_contracts || [];
+  if (!cs.length) return `<div class="es" style="padding:20px 0"><i class="fa-solid fa-file-contract"></i><p>No contracts expiring soon</p></div>`;
+  return `${cs.map(c=>{
+    const d=c.end_date?new Date(c.end_date):null;
+    const diff=d?Math.round((d-new Date())/86400000):null;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</div>
+        <div style="font-size:11px;color:var(--muted)">Expires ${fmtDate(c.end_date)}</div>
+      </div>
+      <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;flex-shrink:0">${diff!==null?(diff<=0?'Expired':`${diff}d`):'-'}</span>
+    </div>`;
+  }).join('')}`;
+}
+
+function wMyTodos(s) {
+  const unf = s.todos_unfinished||[], fin = s.todos_finished||[];
+  const row = (t,done) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+    <input type="checkbox" ${done?'checked':''} onchange="dshToggleTodo(${t.id},this.checked)" style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+    <span style="flex:1;font-size:13px;${done?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.title||'')}</span>
+  </div>`;
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div>
+      <div style="font-size:12px;font-weight:700;padding:5px 10px;background:#fef3c7;color:#92400e;border-radius:6px;margin-bottom:8px"><i class="fa-solid fa-circle-exclamation"></i> Unfinished (${unf.length})</div>
+      ${unf.length?unf.map(t=>row(t,false)).join(''):'<div style="font-size:12px;color:var(--muted);padding:8px 0">All done!</div>'}
+      <div style="margin-top:6px;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="nav('todo')">View All</button>
+        <button class="btn btn-ghost btn-sm" onclick="nav('todo')">+ New</button>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;padding:5px 10px;background:#ccfbf1;color:#0f766e;border-radius:6px;margin-bottom:8px"><i class="fa-solid fa-circle-check"></i> Done (${fin.length})</div>
+      ${fin.length?fin.map(t=>row(t,true)).join(''):'<div style="font-size:12px;color:var(--muted);padding:8px 0">Nothing yet</div>'}
+      <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="nav('todo')">Load More</button></div>
+    </div>
+  </div>`;
+}
+
+async function dshToggleTodo(id, done) {
+  try {
+    await PUT(`/todos/${id}`, {is_done: done});
+    const fresh = await GET('/dashboard/stats').catch(()=>_dshStats);
+    if (fresh) { _dshStats = fresh; const wb=document.getElementById('wb-my_todos'); if(wb) wb.innerHTML=wMyTodos(_dshStats); }
+  } catch(e) { toast(e.message,'error'); }
+}
+
+function wLeadsOverview(s) {
+  const bs = s.leads_by_source || [];
+  if (!bs.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-filter"></i><p>No lead data yet</p></div>`;
+  const max = Math.max(...bs.map(r=>r.count), 1);
+  return `<div style="margin-bottom:6px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">By Source</div>
+  ${bs.map((r,i)=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+    <div style="width:90px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${esc(r.source||'Unknown')}</div>
+    <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${Math.round(r.count/max*100)}%;background:${OV_COLORS[i%OV_COLORS.length]};border-radius:4px"></div>
+    </div>
+    <div style="font-size:12px;font-weight:600;width:28px;text-align:right;flex-shrink:0">${r.count}</div>
+  </div>`).join('')}
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('leads')">View All Leads →</button></div>`;
+}
+
+function wProjStatus(s) {
+  const items = s.projects_by_status || [];
+  const PSCO = {not_started:'#94a3b8',in_progress:'var(--info)',on_hold:'var(--warning)',cancelled:'var(--danger)',finished:'var(--success)'};
+  const total = items.reduce((t,i)=>t+i.count,0)||1;
+  if (!items.length) return `<div class="es" style="padding:20px 0"><i class="fa-solid fa-diagram-project"></i><p>No projects</p></div>`;
+  return `<div style="height:12px;border-radius:6px;overflow:hidden;display:flex;margin-bottom:12px">
+    ${items.map(it=>`<div style="flex:${it.count||1};background:${PSCO[it.status]||'#94a3b8'}" title="${it.status}: ${it.count}"></div>`).join('')}
+  </div>
+  ${items.map(it=>`<div class="ov-row">
+    <span class="ov-dot" style="background:${PSCO[it.status]||'#94a3b8'}"></span>
+    <span style="flex:1;text-transform:capitalize;margin-left:7px">${(it.status||'').replace(/_/g,' ')}</span>
+    <b>${it.count}</b>
+    <span style="color:var(--muted);margin-left:8px">${Math.round(it.count/total*100)}%</span>
+  </div>`).join('')}`;
+}
+
+function wProjActivity(s) {
+  const as = s.project_activity || [];
+  if (!as.length) return `<div class="es" style="padding:20px 0"><i class="fa-solid fa-history"></i><p>No project activity</p></div>`;
+  return `${as.map(a=>`<div style="display:flex;gap:9px;padding:7px 0;border-bottom:1px solid var(--border)">
+    <div style="width:6px;height:6px;border-radius:50%;background:var(--success);margin-top:5px;flex-shrink:0"></div>
+    <div>
+      <div style="font-size:12px;font-weight:500">${esc(a.fullname||'System')}</div>
+      <div style="font-size:12px;color:var(--muted)">${esc(a.description_key||'')}</div>
+      <div style="font-size:11px;color:var(--muted)">${relTime(a.date)}</div>
+    </div>
+  </div>`).join('')}`;
+}
+
+function wGoals(s) {
+  const gs = s.goals || [];
+  if (!gs.length) return `<div style="text-align:center;padding:22px 12px;color:var(--muted)">
+    <i class="fa-solid fa-bullseye" style="font-size:30px;margin-bottom:10px;opacity:.35"></i>
+    <p style="font-size:13px;margin-bottom:8px">Goals module coming in Part 13</p>
+    <button class="btn btn-ghost btn-sm" onclick="nav('goals')">Manage Goals →</button>
+  </div>`;
+  return gs.map(g=>`<div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+      <span style="font-weight:500">${esc(g.name||'')}</span>
+      <span style="color:var(--muted)">${g.current||0}/${g.target||0}</span>
+    </div>
+    <div class="dsh-bar"><div class="dsh-bar-fill" style="width:${Math.min(100,Math.round((g.current||0)/Math.max(g.target||1,1)*100))}%;background:var(--success)"></div></div>
+  </div>`).join('');
+}
+
+function wSubscriptions(s) {
+  const sub = s.subscriptions || {};
+  if (!sub.active && !sub.mrr) return `<div style="text-align:center;padding:22px 12px;color:var(--muted)">
+    <i class="fa-solid fa-repeat" style="font-size:30px;margin-bottom:10px;opacity:.35"></i>
+    <p style="font-size:13px">Subscriptions module coming soon</p>
+  </div>`;
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--success)">${sub.active||0}</div><div style="font-size:11px;color:var(--muted)">Active</div></div>
+    <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--info)">${fmtCur(sub.mrr||0)}</div><div style="font-size:11px;color:var(--muted)">MRR</div></div>
+    <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--danger)">${sub.churned||0}</div><div style="font-size:11px;color:var(--muted)">Churned</div></div>
+    <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--warning)">${sub.failed||0}</div><div style="font-size:11px;color:var(--muted)">Failed</div></div>
+  </div>`;
+}
+
+function wUnbilledTime(s) {
+  const ts = s.unbilled_time || [];
+  const fmtDur = sec => { const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60); return `${h}h ${m}m`; };
+  if (!ts.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-stopwatch"></i><p>No completed time entries</p></div>`;
+  const total = ts.reduce((t,r)=>t+(r.duration||0),0);
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="font-size:12px;color:var(--muted)">Total logged time</span>
+    <span style="font-size:16px;font-weight:700;color:var(--warning)">${fmtDur(total)}</span>
+  </div>
+  <table class="wt"><thead><tr><th>Staff</th><th>Project</th><th>Date</th><th>Duration</th><th></th></tr></thead><tbody>
+    ${ts.slice(0,8).map(t=>`<tr>
+      <td style="font-size:12px">${esc(t.staff_name||'')}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(t.project_name||'—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${t.start_date?fmtDate(t.start_date):'-'}</td>
+      <td style="font-size:12px;font-weight:600">${fmtDur(t.duration||0)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="nav('invoices')" title="Invoice now"><i class="fa-solid fa-file-invoice"></i></button></td>
+    </tr>`).join('')}
+  </tbody></table>
+  <div style="text-align:center;margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="nav('tasks')">All Timesheets →</button></div>`;
 }
 
 </script>
