@@ -27,7 +27,11 @@ from admin_models import (
     CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
-    CRMStaffNote,
+    CRMStaffNote, CRMTag,
+    CRMCustomField, CRMCustomFieldValue, CRMTaggable, CRMReminder,
+    CRMPolyNote, CRMFile, CRMFilter, CRMFilterDefault, CRMNotification,
+    CRMSalesActivity, CRMProjectActivity, CRMMailQueue, CRMTrackedMail,
+    CRMScheduledEmail,
 )
 
 router = APIRouter(prefix="/admin")
@@ -1613,13 +1617,15 @@ async def list_activity(
     if module:
         q = q.where(CRMActivity.module == module)
     r = await db.execute(q)
-    return [
+    items = [
         {"id": a.id, "module": a.module, "action": a.action, "record_id": a.record_id,
          "record_name": a.record_name, "description": a.description,
-         "staff_name": a.staff.full_name if a.staff else "System",
+         "user_name": a.staff.full_name if a.staff else "System",
+         "read": True,  # activity log items are not unread
          "created_at": a.created_at.isoformat()}
         for a in r.scalars().all()
     ]
+    return {"items": items, "total": len(items)}
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -1778,6 +1784,727 @@ async def create_timesheet(req: dict, staff: StaffMember = Depends(get_current_a
     db.add(ts)
     await db.flush()
     return {"id": ts.id}
+
+
+# ── Tags ──────────────────────────────────────────────────────────────────────
+
+@router.get("/api/tags")
+async def list_tags(
+    q: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(CRMTag).order_by(CRMTag.name)
+    if q:
+        query = query.where(CRMTag.name.ilike(f"%{q}%"))
+    r = await db.execute(query)
+    tags = r.scalars().all()
+    result = []
+    for tag in tags:
+        cnt = await db.execute(select(func.count()).select_from(CRMTaggable).where(CRMTaggable.tag_id == tag.id))
+        result.append({"id": tag.id, "name": tag.name, "color": tag.color, "usage": cnt.scalar() or 0})
+    return result
+
+
+@router.post("/api/tags")
+async def create_tag(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(CRMTag).where(CRMTag.name == req["name"]))
+    t = existing.scalar_one_or_none()
+    if t:
+        return {"id": t.id, "name": t.name}
+    t = CRMTag(name=req["name"], color=req.get("color", "#6366f1"))
+    db.add(t)
+    await db.flush()
+    return {"id": t.id, "name": t.name}
+
+
+@router.put("/api/tags/{tag_id}")
+async def update_tag(tag_id: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTag).where(CRMTag.id == tag_id))
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    if "name" in req:
+        t.name = req["name"]
+    if "color" in req:
+        t.color = req["color"]
+    return {"ok": True}
+
+
+@router.delete("/api/tags/{tag_id}")
+async def delete_tag(tag_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    await db.execute(delete(CRMTaggable).where(CRMTaggable.tag_id == tag_id))
+    await db.execute(delete(CRMTag).where(CRMTag.id == tag_id))
+    return {"ok": True}
+
+
+@router.post("/api/tags/merge")
+async def merge_tags(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Merge source_id into target_id."""
+    if not staff.is_admin:
+        raise HTTPException(403)
+    source_id = req["source_id"]
+    target_id = req["target_id"]
+    taggables = await db.execute(select(CRMTaggable).where(CRMTaggable.tag_id == source_id))
+    for tb in taggables.scalars().all():
+        exists = await db.execute(select(CRMTaggable).where(
+            CRMTaggable.tag_id == target_id, CRMTaggable.rel_id == tb.rel_id, CRMTaggable.rel_type == tb.rel_type
+        ))
+        if not exists.scalar_one_or_none():
+            db.add(CRMTaggable(tag_id=target_id, rel_id=tb.rel_id, rel_type=tb.rel_type))
+    await db.execute(delete(CRMTaggable).where(CRMTaggable.tag_id == source_id))
+    await db.execute(delete(CRMTag).where(CRMTag.id == source_id))
+    return {"ok": True}
+
+
+@router.get("/api/taggables")
+async def get_taggables(rel_type: str, rel_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMTaggable).where(CRMTaggable.rel_type == rel_type, CRMTaggable.rel_id == rel_id)
+        .options(selectinload(CRMTaggable.tag)).order_by(CRMTaggable.tag_order)
+    )
+    return [{"id": tb.tag.id, "name": tb.tag.name, "color": tb.tag.color} for tb in r.scalars().all()]
+
+
+@router.post("/api/taggables")
+async def set_taggables(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Set tags on an entity (replaces existing). tag_ids: list of ints."""
+    rel_type = req["rel_type"]
+    rel_id = req["rel_id"]
+    tag_ids = req.get("tag_ids", [])
+    await db.execute(delete(CRMTaggable).where(CRMTaggable.rel_type == rel_type, CRMTaggable.rel_id == rel_id))
+    for i, tid in enumerate(tag_ids):
+        db.add(CRMTaggable(tag_id=tid, rel_id=rel_id, rel_type=rel_type, tag_order=i))
+    return {"ok": True}
+
+
+# ── Custom Fields ─────────────────────────────────────────────────────────────
+
+_CF_ENTITIES = [
+    "customers", "contacts", "leads", "invoices", "estimates", "proposals",
+    "contracts", "projects", "tasks", "tickets", "expenses", "subscriptions",
+    "credit_notes", "staff",
+]
+_CF_TYPES = ["input", "textarea", "select", "multi-select", "checkbox", "date", "datetime", "number", "link", "color"]
+
+
+class CustomFieldReq(BaseModel):
+    field_to: str
+    name: str
+    slug: Optional[str] = None
+    field_type: str = "input"
+    options: Optional[str] = None
+    default_value: Optional[str] = None
+    required: bool = False
+    active: bool = True
+    display_inline: bool = False
+    bs_col_width: int = 12
+    show_on_pdf: bool = False
+    show_on_ticket_form: bool = False
+    only_admin: bool = False
+    show_on_table: bool = False
+    show_on_client_portal: bool = False
+    disallow_client_edit: bool = False
+    field_order: int = 0
+
+
+def _slug(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+@router.get("/api/custom-fields")
+async def list_custom_fields(
+    field_to: Optional[str] = None,
+    field_type: Optional[str] = None,
+    active: Optional[bool] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(CRMCustomField).order_by(CRMCustomField.field_to, CRMCustomField.field_order, CRMCustomField.name)
+    if field_to:
+        q = q.where(CRMCustomField.field_to == field_to)
+    if field_type:
+        q = q.where(CRMCustomField.field_type == field_type)
+    if active is not None:
+        q = q.where(CRMCustomField.active == active)
+    r = await db.execute(q)
+    return [_cf_dict(f) for f in r.scalars().all()]
+
+
+def _cf_dict(f: CRMCustomField) -> dict:
+    return {
+        "id": f.id, "field_to": f.field_to, "name": f.name, "slug": f.slug,
+        "field_type": f.field_type, "options": f.options, "default_value": f.default_value,
+        "required": f.required, "active": f.active, "display_inline": f.display_inline,
+        "bs_col_width": f.bs_col_width, "show_on_pdf": f.show_on_pdf,
+        "show_on_ticket_form": f.show_on_ticket_form, "only_admin": f.only_admin,
+        "show_on_table": f.show_on_table, "show_on_client_portal": f.show_on_client_portal,
+        "disallow_client_edit": f.disallow_client_edit, "field_order": f.field_order,
+        "created_at": f.created_at.isoformat(),
+    }
+
+
+@router.post("/api/custom-fields")
+async def create_custom_field(req: CustomFieldReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    if req.field_to not in _CF_ENTITIES:
+        raise HTTPException(400, f"Invalid field_to. Must be one of: {', '.join(_CF_ENTITIES)}")
+    if req.field_type not in _CF_TYPES:
+        raise HTTPException(400, f"Invalid field_type")
+    slug = req.slug or _slug(req.name)
+    f = CRMCustomField(
+        field_to=req.field_to, name=req.name, slug=slug, field_type=req.field_type,
+        options=req.options, default_value=req.default_value, required=req.required,
+        active=req.active, display_inline=req.display_inline, bs_col_width=req.bs_col_width,
+        show_on_pdf=req.show_on_pdf, show_on_ticket_form=req.show_on_ticket_form,
+        only_admin=req.only_admin, show_on_table=req.show_on_table,
+        show_on_client_portal=req.show_on_client_portal, disallow_client_edit=req.disallow_client_edit,
+        field_order=req.field_order,
+    )
+    db.add(f)
+    await db.flush()
+    await _log(db, staff, "custom_fields", "created", f.id, f.name)
+    return {"id": f.id}
+
+
+@router.put("/api/custom-fields/{fid}")
+async def update_custom_field(fid: int, req: CustomFieldReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    r = await db.execute(select(CRMCustomField).where(CRMCustomField.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    for k, v in req.model_dump(exclude_unset=True).items():
+        if k == "slug" and not v:
+            v = _slug(req.name)
+        setattr(f, k, v)
+    return {"ok": True}
+
+
+@router.delete("/api/custom-fields/{fid}")
+async def delete_custom_field(fid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    await db.execute(delete(CRMCustomField).where(CRMCustomField.id == fid))
+    return {"ok": True}
+
+
+@router.put("/api/custom-fields/{fid}/order")
+async def reorder_custom_field(fid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMCustomField).where(CRMCustomField.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    f.field_order = req.get("field_order", 0)
+    return {"ok": True}
+
+
+@router.get("/api/custom-field-values")
+async def get_custom_field_values(rel_type: str, rel_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMCustomFieldValue).where(CRMCustomFieldValue.rel_type == rel_type, CRMCustomFieldValue.rel_id == rel_id)
+        .options(selectinload(CRMCustomFieldValue.field))
+    )
+    return [{"field_id": v.field_id, "field_name": v.field.name, "value": v.value} for v in r.scalars().all()]
+
+
+@router.post("/api/custom-field-values")
+async def save_custom_field_values(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Save all custom field values for an entity. values: {field_id: value}."""
+    rel_type = req["rel_type"]
+    rel_id = req["rel_id"]
+    values = req.get("values", {})
+    for field_id, value in values.items():
+        existing = await db.execute(select(CRMCustomFieldValue).where(
+            CRMCustomFieldValue.field_id == int(field_id),
+            CRMCustomFieldValue.rel_id == rel_id,
+            CRMCustomFieldValue.rel_type == rel_type,
+        ))
+        ev = existing.scalar_one_or_none()
+        if ev:
+            ev.value = str(value) if value is not None else None
+        else:
+            db.add(CRMCustomFieldValue(field_id=int(field_id), rel_id=rel_id, rel_type=rel_type,
+                                       value=str(value) if value is not None else None))
+    return {"ok": True}
+
+
+# ── Reminders ─────────────────────────────────────────────────────────────────
+
+class ReminderReq(BaseModel):
+    description: str
+    remind_at: str
+    notify_staff: Optional[list] = None
+    notify_by_email: bool = True
+    rel_id: Optional[int] = None
+    rel_type: Optional[str] = None
+
+
+@router.get("/api/reminders")
+async def list_reminders(
+    status: Optional[str] = None,  # pending|notified
+    rel_type: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMReminder)
+         .where(CRMReminder.notify_staff.contains([staff.id]))
+         .options(selectinload(CRMReminder.creator))
+         .order_by(CRMReminder.remind_at))
+    if status == "pending":
+        q = q.where(CRMReminder.is_notified == False)
+    elif status == "notified":
+        q = q.where(CRMReminder.is_notified == True)
+    if rel_type:
+        q = q.where(CRMReminder.rel_type == rel_type)
+    r = await db.execute(q)
+    return [_reminder_dict(rem) for rem in r.scalars().all()]
+
+
+def _reminder_dict(rem: CRMReminder) -> dict:
+    return {
+        "id": rem.id, "description": rem.description,
+        "remind_at": rem.remind_at.isoformat(),
+        "rel_id": rem.rel_id, "rel_type": rem.rel_type,
+        "notify_staff": rem.notify_staff or [],
+        "notify_by_email": rem.notify_by_email,
+        "is_notified": rem.is_notified,
+        "notified_at": rem.notified_at.isoformat() if rem.notified_at else None,
+        "created_by": rem.creator.full_name if rem.creator else None,
+        "created_at": rem.created_at.isoformat(),
+    }
+
+
+@router.post("/api/reminders")
+async def create_reminder(req: ReminderReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    notify = req.notify_staff if req.notify_staff else [staff.id]
+    rem = CRMReminder(
+        description=req.description,
+        remind_at=datetime.fromisoformat(req.remind_at),
+        notify_staff=notify, notify_by_email=req.notify_by_email,
+        rel_id=req.rel_id, rel_type=req.rel_type,
+        created_by=staff.id,
+    )
+    db.add(rem)
+    await db.flush()
+    return {"id": rem.id}
+
+
+@router.put("/api/reminders/{rid}")
+async def update_reminder(rid: int, req: ReminderReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMReminder).where(CRMReminder.id == rid))
+    rem = r.scalar_one_or_none()
+    if not rem:
+        raise HTTPException(404)
+    rem.description = req.description
+    rem.remind_at = datetime.fromisoformat(req.remind_at)
+    rem.notify_staff = req.notify_staff or [staff.id]
+    rem.notify_by_email = req.notify_by_email
+    rem.is_notified = False
+    rem.notified_at = None
+    return {"ok": True}
+
+
+@router.delete("/api/reminders/{rid}")
+async def delete_reminder(rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMReminder).where(CRMReminder.id == rid))
+    return {"ok": True}
+
+
+@router.post("/api/reminders/{rid}/dismiss")
+async def dismiss_reminder(rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMReminder).where(CRMReminder.id == rid))
+    rem = r.scalar_one_or_none()
+    if not rem:
+        raise HTTPException(404)
+    rem.is_notified = True
+    rem.notified_at = _utcnow()
+    return {"ok": True}
+
+
+# ── Polymorphic Notes ─────────────────────────────────────────────────────────
+
+class PolyNoteReq(BaseModel):
+    description: str
+    date_contacted: Optional[str] = None
+    rel_id: int
+    rel_type: str
+
+
+@router.get("/api/notes")
+async def list_poly_notes(
+    rel_type: str, rel_id: int,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(
+        select(CRMPolyNote)
+        .where(CRMPolyNote.rel_type == rel_type, CRMPolyNote.rel_id == rel_id)
+        .options(selectinload(CRMPolyNote.author))
+        .order_by(desc(CRMPolyNote.dateadded))
+    )
+    return [
+        {
+            "id": n.id, "description": n.description,
+            "date_contacted": n.date_contacted.isoformat() if n.date_contacted else None,
+            "author": n.author.full_name if n.author else "?",
+            "dateadded": n.dateadded.isoformat(),
+        }
+        for n in r.scalars().all()
+    ]
+
+
+@router.post("/api/notes")
+async def create_poly_note(req: PolyNoteReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    n = CRMPolyNote(
+        rel_id=req.rel_id, rel_type=req.rel_type, description=req.description,
+        date_contacted=datetime.fromisoformat(req.date_contacted) if req.date_contacted else None,
+        addedfrom=staff.id,
+    )
+    db.add(n)
+    await db.flush()
+    return {"id": n.id}
+
+
+@router.put("/api/notes/{nid}")
+async def update_poly_note(nid: int, req: PolyNoteReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPolyNote).where(CRMPolyNote.id == nid))
+    n = r.scalar_one_or_none()
+    if not n:
+        raise HTTPException(404)
+    n.description = req.description
+    if req.date_contacted:
+        n.date_contacted = datetime.fromisoformat(req.date_contacted)
+    return {"ok": True}
+
+
+@router.delete("/api/notes/{nid}")
+async def delete_poly_note(nid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMPolyNote).where(CRMPolyNote.id == nid))
+    return {"ok": True}
+
+
+# ── Files ─────────────────────────────────────────────────────────────────────
+
+@router.get("/api/files")
+async def list_files(
+    rel_type: str, rel_id: int,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(
+        select(CRMFile)
+        .where(CRMFile.rel_type == rel_type, CRMFile.rel_id == rel_id)
+        .options(selectinload(CRMFile.uploader))
+        .order_by(desc(CRMFile.dateadded))
+    )
+    return [
+        {
+            "id": f.id, "file_name": f.file_name, "filetype": f.filetype,
+            "visible_to_customer": f.visible_to_customer, "external": f.external,
+            "external_link": f.external_link, "thumbnail_link": f.thumbnail_link,
+            "uploader": f.uploader.full_name if f.uploader else None,
+            "dateadded": f.dateadded.isoformat(),
+        }
+        for f in r.scalars().all()
+    ]
+
+
+@router.post("/api/files/external")
+async def add_external_file(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    f = CRMFile(
+        rel_id=req["rel_id"], rel_type=req["rel_type"],
+        file_name=req["file_name"], filetype=req.get("filetype"),
+        external=req.get("external"), external_link=req.get("external_link"),
+        visible_to_customer=req.get("visible_to_customer", False),
+        staffid=staff.id,
+    )
+    db.add(f)
+    await db.flush()
+    return {"id": f.id}
+
+
+@router.put("/api/files/{fid}/visibility")
+async def toggle_file_visibility(fid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMFile).where(CRMFile.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    f.visible_to_customer = req.get("visible_to_customer", not f.visible_to_customer)
+    return {"visible_to_customer": f.visible_to_customer}
+
+
+@router.delete("/api/files/{fid}")
+async def delete_file(fid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMFile).where(CRMFile.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    if f.attachment_key and not f.external:
+        import os
+        path = Path("uploads") / f.attachment_key
+        if path.exists():
+            os.unlink(path)
+    await db.execute(delete(CRMFile).where(CRMFile.id == fid))
+    return {"ok": True}
+
+
+# ── Saved Filters ─────────────────────────────────────────────────────────────
+
+@router.get("/api/filters")
+async def list_filters(
+    identifier: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(CRMFilter).where(
+        (CRMFilter.staff_id == staff.id) | (CRMFilter.is_shared == True)
+    ).order_by(CRMFilter.name)
+    if identifier:
+        q = q.where(CRMFilter.identifier == identifier)
+    r = await db.execute(q)
+    return [
+        {"id": f.id, "name": f.name, "identifier": f.identifier,
+         "builder": f.builder, "is_shared": f.is_shared,
+         "is_mine": f.staff_id == staff.id}
+        for f in r.scalars().all()
+    ]
+
+
+@router.post("/api/filters")
+async def save_filter(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    f = CRMFilter(
+        name=req["name"], identifier=req["identifier"],
+        builder=req.get("builder"), staff_id=staff.id,
+        is_shared=req.get("is_shared", False),
+    )
+    db.add(f)
+    await db.flush()
+    return {"id": f.id}
+
+
+@router.delete("/api/filters/{fid}")
+async def delete_filter(fid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMFilter).where(CRMFilter.id == fid))
+    f = r.scalar_one_or_none()
+    if not f or (f.staff_id != staff.id and not staff.is_admin):
+        raise HTTPException(403)
+    await db.execute(delete(CRMFilter).where(CRMFilter.id == fid))
+    return {"ok": True}
+
+
+@router.post("/api/filters/{fid}/set-default")
+async def set_default_filter(fid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    identifier = req["identifier"]
+    existing = await db.execute(select(CRMFilterDefault).where(
+        CRMFilterDefault.staff_id == staff.id, CRMFilterDefault.identifier == identifier
+    ))
+    fd = existing.scalar_one_or_none()
+    if fd:
+        fd.filter_id = fid
+    else:
+        db.add(CRMFilterDefault(filter_id=fid, staff_id=staff.id, identifier=identifier))
+    return {"ok": True}
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+@router.get("/api/notifications")
+async def list_notifications(
+    limit: int = 20,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMNotification)
+         .where(CRMNotification.touserid == staff.id)
+         .order_by(desc(CRMNotification.date))
+         .limit(limit))
+    r = await db.execute(q)
+    items = [
+        {
+            "id": n.id, "description": n.description, "isread": n.isread,
+            "from_fullname": n.from_fullname, "link": n.link,
+            "date": n.date.isoformat(),
+        }
+        for n in r.scalars().all()
+    ]
+    unread = sum(1 for n in items if not n["isread"])
+    return {"items": items, "unread": unread}
+
+
+@router.post("/api/notifications/mark-all-read")
+async def mark_all_notifications_read(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(
+        update(CRMNotification).where(CRMNotification.touserid == staff.id).values(isread=True)
+    )
+    return {"ok": True}
+
+
+@router.post("/api/notifications/{nid}/read")
+async def mark_notification_read(nid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMNotification).where(CRMNotification.id == nid, CRMNotification.touserid == staff.id))
+    n = r.scalar_one_or_none()
+    if n:
+        n.isread = True
+    return {"ok": True}
+
+
+# ── Sales Activity ────────────────────────────────────────────────────────────
+
+@router.get("/api/sales-activity")
+async def list_sales_activity(
+    rel_type: str, rel_id: int,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(
+        select(CRMSalesActivity)
+        .where(CRMSalesActivity.rel_type == rel_type, CRMSalesActivity.rel_id == rel_id)
+        .order_by(desc(CRMSalesActivity.date))
+        .limit(100)
+    )
+    return [
+        {"id": a.id, "description": a.description, "full_name": a.full_name,
+         "additional_data": a.additional_data, "date": a.date.isoformat()}
+        for a in r.scalars().all()
+    ]
+
+
+# ── Mail Queue ────────────────────────────────────────────────────────────────
+
+@router.get("/api/mail-queue")
+async def list_mail_queue(
+    status: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    q = select(CRMMailQueue).order_by(desc(CRMMailQueue.date)).limit(200)
+    if status:
+        q = q.where(CRMMailQueue.status == status)
+    r = await db.execute(q)
+    return [
+        {"id": m.id, "email": m.email, "subject": m.subject, "status": m.status,
+         "retries": m.retries, "date": m.date.isoformat()}
+        for m in r.scalars().all()
+    ]
+
+
+@router.post("/api/mail-queue/{mid}/retry")
+async def retry_mail(mid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    r = await db.execute(select(CRMMailQueue).where(CRMMailQueue.id == mid))
+    m = r.scalar_one_or_none()
+    if not m:
+        raise HTTPException(404)
+    m.status = "pending"
+    m.retries = 0
+    return {"ok": True}
+
+
+@router.delete("/api/mail-queue/{mid}")
+async def delete_mail_queue_item(mid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not staff.is_admin:
+        raise HTTPException(403)
+    await db.execute(delete(CRMMailQueue).where(CRMMailQueue.id == mid))
+    return {"ok": True}
+
+
+# ── Tracked Mails ─────────────────────────────────────────────────────────────
+
+@router.get("/api/tracked-mails/pixel/{uid}")
+async def mail_open_pixel(uid: str, db: AsyncSession = Depends(get_db)):
+    """1x1 tracking pixel endpoint — records mail open."""
+    from fastapi.responses import Response as _Resp
+    r = await db.execute(select(CRMTrackedMail).where(CRMTrackedMail.uid == uid))
+    tm = r.scalar_one_or_none()
+    if tm and not tm.opened:
+        tm.opened = True
+        tm.date_opened = _utcnow()
+        await db.commit()
+    pixel = b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x00\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+    return _Resp(content=pixel, media_type="image/gif", headers={"Cache-Control": "no-store, no-cache"})
+
+
+@router.get("/api/tracked-mails")
+async def list_tracked_mails(
+    rel_type: Optional[str] = None, rel_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    q = select(CRMTrackedMail).order_by(desc(CRMTrackedMail.date)).limit(100)
+    if rel_type:
+        q = q.where(CRMTrackedMail.rel_type == rel_type)
+    if rel_id:
+        q = q.where(CRMTrackedMail.rel_id == rel_id)
+    r = await db.execute(q)
+    return [
+        {"id": m.id, "email": m.email, "subject": m.subject, "opened": m.opened,
+         "date": m.date.isoformat(),
+         "date_opened": m.date_opened.isoformat() if m.date_opened else None}
+        for m in r.scalars().all()
+    ]
+
+
+# ── Scheduled Emails ──────────────────────────────────────────────────────────
+
+class ScheduledEmailReq(BaseModel):
+    rel_id: int
+    rel_type: str
+    scheduled_at: str
+    contacts: Optional[list] = None
+    cc: Optional[str] = None
+    attach_pdf: bool = True
+    template: Optional[str] = None
+
+
+@router.get("/api/scheduled-emails")
+async def list_scheduled_emails(
+    rel_type: Optional[str] = None, rel_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    q = select(CRMScheduledEmail).order_by(CRMScheduledEmail.scheduled_at)
+    if rel_type:
+        q = q.where(CRMScheduledEmail.rel_type == rel_type)
+    if rel_id:
+        q = q.where(CRMScheduledEmail.rel_id == rel_id)
+    r = await db.execute(q)
+    return [
+        {"id": s.id, "rel_id": s.rel_id, "rel_type": s.rel_type, "status": s.status,
+         "scheduled_at": s.scheduled_at.isoformat(), "template": s.template,
+         "attach_pdf": s.attach_pdf, "contacts": s.contacts or []}
+        for s in r.scalars().all()
+    ]
+
+
+@router.post("/api/scheduled-emails")
+async def create_scheduled_email(req: ScheduledEmailReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    s = CRMScheduledEmail(
+        rel_id=req.rel_id, rel_type=req.rel_type,
+        scheduled_at=datetime.fromisoformat(req.scheduled_at),
+        contacts=req.contacts or [], cc=req.cc,
+        attach_pdf=req.attach_pdf, template=req.template,
+        created_by=staff.id,
+    )
+    db.add(s)
+    await db.flush()
+    return {"id": s.id}
+
+
+@router.delete("/api/scheduled-emails/{sid}")
+async def cancel_scheduled_email(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMScheduledEmail).where(CRMScheduledEmail.id == sid))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    s.status = "cancelled"
+    return {"ok": True}
 
 
 # ── DB initialisation ─────────────────────────────────────────────────────────
