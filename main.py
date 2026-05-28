@@ -90,8 +90,11 @@ async def lifespan(app: FastAPI):
         logger.error(f"STARTUP FAILED — database init error: {type(_exc).__name__}: {_exc}")
         raise
     async for db in get_db():
-        await initialize_default_skills(db)
-        await initialize_default_quick_commands(db)
+        try:
+            await initialize_default_skills(db)
+            await initialize_default_quick_commands(db)
+        except Exception as _seed_exc:
+            logger.error(f"Skills/commands seed error (non-fatal): {type(_seed_exc).__name__}: {_seed_exc}")
         # Auto-seed MetaApp rows from env vars (once, on first start)
         if settings.META_APP_ID:
             _res = await db.execute(
@@ -158,7 +161,10 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("Auto-created admin from LOGIN_PASSWORD")
         break
-    await init_admin_db(async_engine)
+    try:
+        await init_admin_db(async_engine)
+    except Exception as _adm_exc:
+        logger.error(f"CRM admin DB init error (non-fatal): {type(_adm_exc).__name__}: {_adm_exc}")
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
     logger.info("Uplinx Meta Manager started")
