@@ -82,7 +82,7 @@ async def get_current_admin(
     if not payload:
         raise HTTPException(status_code=401, detail="Session expired")
     staff_id = int(payload.get("sub", 0))
-    result = await db.execute(select(StaffMember).where(StaffMember.id == staff_id, StaffMember.is_active == True))
+    result = await db.execute(select(StaffMember).options(selectinload(StaffMember.role)).where(StaffMember.id == staff_id, StaffMember.is_active == True))
     staff = result.scalar_one_or_none()
     if not staff:
         raise HTTPException(status_code=401, detail="Staff not found")
@@ -275,7 +275,7 @@ async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
 
 @router.post("/api/auth/login")
 async def admin_login(req: LoginReq, response: Response, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(StaffMember).where(
+    result = await db.execute(select(StaffMember).options(selectinload(StaffMember.role)).where(
         StaffMember.email == req.email.lower().strip(),
         StaffMember.is_active == True,
     ))
