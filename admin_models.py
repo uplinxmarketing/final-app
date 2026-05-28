@@ -654,3 +654,264 @@ class CRMTodo(AdminBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     staff: Mapped[StaffMember] = relationship("StaffMember")
+
+
+# ── Custom Fields ─────────────────────────────────────────────────────────────
+
+class CRMCustomField(AdminBase):
+    __tablename__ = "crm_custom_fields"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    field_to: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    field_type: Mapped[str] = mapped_column(String(30), nullable=False, default="input")
+    options: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    default_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    display_inline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    bs_col_width: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+    show_on_pdf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_on_ticket_form: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    only_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_on_table: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    show_on_client_portal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    disallow_client_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    field_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    values: Mapped[list["CRMCustomFieldValue"]] = relationship(
+        "CRMCustomFieldValue", back_populates="field", cascade="all, delete-orphan"
+    )
+
+
+class CRMCustomFieldValue(AdminBase):
+    __tablename__ = "crm_custom_field_values"
+    __table_args__ = (UniqueConstraint("field_id", "rel_id", "rel_type"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    field_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_custom_fields.id", ondelete="CASCADE"), nullable=False)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    field: Mapped["CRMCustomField"] = relationship("CRMCustomField", back_populates="values")
+
+
+# ── Taggables (polymorphic tag assignments) ───────────────────────────────────
+
+class CRMTaggable(AdminBase):
+    __tablename__ = "crm_taggables"
+    __table_args__ = (UniqueConstraint("tag_id", "rel_id", "rel_type"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_tags.id", ondelete="CASCADE"), nullable=False)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    tag_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    tag: Mapped["CRMTag"] = relationship("CRMTag")
+
+
+# ── Reminders (polymorphic) ───────────────────────────────────────────────────
+
+class CRMReminder(AdminBase):
+    __tablename__ = "crm_reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rel_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rel_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    notify_staff: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    notify_by_email: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+
+
+# ── Polymorphic Notes ─────────────────────────────────────────────────────────
+
+class CRMPolyNote(AdminBase):
+    """Polymorphic notes for any entity."""
+    __tablename__ = "crm_poly_notes"
+    __table_args__ = (Index("ix_crm_poly_notes_rel", "rel_type", "rel_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    date_contacted: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    addedfrom: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    dateadded: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    author: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[addedfrom])
+
+
+# ── Polymorphic Files ─────────────────────────────────────────────────────────
+
+class CRMFile(AdminBase):
+    __tablename__ = "crm_files"
+    __table_args__ = (Index("ix_crm_files_rel", "rel_type", "rel_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    filetype: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    visible_to_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    attachment_key: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    external: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    external_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    thumbnail_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    staffid: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    contact_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True)
+    task_comment_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dateadded: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    uploader: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[staffid])
+
+
+# ── Saved Filters ─────────────────────────────────────────────────────────────
+
+class CRMFilter(AdminBase):
+    __tablename__ = "crm_filters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    identifier: Mapped[str] = mapped_column(String(100), nullable=False)
+    builder: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    is_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    staff: Mapped["StaffMember"] = relationship("StaffMember")
+
+
+class CRMFilterDefault(AdminBase):
+    __tablename__ = "crm_filter_defaults"
+    __table_args__ = (UniqueConstraint("staff_id", "identifier"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    filter_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_filters.id", ondelete="CASCADE"), nullable=False)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    identifier: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    filter: Mapped["CRMFilter"] = relationship("CRMFilter")
+    staff: Mapped["StaffMember"] = relationship("StaffMember")
+
+
+# ── In-App Notifications ──────────────────────────────────────────────────────
+
+class CRMNotification(AdminBase):
+    __tablename__ = "crm_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    isread: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    isread_inline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    fromuserid: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    fromclientid: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True)
+    from_fullname: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    touserid: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    fromcompany: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    additional_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+
+    from_staff: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[fromuserid])
+    to_staff: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[touserid])
+
+
+# ── Sales Activity (per-entity timeline) ─────────────────────────────────────
+
+class CRMSalesActivity(AdminBase):
+    __tablename__ = "crm_sales_activity"
+    __table_args__ = (Index("ix_crm_sales_activity_rel", "rel_type", "rel_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    additional_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    staffid: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    staff: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[staffid])
+
+
+# ── Project Activity (per-project timeline) ───────────────────────────────────
+
+class CRMProjectActivity(AdminBase):
+    __tablename__ = "crm_project_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="CASCADE"), nullable=False)
+    staff_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    contact_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True)
+    fullname: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    visible_to_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    description_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    additional_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    dateadded: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    staff: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[staff_id])
+
+
+# ── Mail Queue ────────────────────────────────────────────────────────────────
+
+class CRMMailQueue(AdminBase):
+    __tablename__ = "crm_mail_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    engine: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    email: Mapped[str] = mapped_column(String(500), nullable=False)
+    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    cc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    bcc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    alt_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    headers: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    attachments: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# ── Tracked Mails ─────────────────────────────────────────────────────────────
+
+class CRMTrackedMail(AdminBase):
+    __tablename__ = "crm_tracked_mails"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    uid: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    rel_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rel_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    email: Mapped[str] = mapped_column(String(500), nullable=False)
+    opened: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    date_opened: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+
+# ── Scheduled Emails ──────────────────────────────────────────────────────────
+
+class CRMScheduledEmail(AdminBase):
+    __tablename__ = "crm_scheduled_emails"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rel_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    contacts: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    cc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attach_pdf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    template: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)

@@ -918,12 +918,12 @@ function pgLeads(){return pgPlaceholder('Leads')}
 function pgTickets(){return pgPlaceholder('Tickets')}
 function pgKnowledgeBase(){return pgPlaceholder('Knowledge Base')}
 function pgCalendar(){return pgPlaceholder('Calendar')}
-function pgReminders(){return pgPlaceholder('All Reminders')}
+function pgReminders(){return pgAllReminders()}
 function pgGoals(){return pgPlaceholder('Goals')}
 function pgMedia(){return pgPlaceholder('Media / Files')}
 function pgBulkPdf(){return pgPlaceholder('Bulk PDF Export')}
 function pgAnnouncements(){return pgPlaceholder('Announcements')}
-function pgActivityLog(){return pgPlaceholder('Activity Log')}
+function pgActivityLog(){return pgGlobalActivityLog()}
 function pgPipeLog(){return pgPlaceholder('Ticket Pipe Log')}
 function pgReportSales(){return pgPlaceholder('Sales Report')}
 function pgReportLeads(){return pgPlaceholder('Leads Report')}
@@ -934,11 +934,11 @@ function pgReportExpensesIncome(){return pgPlaceholder('Expenses vs Income Repor
 function pgReportKb(){return pgPlaceholder('KB Articles Report')}
 function pgStaff(){return pgPlaceholder('Staff')}
 function pgCustomerGroups(){return pgPlaceholder('Customer Groups')}
-function pgCustomFieldsCustomers(){return pgPlaceholder('Custom Fields – Customers')}
-function pgTagsCustomers(){return pgPlaceholder('Tags – Customers')}
+function pgCustomFieldsCustomers(){return pgCustomFields('customers')}
+function pgTagsCustomers(){return pgTagManager()}
 function pgLeadSources(){return pgPlaceholder('Lead Sources')}
 function pgLeadStatuses(){return pgPlaceholder('Lead Statuses')}
-function pgCustomFieldsLeads(){return pgPlaceholder('Custom Fields – Leads')}
+function pgCustomFieldsLeads(){return pgCustomFields('leads')}
 function pgTaxRates(){return pgPlaceholder('Tax Rates')}
 function pgCurrencies(){return pgPlaceholder('Currencies')}
 function pgPaymentModes(){return pgPlaceholder('Payment Modes')}
@@ -1196,6 +1196,724 @@ function paginationBar(page, total, perPage) {
 }
 
 window.changePage = function(p) { /* overridden by each module */ };
+
+// ═══════════════════════════════════════════════════════════
+// 2A — CUSTOM FIELDS
+// ═══════════════════════════════════════════════════════════
+
+const CF_ENTITIES = ['customers','contacts','leads','invoices','estimates','proposals',
+  'contracts','projects','tasks','tickets','expenses','subscriptions','credit_notes','staff'];
+const CF_TYPES = ['input','textarea','select','multi-select','checkbox','date','datetime','number','link','color'];
+
+function pgCustomFields(defaultEntity) {
+  return `
+  <div class="ph">
+    <h1 class="ph-title"><i class="fa-solid fa-pen-to-square" style="color:var(--primary)"></i> Custom Fields</h1>
+    <div class="ph-actions">
+      <button class="btn btn-primary" onclick="openCFModal()"><i class="fa-solid fa-plus"></i> New Custom Field</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="padding:14px">
+      <div class="fbar">
+        <select class="fc" id="cf-filter-entity" onchange="loadCF()" style="min-width:160px">
+          <option value="">All Entities</option>
+          ${CF_ENTITIES.map(e=>`<option value="${e}" ${e===defaultEntity?'selected':''}>${toTitle(e)}</option>`).join('')}
+        </select>
+        <select class="fc" id="cf-filter-type" onchange="loadCF()" style="min-width:140px">
+          <option value="">All Types</option>
+          ${CF_TYPES.map(t=>`<option value="${t}">${toTitle(t)}</option>`).join('')}
+        </select>
+        <select class="fc" id="cf-filter-active" onchange="loadCF()" style="min-width:110px">
+          <option value="">All Status</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+      </div>
+      <div id="cf-table-wrap"><div class="ls"><div class="spin"></div></div></div>
+    </div>
+  </div>
+  ${cfModal()}`;
+}
+
+function cfModal() {
+  return `
+  <div class="mb" id="cf-modal" style="display:none" onclick="e=>e.target===this&&closeModal('cf-modal')">
+    <div class="modal modal-lg">
+      <div class="mh"><span id="cf-modal-title">New Custom Field</span><button class="mc" onclick="closeModal('cf-modal')">&times;</button></div>
+      <div class="mbody">
+        <div class="fr">
+          <div class="fg">
+            <label>Field For <span style="color:var(--danger)">*</span></label>
+            <select id="cf-field-to" class="fc">
+              ${CF_ENTITIES.map(e=>`<option value="${e}">${toTitle(e)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="fg">
+            <label>Type <span style="color:var(--danger)">*</span></label>
+            <select id="cf-type" class="fc" onchange="cfTypeChange()">
+              ${CF_TYPES.map(t=>`<option value="${t}">${toTitle(t)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label>Name <span style="color:var(--danger)">*</span></label>
+            <input id="cf-name" class="fc" placeholder="e.g. Industry" oninput="cfAutoSlug()">
+          </div>
+          <div class="fg">
+            <label>Slug</label>
+            <input id="cf-slug" class="fc" placeholder="auto-generated">
+          </div>
+        </div>
+        <div class="fg" id="cf-options-row" style="display:none">
+          <label>Options <small style="color:var(--muted)">(one per line or comma-separated)</small></label>
+          <textarea id="cf-options" class="fc" rows="3" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea>
+        </div>
+        <div class="fg">
+          <label>Default Value</label>
+          <input id="cf-default" class="fc" placeholder="Optional">
+        </div>
+        <div class="fr3" style="margin-bottom:12px">
+          <label class="fcheck"><input type="checkbox" id="cf-required"> Required</label>
+          <label class="fcheck"><input type="checkbox" id="cf-active" checked> Active</label>
+          <label class="fcheck"><input type="checkbox" id="cf-inline"> Display Inline</label>
+          <label class="fcheck"><input type="checkbox" id="cf-pdf"> Show on PDF</label>
+          <label class="fcheck"><input type="checkbox" id="cf-table"> Show on Table</label>
+          <label class="fcheck"><input type="checkbox" id="cf-portal"> Show on Client Portal</label>
+          <label class="fcheck"><input type="checkbox" id="cf-admin-only"> Only Admin</label>
+          <label class="fcheck"><input type="checkbox" id="cf-no-client-edit"> Disallow Client Edit</label>
+          <label class="fcheck"><input type="checkbox" id="cf-ticket"> Show on Ticket Form</label>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label>Bootstrap Col Width (1–12)</label>
+            <input type="number" id="cf-width" class="fc" value="12" min="1" max="12">
+          </div>
+          <div class="fg">
+            <label>Field Order</label>
+            <input type="number" id="cf-order" class="fc" value="0" min="0">
+          </div>
+        </div>
+      </div>
+      <div class="mfoot">
+        <button class="btn btn-secondary" onclick="closeModal('cf-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveCF()"><i class="fa-solid fa-save"></i> Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _cfEditId = null;
+
+function cfTypeChange() {
+  const t = document.getElementById('cf-type').value;
+  const row = document.getElementById('cf-options-row');
+  if (row) row.style.display = ['select','multi-select','checkbox'].includes(t) ? '' : 'none';
+}
+
+function cfAutoSlug() {
+  const name = document.getElementById('cf-name').value;
+  const slug = document.getElementById('cf-slug');
+  if (!_cfEditId) slug.value = name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+}
+
+function openCFModal(cf) {
+  _cfEditId = cf ? cf.id : null;
+  document.getElementById('cf-modal-title').textContent = cf ? 'Edit Custom Field' : 'New Custom Field';
+  document.getElementById('cf-field-to').value = cf ? cf.field_to : (document.getElementById('cf-filter-entity')?.value || 'customers');
+  document.getElementById('cf-type').value = cf ? cf.field_type : 'input';
+  document.getElementById('cf-name').value = cf ? cf.name : '';
+  document.getElementById('cf-slug').value = cf ? cf.slug : '';
+  document.getElementById('cf-options').value = cf ? (cf.options||'') : '';
+  document.getElementById('cf-default').value = cf ? (cf.default_value||'') : '';
+  document.getElementById('cf-required').checked = cf ? cf.required : false;
+  document.getElementById('cf-active').checked = cf ? cf.active : true;
+  document.getElementById('cf-inline').checked = cf ? cf.display_inline : false;
+  document.getElementById('cf-pdf').checked = cf ? cf.show_on_pdf : false;
+  document.getElementById('cf-table').checked = cf ? cf.show_on_table : false;
+  document.getElementById('cf-portal').checked = cf ? cf.show_on_client_portal : false;
+  document.getElementById('cf-admin-only').checked = cf ? cf.only_admin : false;
+  document.getElementById('cf-no-client-edit').checked = cf ? cf.disallow_client_edit : false;
+  document.getElementById('cf-ticket').checked = cf ? cf.show_on_ticket_form : false;
+  document.getElementById('cf-width').value = cf ? cf.bs_col_width : 12;
+  document.getElementById('cf-order').value = cf ? cf.field_order : 0;
+  cfTypeChange();
+  openModal('cf-modal');
+}
+
+async function loadCF() {
+  const entity = document.getElementById('cf-filter-entity')?.value || '';
+  const ftype = document.getElementById('cf-filter-type')?.value || '';
+  const active = document.getElementById('cf-filter-active')?.value || '';
+  const wrap = document.getElementById('cf-table-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="ls"><div class="spin"></div></div>';
+  try {
+    let url = '/admin/api/custom-fields?';
+    if (entity) url += `field_to=${entity}&`;
+    if (ftype) url += `field_type=${ftype}&`;
+    if (active !== '') url += `active=${active}&`;
+    const data = await GET(url.replace('/admin/api','')); // use api helper
+    if (!data.length) {
+      wrap.innerHTML = '<div class="es"><i class="fa-solid fa-pen-to-square"></i><h3>No custom fields yet</h3><p>Click "+ New Custom Field" to add one.</p></div>';
+      return;
+    }
+    wrap.innerHTML = buildTable(
+      ['#','Field For','Name','Slug','Type','Required','Active','Order',''],
+      data.map(f => `<tr>
+        <td>${f.id}</td>
+        <td>${sbadge(f.field_to)}</td>
+        <td>${esc(f.name)}</td>
+        <td><code style="font-size:11px">${esc(f.slug)}</code></td>
+        <td><span class="badge bi">${esc(f.field_type)}</span></td>
+        <td>${f.required ? '<i class="fa-solid fa-check" style="color:var(--success)"></i>' : '—'}</td>
+        <td>${f.active ? '<span class="badge bsu">Active</span>' : '<span class="badge bd">Inactive</span>'}</td>
+        <td>${f.field_order}</td>
+        <td><div class="ta">
+          <button class="ab" onclick='openCFModal(${JSON.stringify(f)})' title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button class="ab d" onclick="deleteCF(${f.id},'${esc(f.name)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+        </div></td>
+      </tr>`)
+    );
+  } catch(e) { wrap.innerHTML = `<div class="es"><p>Failed to load: ${esc(e.message)}</p></div>`; }
+}
+
+async function saveCF() {
+  const body = {
+    field_to: document.getElementById('cf-field-to').value,
+    name: document.getElementById('cf-name').value.trim(),
+    slug: document.getElementById('cf-slug').value.trim() || undefined,
+    field_type: document.getElementById('cf-type').value,
+    options: document.getElementById('cf-options').value.trim() || null,
+    default_value: document.getElementById('cf-default').value.trim() || null,
+    required: document.getElementById('cf-required').checked,
+    active: document.getElementById('cf-active').checked,
+    display_inline: document.getElementById('cf-inline').checked,
+    show_on_pdf: document.getElementById('cf-pdf').checked,
+    show_on_table: document.getElementById('cf-table').checked,
+    show_on_client_portal: document.getElementById('cf-portal').checked,
+    only_admin: document.getElementById('cf-admin-only').checked,
+    disallow_client_edit: document.getElementById('cf-no-client-edit').checked,
+    show_on_ticket_form: document.getElementById('cf-ticket').checked,
+    bs_col_width: parseInt(document.getElementById('cf-width').value) || 12,
+    field_order: parseInt(document.getElementById('cf-order').value) || 0,
+  };
+  if (!body.name || !body.field_to) { toast('Name and Field For are required','warning'); return; }
+  try {
+    if (_cfEditId) {
+      await PUT(`/custom-fields/${_cfEditId}`, body);
+      toast('Custom field updated','success');
+    } else {
+      await POST('/custom-fields', body);
+      toast('Custom field created','success');
+    }
+    closeModal('cf-modal');
+    loadCF();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteCF(id, name) {
+  confirm(`Delete custom field "${name}"? All saved values will be lost.`, async () => {
+    try { await DEL(`/custom-fields/${id}`); toast('Deleted','success'); loadCF(); }
+    catch(e) { toast(e.message,'error'); }
+  });
+}
+
+window.init_custom_fields_customers = loadCF;
+window.init_custom_fields_leads = loadCF;
+
+// ═══════════════════════════════════════════════════════════
+// 2B — TAG MANAGER
+// ═══════════════════════════════════════════════════════════
+
+function pgTagManager() {
+  return `
+  <div class="ph">
+    <h1 class="ph-title"><i class="fa-solid fa-tag" style="color:var(--primary)"></i> Tag Manager</h1>
+    <div class="ph-actions">
+      <input id="tag-search" class="fc" placeholder="Search tags…" oninput="loadTags()" style="width:200px">
+      <button class="btn btn-primary" onclick="openTagModal()"><i class="fa-solid fa-plus"></i> New Tag</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <div id="tag-table-wrap"><div class="ls"><div class="spin"></div></div></div>
+    </div>
+  </div>
+  <div class="mb" id="tag-modal" style="display:none">
+    <div class="modal modal-sm">
+      <div class="mh"><span id="tag-modal-title">New Tag</span><button class="mc" onclick="closeModal('tag-modal')">&times;</button></div>
+      <div class="mbody">
+        <div class="fg"><label>Name <span style="color:var(--danger)">*</span></label><input id="tag-name" class="fc" placeholder="e.g. VIP"></div>
+        <div class="fg"><label>Color</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="color" id="tag-color" value="#6366f1" style="width:40px;height:34px;border:1.5px solid var(--border);border-radius:6px;cursor:pointer;padding:2px">
+            <span style="font-size:12px;color:var(--muted)">Pick a color for this tag</span>
+          </div>
+        </div>
+      </div>
+      <div class="mfoot">
+        <button class="btn btn-secondary" onclick="closeModal('tag-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveTag()">Save</button>
+      </div>
+    </div>
+  </div>
+  <div class="mb" id="merge-modal" style="display:none">
+    <div class="modal modal-sm">
+      <div class="mh"><span>Merge Tags</span><button class="mc" onclick="closeModal('merge-modal')">&times;</button></div>
+      <div class="mbody">
+        <p style="margin-bottom:12px;font-size:13px">Merge <strong id="merge-source-name"></strong> into:</p>
+        <div class="fg">
+          <label>Target Tag</label>
+          <select id="merge-target" class="fc"></select>
+        </div>
+      </div>
+      <div class="mfoot">
+        <button class="btn btn-secondary" onclick="closeModal('merge-modal')">Cancel</button>
+        <button class="btn btn-danger" onclick="doMergeTags()"><i class="fa-solid fa-code-merge"></i> Merge</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _tagEditId = null;
+let _mergeSourceId = null;
+let _allTags = [];
+
+async function loadTags() {
+  const q = document.getElementById('tag-search')?.value || '';
+  const wrap = document.getElementById('tag-table-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="ls"><div class="spin"></div></div>';
+  try {
+    const url = q ? `/tags?q=${encodeURIComponent(q)}` : '/tags';
+    _allTags = await GET(url);
+    if (!_allTags.length) {
+      wrap.innerHTML = '<div class="es"><i class="fa-solid fa-tag"></i><h3>No tags yet</h3><p>Tags are shared across all modules.</p></div>';
+      return;
+    }
+    wrap.innerHTML = buildTable(
+      ['#','Color','Name','Usage',''],
+      _allTags.map(t => `<tr>
+        <td>${t.id}</td>
+        <td><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${esc(t.color)};vertical-align:middle"></span></td>
+        <td><span class="badge" style="background:${esc(t.color)}20;color:${esc(t.color)};border:1px solid ${esc(t.color)}40">${esc(t.name)}</span></td>
+        <td><span class="badge bs">${t.usage} uses</span></td>
+        <td><div class="ta">
+          <button class="ab" onclick="openTagModal(${JSON.stringify(t).replace(/"/g,'&quot;')})" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button class="ab" onclick="openMergeModal(${t.id},'${esc(t.name)}')" title="Merge"><i class="fa-solid fa-code-merge"></i></button>
+          <button class="ab d" onclick="deleteTag(${t.id},'${esc(t.name)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+        </div></td>
+      </tr>`)
+    );
+  } catch(e) { wrap.innerHTML = `<div class="es"><p>Failed to load</p></div>`; }
+}
+
+function openTagModal(tag) {
+  _tagEditId = tag ? tag.id : null;
+  document.getElementById('tag-modal-title').textContent = tag ? 'Edit Tag' : 'New Tag';
+  document.getElementById('tag-name').value = tag ? tag.name : '';
+  document.getElementById('tag-color').value = tag ? tag.color : '#6366f1';
+  openModal('tag-modal');
+  setTimeout(() => document.getElementById('tag-name').focus(), 100);
+}
+
+function openMergeModal(sourceId, sourceName) {
+  _mergeSourceId = sourceId;
+  document.getElementById('merge-source-name').textContent = sourceName;
+  const sel = document.getElementById('merge-target');
+  sel.innerHTML = _allTags.filter(t=>t.id!==sourceId).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  openModal('merge-modal');
+}
+
+async function saveTag() {
+  const name = document.getElementById('tag-name').value.trim();
+  const color = document.getElementById('tag-color').value;
+  if (!name) { toast('Tag name is required','warning'); return; }
+  try {
+    if (_tagEditId) {
+      await PUT(`/tags/${_tagEditId}`, {name, color});
+      toast('Tag updated','success');
+    } else {
+      await POST('/tags', {name, color});
+      toast('Tag created','success');
+    }
+    closeModal('tag-modal');
+    loadTags();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteTag(id, name) {
+  confirm(`Delete tag "${name}"? It will be removed from all entities.`, async () => {
+    try { await DEL(`/tags/${id}`); toast('Deleted','success'); loadTags(); }
+    catch(e) { toast(e.message,'error'); }
+  });
+}
+
+async function doMergeTags() {
+  const targetId = parseInt(document.getElementById('merge-target').value);
+  try {
+    await POST('/tags/merge', {source_id: _mergeSourceId, target_id: targetId});
+    toast('Tags merged','success');
+    closeModal('merge-modal');
+    loadTags();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+window.init_tags_customers = loadTags;
+
+// ═══════════════════════════════════════════════════════════
+// 2C — ALL REMINDERS
+// ═══════════════════════════════════════════════════════════
+
+function pgAllReminders() {
+  return `
+  <div class="ph">
+    <h1 class="ph-title"><i class="fa-solid fa-bell" style="color:var(--primary)"></i> All Reminders</h1>
+    <div class="ph-actions">
+      <button class="btn btn-primary" onclick="openReminderModal()"><i class="fa-solid fa-plus"></i> New Reminder</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="padding:14px">
+      <div class="fbar">
+        <select class="fc" id="rem-status" onchange="loadReminders()" style="min-width:130px">
+          <option value="">All</option>
+          <option value="pending">Pending</option>
+          <option value="notified">Notified</option>
+        </select>
+        <select class="fc" id="rem-entity" onchange="loadReminders()" style="min-width:150px">
+          <option value="">All Entities</option>
+          ${['lead','invoice','estimate','contract','customer','task','project','ticket','expense','proposal','subscription'].map(e=>`<option value="${e}">${toTitle(e)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="rem-table-wrap"><div class="ls"><div class="spin"></div></div></div>
+    </div>
+  </div>
+  ${reminderModal()}`;
+}
+
+function reminderModal() {
+  return `
+  <div class="mb" id="rem-modal" style="display:none">
+    <div class="modal">
+      <div class="mh"><span id="rem-modal-title">New Reminder</span><button class="mc" onclick="closeModal('rem-modal')">&times;</button></div>
+      <div class="mbody">
+        <div class="fg">
+          <label>Description <span style="color:var(--danger)">*</span></label>
+          <textarea id="rem-desc" class="fc" rows="3" placeholder="What should you be reminded about?"></textarea>
+        </div>
+        <div class="fr">
+          <div class="fg">
+            <label>Date & Time <span style="color:var(--danger)">*</span></label>
+            <input type="datetime-local" id="rem-date" class="fc">
+          </div>
+          <div class="fg">
+            <label>Entity Type</label>
+            <select id="rem-entity-type" class="fc">
+              <option value="">None (standalone)</option>
+              ${['lead','invoice','estimate','contract','customer','task','project','ticket','expense','proposal','subscription'].map(e=>`<option value="${e}">${toTitle(e)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="fg">
+          <label>Entity ID <small style="color:var(--muted)">(leave blank for standalone)</small></label>
+          <input type="number" id="rem-entity-id" class="fc" placeholder="e.g. 42">
+        </div>
+        <label class="fcheck" style="margin-bottom:8px"><input type="checkbox" id="rem-email" checked> Notify by email</label>
+      </div>
+      <div class="mfoot">
+        <button class="btn btn-secondary" onclick="closeModal('rem-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveReminder()"><i class="fa-solid fa-bell"></i> Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _remEditId = null;
+
+async function loadReminders() {
+  const status = document.getElementById('rem-status')?.value || '';
+  const relType = document.getElementById('rem-entity')?.value || '';
+  const wrap = document.getElementById('rem-table-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="ls"><div class="spin"></div></div>';
+  try {
+    let url = '/reminders?';
+    if (status) url += `status=${status}&`;
+    if (relType) url += `rel_type=${relType}&`;
+    const data = await GET(url);
+    if (!data.length) {
+      wrap.innerHTML = '<div class="es"><i class="fa-solid fa-bell"></i><h3>No reminders</h3><p>Create a reminder to get notified at the right time.</p></div>';
+      return;
+    }
+    const now = new Date();
+    wrap.innerHTML = buildTable(
+      ['Description','Date & Time','Entity','Notify by Email','Status',''],
+      data.map(r => {
+        const due = new Date(r.remind_at);
+        const overdue = !r.is_notified && due < now;
+        const dateStr = due.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+        const entity = r.rel_type && r.rel_id ? `<span class="badge bs">${esc(r.rel_type)} #${r.rel_id}</span>` : '—';
+        const status = r.is_notified
+          ? `<span class="badge bsu"><i class="fa-solid fa-check"></i> Notified</span>`
+          : overdue
+          ? `<span class="badge bd"><i class="fa-solid fa-exclamation"></i> Overdue</span>`
+          : `<span class="badge bw"><i class="fa-regular fa-clock"></i> Pending</span>`;
+        return `<tr>
+          <td>${esc(r.description)}</td>
+          <td style="white-space:nowrap">${dateStr}</td>
+          <td>${entity}</td>
+          <td>${r.notify_by_email ? '<i class="fa-solid fa-check" style="color:var(--success)"></i>' : '—'}</td>
+          <td>${status}</td>
+          <td><div class="ta">
+            <button class="ab" onclick="openReminderModal(${JSON.stringify(r).replace(/"/g,'&quot;')})" title="Edit"><i class="fa-solid fa-pen"></i></button>
+            ${!r.is_notified ? `<button class="ab" onclick="dismissReminder(${r.id})" title="Dismiss"><i class="fa-solid fa-check"></i></button>` : ''}
+            <button class="ab d" onclick="deleteReminder(${r.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>
+          </div></td>
+        </tr>`;
+      })
+    );
+  } catch(e) { wrap.innerHTML = `<div class="es"><p>Failed to load</p></div>`; }
+}
+
+function openReminderModal(rem) {
+  _remEditId = rem ? rem.id : null;
+  document.getElementById('rem-modal-title').textContent = rem ? 'Edit Reminder' : 'New Reminder';
+  document.getElementById('rem-desc').value = rem ? rem.description : '';
+  document.getElementById('rem-entity-type').value = rem ? (rem.rel_type||'') : '';
+  document.getElementById('rem-entity-id').value = rem ? (rem.rel_id||'') : '';
+  document.getElementById('rem-email').checked = rem ? rem.notify_by_email : true;
+  if (rem) {
+    const d = new Date(rem.remind_at);
+    document.getElementById('rem-date').value = d.toISOString().slice(0,16);
+  } else {
+    const d = new Date(Date.now() + 3600000);
+    document.getElementById('rem-date').value = d.toISOString().slice(0,16);
+  }
+  openModal('rem-modal');
+}
+
+async function saveReminder() {
+  const desc = document.getElementById('rem-desc').value.trim();
+  const date = document.getElementById('rem-date').value;
+  if (!desc || !date) { toast('Description and date are required','warning'); return; }
+  const body = {
+    description: desc, remind_at: new Date(date).toISOString(),
+    notify_by_email: document.getElementById('rem-email').checked,
+    rel_type: document.getElementById('rem-entity-type').value || null,
+    rel_id: parseInt(document.getElementById('rem-entity-id').value) || null,
+  };
+  try {
+    if (_remEditId) {
+      await PUT(`/reminders/${_remEditId}`, body);
+      toast('Reminder updated','success');
+    } else {
+      await POST('/reminders', body);
+      toast('Reminder created','success');
+    }
+    closeModal('rem-modal');
+    loadReminders();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function dismissReminder(id) {
+  try { await POST(`/reminders/${id}/dismiss`, {}); toast('Reminder dismissed','success'); loadReminders(); }
+  catch(e) { toast(e.message,'error'); }
+}
+
+async function deleteReminder(id) {
+  confirm('Delete this reminder?', async () => {
+    try { await DEL(`/reminders/${id}`); toast('Deleted','success'); loadReminders(); }
+    catch(e) { toast(e.message,'error'); }
+  });
+}
+
+window.init_reminders = loadReminders;
+
+// ═══════════════════════════════════════════════════════════
+// 2H — GLOBAL ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════
+
+function pgGlobalActivityLog() {
+  return `
+  <div class="ph">
+    <h1 class="ph-title"><i class="fa-solid fa-stream" style="color:var(--primary)"></i> Activity Log</h1>
+    <div class="ph-actions">
+      <select class="fc" id="al-module" onchange="loadActivityLog()" style="min-width:150px">
+        <option value="">All Modules</option>
+        ${['customers','leads','invoices','proposals','projects','tasks','contracts','expenses','staff','settings'].map(m=>`<option value="${m}">${toTitle(m)}</option>`).join('')}
+      </select>
+      <input class="fc" id="al-limit" type="number" value="50" min="10" max="500" style="width:80px" onchange="loadActivityLog()">
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <div id="al-wrap"><div class="ls"><div class="spin"></div></div></div>
+    </div>
+  </div>`;
+}
+
+async function loadActivityLog() {
+  const module = document.getElementById('al-module')?.value || '';
+  const limit = parseInt(document.getElementById('al-limit')?.value) || 50;
+  const wrap = document.getElementById('al-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="ls"><div class="spin"></div></div>';
+  try {
+    let url = `/activity?limit=${limit}`;
+    if (module) url += `&module=${module}`;
+    const res = await GET(url);
+    const items = res.items || res;
+    if (!items.length) {
+      wrap.innerHTML = '<div class="es"><i class="fa-solid fa-stream"></i><h3>No activity yet</h3></div>';
+      return;
+    }
+    wrap.innerHTML = buildTable(
+      ['Date','Staff','Module','Action','Record','Description'],
+      items.map(a => `<tr>
+        <td style="white-space:nowrap;font-size:12px">${fmtDate(a.created_at)}</td>
+        <td>${esc(a.user_name||a.staff_name||'System')}</td>
+        <td><span class="badge bs">${esc(a.module||'')}</span></td>
+        <td>${esc(a.action||'')}</td>
+        <td>${a.record_name ? `<span title="ID: ${a.record_id||''}">${esc(a.record_name)}</span>` : '—'}</td>
+        <td style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.description||'')}</td>
+      </tr>`)
+    );
+  } catch(e) { wrap.innerHTML = `<div class="es"><p>Failed to load</p></div>`; }
+}
+
+window.init_activity_log = loadActivityLog;
+
+// ═══════════════════════════════════════════════════════════
+// REUSABLE COMPONENT: Tag Input Autocomplete
+// ═══════════════════════════════════════════════════════════
+
+function renderTagInput(containerId, selectedTags, onChange) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:36px;padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--r);background:#fff;cursor:text';
+
+  const renderSelected = () => {
+    wrap.querySelectorAll('.tag-chip').forEach(e=>e.remove());
+    selectedTags.forEach((tag,i) => {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip badge';
+      chip.style.cssText = `background:${tag.color||'#6366f1'}20;color:${tag.color||'#6366f1'};border:1px solid ${tag.color||'#6366f1'}40;cursor:default;display:inline-flex;align-items:center;gap:4px`;
+      chip.innerHTML = `${esc(tag.name)}<i class="fa-solid fa-xmark" style="cursor:pointer;font-size:10px" onclick="e=>{e.stopPropagation();selectedTags.splice(${i},1);renderTagInput('${containerId}',selectedTags,onChange);onChange(selectedTags)}"></i>`;
+      wrap.insertBefore(chip, inp);
+    });
+  };
+
+  const inp = document.createElement('input');
+  inp.placeholder = 'Add tag…';
+  inp.style.cssText = 'border:none;outline:none;font-size:12px;min-width:80px;flex:1;font-family:inherit';
+  const dd = document.createElement('div');
+  dd.className = 'dp';
+  dd.style.cssText = 'position:absolute;top:100%;left:0;right:0;z-index:3500;max-height:200px;overflow-y:auto';
+
+  inp.oninput = async () => {
+    const q = inp.value.trim();
+    if (!q) { dd.classList.remove('show'); return; }
+    try {
+      const tags = await GET(`/tags?q=${encodeURIComponent(q)}`);
+      dd.innerHTML = '';
+      const filtered = tags.filter(t => !selectedTags.find(s=>s.id===t.id));
+      if (!filtered.length) {
+        dd.innerHTML = `<div class="dp-item" onclick="createAndAddTag('${containerId}','${q}',selectedTags,onChange)"
+          style="font-style:italic"><i class="fa-solid fa-plus"></i> Create "${esc(q)}"</div>`;
+      } else {
+        filtered.forEach(t => {
+          const d = document.createElement('div');
+          d.className = 'dp-item';
+          d.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${t.color};margin-right:6px"></span>${esc(t.name)}`;
+          d.onclick = () => { selectedTags.push(t); inp.value=''; dd.classList.remove('show'); renderSelected(); onChange(selectedTags); };
+          dd.appendChild(d);
+        });
+      }
+      dd.classList.add('show');
+    } catch(e) {}
+  };
+
+  const pos = document.createElement('div');
+  pos.style.cssText = 'position:relative;flex:1';
+  pos.appendChild(inp);
+  pos.appendChild(dd);
+  wrap.appendChild(pos);
+  c.appendChild(wrap);
+  renderSelected();
+}
+
+async function createAndAddTag(containerId, name, selectedTags, onChange) {
+  try {
+    const t = await POST('/tags', {name, color:'#6366f1'});
+    const newTag = {id: t.id, name, color:'#6366f1'};
+    selectedTags.push(newTag);
+    renderTagInput(containerId, selectedTags, onChange);
+    onChange(selectedTags);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// REUSABLE COMPONENT: Notes Panel
+// ═══════════════════════════════════════════════════════════
+
+async function renderNotesPanel(containerId, relType, relId) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.innerHTML = '<div class="ls" style="padding:20px"><div class="spin"></div></div>';
+  try {
+    const notes = await GET(`/notes?rel_type=${relType}&rel_id=${relId}`);
+    const html = `
+      <div style="margin-bottom:12px">
+        <textarea id="np-text-${containerId}" class="fc" rows="3" placeholder="Add a note…"></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+          <input type="datetime-local" id="np-dc-${containerId}" class="fc" style="flex:1" title="Date Contacted (optional)">
+          <button class="btn btn-primary btn-sm" onclick="submitNote('${containerId}','${relType}',${relId})">
+            <i class="fa-solid fa-paper-plane"></i> Add Note
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">Optional: set "Date Contacted" for CRM call logs</div>
+      </div>
+      ${notes.length ? notes.map(n => `
+        <div style="background:#f9fafb;border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:600">${esc(n.author)}</span>
+            <span style="font-size:11px;color:var(--muted)">${relTime(n.dateadded)}${n.date_contacted?` · Called: ${fmtDate(n.date_contacted)}`:''}</span>
+          </div>
+          <div style="font-size:13px;white-space:pre-wrap">${esc(n.description)}</div>
+          <div style="margin-top:8px">
+            <button class="btn btn-ghost btn-sm" onclick="deletePolyNote(${n.id},'${containerId}','${relType}',${relId})">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </div>
+        </div>
+      `).join('') : '<div class="es" style="padding:24px 0"><i class="fa-solid fa-note-sticky"></i><p>No notes yet</p></div>'}
+    `;
+    c.innerHTML = html;
+  } catch(e) { c.innerHTML = '<div class="es"><p>Failed to load notes</p></div>'; }
+}
+
+async function submitNote(containerId, relType, relId) {
+  const desc = document.getElementById(`np-text-${containerId}`)?.value?.trim();
+  const dc = document.getElementById(`np-dc-${containerId}`)?.value;
+  if (!desc) { toast('Please enter note text','warning'); return; }
+  try {
+    await POST('/notes', {description: desc, rel_type: relType, rel_id: relId, date_contacted: dc ? new Date(dc).toISOString() : null});
+    toast('Note added','success');
+    renderNotesPanel(containerId, relType, relId);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function deletePolyNote(nid, containerId, relType, relId) {
+  confirm('Delete this note?', async () => {
+    try { await DEL(`/notes/${nid}`); renderNotesPanel(containerId, relType, relId); }
+    catch(e) { toast(e.message,'error'); }
+  });
+}
 
 </script>
 </body>
