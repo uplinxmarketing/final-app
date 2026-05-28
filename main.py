@@ -89,78 +89,82 @@ async def lifespan(app: FastAPI):
     except Exception as _exc:
         logger.error(f"STARTUP FAILED — database init error: {type(_exc).__name__}: {_exc}")
         raise
-    async for db in get_db():
-        try:
-            await initialize_default_skills(db)
-            await initialize_default_quick_commands(db)
-        except Exception as _seed_exc:
-            logger.error(f"Skills/commands seed error (non-fatal): {type(_seed_exc).__name__}: {_seed_exc}")
-        # Auto-seed MetaApp rows from env vars (once, on first start)
-        if settings.META_APP_ID:
-            _res = await db.execute(
-                select(MetaApp).where(MetaApp.app_id == settings.META_APP_ID, MetaApp.app_type == "ads").limit(1)
-            )
-            if not _res.scalar_one_or_none():
-                db.add(MetaApp(
-                    name="Default Ads App", app_type="ads",
-                    app_id=settings.META_APP_ID,
-                    encrypted_app_secret=encryption.encrypt(settings.META_APP_SECRET or "placeholder"),
-                    sort_order=0,
-                ))
-        if settings.META_POSTING_APP_ID:
-            _res = await db.execute(
-                select(MetaApp).where(MetaApp.app_id == settings.META_POSTING_APP_ID, MetaApp.app_type == "posting").limit(1)
-            )
-            if not _res.scalar_one_or_none():
-                db.add(MetaApp(
-                    name="Default Posting App", app_type="posting",
-                    app_id=settings.META_POSTING_APP_ID,
-                    encrypted_app_secret=encryption.encrypt(settings.META_POSTING_APP_SECRET or "placeholder"),
-                    sort_order=0,
-                ))
-        await db.commit()
-        break
+    try:
+        async for db in get_db():
+            try:
+                await initialize_default_skills(db)
+                await initialize_default_quick_commands(db)
+            except Exception as _seed_exc:
+                logger.error(f"Skills/commands seed error (non-fatal): {type(_seed_exc).__name__}: {_seed_exc}")
+            # Auto-seed MetaApp rows from env vars (once, on first start)
+            if settings.META_APP_ID:
+                _res = await db.execute(
+                    select(MetaApp).where(MetaApp.app_id == settings.META_APP_ID, MetaApp.app_type == "ads").limit(1)
+                )
+                if not _res.scalar_one_or_none():
+                    db.add(MetaApp(
+                        name="Default Ads App", app_type="ads",
+                        app_id=settings.META_APP_ID,
+                        encrypted_app_secret=encryption.encrypt(settings.META_APP_SECRET or "placeholder"),
+                        sort_order=0,
+                    ))
+            if settings.META_POSTING_APP_ID:
+                _res = await db.execute(
+                    select(MetaApp).where(MetaApp.app_id == settings.META_POSTING_APP_ID, MetaApp.app_type == "posting").limit(1)
+                )
+                if not _res.scalar_one_or_none():
+                    db.add(MetaApp(
+                        name="Default Posting App", app_type="posting",
+                        app_id=settings.META_POSTING_APP_ID,
+                        encrypted_app_secret=encryption.encrypt(settings.META_POSTING_APP_SECRET or "placeholder"),
+                        sort_order=0,
+                    ))
+            await db.commit()
+            break
+    except Exception as _meta_exc:
+        logger.error(f"MetaApp seeding error (non-fatal): {type(_meta_exc).__name__}: {_meta_exc}")
     # Auto-seed / sync admin user on startup
-    async for db in get_db():
-        res = await db.execute(select(User).where(User.username == "admin").limit(1))
-        admin_user = res.scalar_one_or_none()
-        if settings.ADMIN_PASSWORD:
-            # ADMIN_PASSWORD env var set — create or force-update admin account
-            if admin_user:
-                admin_user.hashed_password = _hash_password(settings.ADMIN_PASSWORD)
-                admin_user.is_active = True
-                admin_user.role = "admin"
-                if settings.ADMIN_EMAIL:
-                    admin_user.email = settings.ADMIN_EMAIL
-                await db.commit()
-                logger.info("Admin account synced from ADMIN_PASSWORD env var")
-            else:
+    try:
+        async for db in get_db():
+            res = await db.execute(select(User).where(User.username == "admin").limit(1))
+            admin_user = res.scalar_one_or_none()
+            if settings.ADMIN_PASSWORD:
+                if admin_user:
+                    admin_user.hashed_password = _hash_password(settings.ADMIN_PASSWORD)
+                    admin_user.is_active = True
+                    admin_user.role = "admin"
+                    if settings.ADMIN_EMAIL:
+                        admin_user.email = settings.ADMIN_EMAIL
+                    await db.commit()
+                    logger.info("Admin account synced from ADMIN_PASSWORD env var")
+                else:
+                    db.add(User(
+                        username="admin",
+                        email=settings.ADMIN_EMAIL or None,
+                        hashed_password=_hash_password(settings.ADMIN_PASSWORD),
+                        role="admin",
+                        interface_access="both",
+                        is_active=True,
+                    ))
+                    await db.commit()
+                    logger.info("Admin account created from ADMIN_PASSWORD env var")
+            elif not admin_user:
+                pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
                 db.add(User(
                     username="admin",
-                    email=settings.ADMIN_EMAIL or None,
-                    hashed_password=_hash_password(settings.ADMIN_PASSWORD),
+                    hashed_password=_hash_password(pw),
                     role="admin",
                     interface_access="both",
                     is_active=True,
                 ))
                 await db.commit()
-                logger.info("Admin account created from ADMIN_PASSWORD env var")
-        elif not admin_user:
-            # No admin exists and no env var — seed with LOGIN_PASSWORD or random
-            pw = settings.LOGIN_PASSWORD or secrets.token_urlsafe(16)
-            db.add(User(
-                username="admin",
-                hashed_password=_hash_password(pw),
-                role="admin",
-                interface_access="both",
-                is_active=True,
-            ))
-            await db.commit()
-            if not settings.LOGIN_PASSWORD:
-                logger.warning("=== FIRST RUN: admin password = %s — set ADMIN_PASSWORD env var! ===", pw)
-            else:
-                logger.info("Auto-created admin from LOGIN_PASSWORD")
-        break
+                if not settings.LOGIN_PASSWORD:
+                    logger.warning("=== FIRST RUN: admin password = %s — set ADMIN_PASSWORD env var! ===", pw)
+                else:
+                    logger.info("Auto-created admin from LOGIN_PASSWORD")
+            break
+    except Exception as _user_exc:
+        logger.error(f"User seeding error (non-fatal): {type(_user_exc).__name__}: {_user_exc}")
     try:
         await init_admin_db(async_engine)
     except Exception as _adm_exc:
