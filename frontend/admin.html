@@ -527,6 +527,19 @@ tbody tr:hover .ta{opacity:1}
       </div>
     </div>
 
+    <!-- App Launcher -->
+    <div style="position:relative">
+      <button class="tb-btn" id="app-launcher-btn" onclick="toggleDp('dp-apps');loadAppLauncher()" title="Apps">
+        <i class="fa-solid fa-th-large"></i>
+      </button>
+      <div class="dp dp-wide" id="dp-apps" style="right:0;top:calc(100% + 8px);min-width:280px">
+        <div class="dp-hdr"><i class="fa-solid fa-th-large"></i> Apps</div>
+        <div id="app-launcher-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px">
+          <div style="text-align:center;padding:16px;color:#9ca3af;grid-column:1/-1;font-size:13px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Notifications -->
     <div style="position:relative">
       <button class="tb-btn" onclick="toggleDp('dp-notif');loadNotifs()" title="Notifications">
@@ -705,6 +718,17 @@ tbody tr:hover .ta{opacity:1}
       <div class="ni-child" data-p="report-kb" onclick="nav('report-kb')"><i class="fa-solid fa-book"></i> KB Articles</div>
     </div>
 
+    <!-- Apps -->
+    <div class="ni-item" id="ng-apps" data-g="apps" onclick="toggleNG('apps')">
+      <div class="ni-ico"><i class="fa-solid fa-th-large"></i></div>
+      <div class="ni-lbl">Apps</div>
+      <i class="fa-solid fa-chevron-right ni-chev"></i>
+      <div class="sb-tip">Apps</div>
+    </div>
+    <div class="ni-children" id="nc-apps">
+      <div id="sb-apps-list"><div class="ni-child" style="color:#9ca3af;font-style:italic">Loading…</div></div>
+    </div>
+
     <!-- Setup -->
     <div class="ni-item" id="ng-setup" data-g="setup" onclick="toggleNG('setup')">
       <div class="ni-ico"><i class="fa-solid fa-sliders"></i></div>
@@ -816,8 +840,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('click', e => {
     if (!e.target.closest('.dp') && !e.target.closest('.tb-btn') &&
         !e.target.closest('.qc-btn') && !e.target.closest('#sb-user') &&
-        !e.target.closest('#dp-user')) {
+        !e.target.closest('#dp-user') && !e.target.closest('#app-launcher-btn')) {
       closeAll();
+    }
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      const el = document.getElementById('g-search');
+      if (el) { el.focus(); el.select(); }
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+      e.preventDefault();
+      toggleDp('dp-qc');
     }
   });
 
@@ -993,6 +1030,7 @@ function showApp() {
   });
 
   filterSidebar();
+  loadAppLauncher();
   const hash = location.hash.replace('#', '');
   const saved = localStorage.getItem('adm_page');
   nav(hash || saved || 'dashboard');
@@ -1566,6 +1604,62 @@ function closeSR() { document.getElementById('sr').classList.remove('show'); }
 // ═══════════════════════════════
 // NOTIFICATIONS
 // ═══════════════════════════════
+// ═══════════════════════════════
+// APP LAUNCHER
+// ═══════════════════════════════
+let _appsCache = null;
+
+async function loadAppLauncher() {
+  const grid = document.getElementById('app-launcher-grid');
+  if (_appsCache) { renderAppGrid(_appsCache); return; }
+  try {
+    const r = await fetch('/admin/api/apps/my-access');
+    if (!r.ok) { grid.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:13px;grid-column:1/-1;padding:12px">No apps available</div>'; return; }
+    _appsCache = await r.json();
+    renderAppGrid(_appsCache);
+    populateSidebarApps(_appsCache);
+  } catch(e) {
+    grid.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:13px;grid-column:1/-1;padding:12px">Could not load apps</div>';
+  }
+}
+
+function renderAppGrid(apps) {
+  const grid = document.getElementById('app-launcher-grid');
+  if (!apps || !apps.length) {
+    grid.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:13px;grid-column:1/-1;padding:16px">No apps assigned to you</div>';
+    return;
+  }
+  const iconClass = (icon) => {
+    if (!icon) return 'fa-solid fa-rocket';
+    if (icon.startsWith('fa-brands ') || icon.startsWith('fa-solid ') || icon.startsWith('fa-regular ')) return icon;
+    return `fa-solid ${icon}`;
+  };
+  grid.innerHTML = apps.map(a => `
+    <a href="${a.base_url||'#'}" target="_blank" rel="noopener"
+      style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 10px;border-radius:10px;text-decoration:none;color:#374151;transition:background .15s;cursor:pointer"
+      onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background=''"
+      onclick="closeAll()">
+      <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px">
+        <i class="${iconClass(a.icon)}"></i>
+      </div>
+      <div style="font-size:12px;font-weight:600;text-align:center;max-width:80px;line-height:1.3">${a.name}</div>
+    </a>`).join('');
+}
+
+function populateSidebarApps(apps) {
+  const el = document.getElementById('sb-apps-list');
+  if (!el) return;
+  if (!apps || !apps.length) {
+    el.innerHTML = '<div class="ni-child" style="color:#9ca3af;font-style:italic;font-size:12px">No apps assigned</div>';
+    return;
+  }
+  el.innerHTML = apps.map(a => `
+    <a href="${a.base_url||'#'}" target="_blank" rel="noopener"
+      class="ni-child" style="text-decoration:none;color:inherit">
+      <i class="fa-solid fa-rocket"></i> ${a.name}
+    </a>`).join('');
+}
+
 async function loadNotifCount() {
   try {
     const r = await fetch('/admin/api/activity?limit=20');
