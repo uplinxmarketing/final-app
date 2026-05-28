@@ -367,21 +367,87 @@ tbody tr:hover .ta{opacity:1}
     <h2>Welcome back</h2>
     <p class="sub">Sign in to your admin account</p>
     <div class="err-box" id="lerr"></div>
-    <div class="fg">
-      <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL</label>
-      <input type="email" id="lemail" class="fc" placeholder="uplinxmarketing@gmail.com" autofocus
-        style="background:#fff5f5;border-color:#fca5a5">
+    <div id="login-form-wrap">
+      <div class="fg">
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL</label>
+        <input type="email" id="lemail" class="fc" placeholder="uplinxmarketing@gmail.com" autofocus
+          style="background:#fff5f5;border-color:#fca5a5">
+      </div>
+      <div class="fg">
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">PASSWORD</label>
+        <input type="password" id="lpw" class="fc" placeholder="••••••••"
+          style="background:#fff5f5;border-color:#fca5a5">
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280;cursor:pointer">
+          <input type="checkbox" id="lremember" style="accent-color:#dc2626"> Remember me
+        </label>
+        <a href="#" onclick="showForgotPw(event)" style="font-size:13px;color:#dc2626;text-decoration:none">Forgot password?</a>
+      </div>
+      <button id="lbtn" onclick="doLogin()"
+        style="width:100%;padding:13px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer;box-shadow:0 4px 16px rgba(220,38,38,.30);transition:background .15s,transform .1s;letter-spacing:.2px">
+        Sign In →
+      </button>
     </div>
-    <div class="fg">
-      <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">PASSWORD</label>
-      <input type="password" id="lpw" class="fc" placeholder="••••••••"
-        style="background:#fff5f5;border-color:#fca5a5">
+
+    <!-- Forgot password form (hidden by default) -->
+    <div id="forgot-pw-wrap" style="display:none">
+      <p style="font-size:13px;color:#6b7280;margin-bottom:12px">Enter your email and we'll send you a reset link.</p>
+      <div class="fg">
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL</label>
+        <input type="email" id="forgot-email" class="fc" placeholder="you@uplinx.com"
+          style="background:#fff5f5;border-color:#fca5a5">
+      </div>
+      <button onclick="doForgotPw()"
+        style="width:100%;padding:13px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer;box-shadow:0 4px 16px rgba(220,38,38,.30)">
+        Send Reset Link
+      </button>
+      <p style="text-align:center;margin-top:12px"><a href="#" onclick="hideForgotPw(event)" style="font-size:13px;color:#6b7280">← Back to sign in</a></p>
     </div>
-    <button id="lbtn" onclick="doLogin()"
-      style="width:100%;padding:13px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer;box-shadow:0 4px 16px rgba(220,38,38,.30);transition:background .15s,transform .1s;letter-spacing:.2px">
-      Sign In →
-    </button>
+
+    <!-- Reset password form (shown when ?reset_token= in URL) -->
+    <div id="reset-pw-wrap" style="display:none">
+      <p style="font-size:13px;color:#6b7280;margin-bottom:12px">Choose a new password for your account.</p>
+      <div class="fg">
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">NEW PASSWORD</label>
+        <input type="password" id="reset-pw1" class="fc" placeholder="At least 8 characters" style="background:#fff5f5;border-color:#fca5a5">
+      </div>
+      <div class="fg">
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">CONFIRM PASSWORD</label>
+        <input type="password" id="reset-pw2" class="fc" placeholder="Repeat password" style="background:#fff5f5;border-color:#fca5a5">
+      </div>
+      <button onclick="doResetPw()"
+        style="width:100%;padding:13px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer;box-shadow:0 4px 16px rgba(220,38,38,.30)">
+        Set New Password
+      </button>
+    </div>
+
     <p style="font-size:11px;color:#d1d5db;text-align:center;margin-top:20px">Uplinx Admin · Management Platform</p>
+  </div>
+</div>
+
+<!-- ════ FORCE PASSWORD CHANGE OVERLAY ════ -->
+<div id="force-pw-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:none;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:32px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <h3 style="margin:0 0 8px;font-size:18px">Set a new password</h3>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:20px">Your account requires a password change before continuing.</p>
+    <div class="err-box" id="fpc-err"></div>
+    <div class="fg">
+      <label style="font-size:12px;font-weight:600;color:#6b7280">CURRENT PASSWORD</label>
+      <input type="password" id="fpc-cur" class="fc" placeholder="••••••••">
+    </div>
+    <div class="fg">
+      <label style="font-size:12px;font-weight:600;color:#6b7280">NEW PASSWORD</label>
+      <input type="password" id="fpc-new" class="fc" placeholder="At least 8 characters">
+    </div>
+    <div class="fg" style="margin-bottom:20px">
+      <label style="font-size:12px;font-weight:600;color:#6b7280">CONFIRM PASSWORD</label>
+      <input type="password" id="fpc-con" class="fc" placeholder="Repeat new password">
+    </div>
+    <button onclick="doForcePasswordChange()"
+      style="width:100%;padding:13px;background:#dc2626;color:#fff;font-size:15px;font-weight:600;border:none;border-radius:9px;cursor:pointer">
+      Update Password
+    </button>
   </div>
 </div>
 
@@ -755,9 +821,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Check for password reset token in URL
+  const params = new URLSearchParams(location.search);
+  const resetToken = params.get('reset_token');
+  if (resetToken) {
+    document.getElementById('login-form-wrap').style.display = 'none';
+    document.getElementById('reset-pw-wrap').style.display = 'block';
+    document.getElementById('reset-pw-wrap').dataset.token = resetToken;
+    history.replaceState(null, '', '/admin');
+    return;
+  }
+
   try {
     const r = await fetch('/admin/api/auth/me');
-    if (r.ok) { CU = await r.json(); showApp(); return; }
+    if (r.ok) {
+      const d = await r.json();
+      CU = d;
+      showApp();
+      if (d.force_password_change) showForcePwOverlay();
+      return;
+    }
   } catch(e) {}
 });
 
@@ -767,6 +850,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function doLogin() {
   const email = document.getElementById('lemail').value.trim();
   const pw = document.getElementById('lpw').value;
+  const remember = document.getElementById('lremember').checked;
   const err = document.getElementById('lerr');
   err.style.display = 'none';
   if (!email || !pw) { err.textContent = 'Please enter email and password.'; err.style.display = 'block'; return; }
@@ -778,12 +862,15 @@ async function doLogin() {
   try {
     const r = await fetch('/admin/api/auth/login', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({email, password: pw})
+      body: JSON.stringify({email, password: pw, remember_me: remember})
     });
     let d;
     try { d = await r.json(); } catch(_) { d = null; }
-    if (r.ok && d) { CU = d; showApp(); }
-    else {
+    if (r.ok && d) {
+      CU = d.staff || d;
+      showApp();
+      if (d.force_password_change) showForcePwOverlay();
+    } else {
       const msg = d?.detail || (r.status ? `Server error ${r.status}` : 'Connection error. Please try again.');
       err.textContent = msg; err.style.display = 'block';
     }
@@ -795,11 +882,86 @@ async function doLogin() {
   }
 }
 
+function showForgotPw(e) {
+  e.preventDefault();
+  document.getElementById('login-form-wrap').style.display = 'none';
+  document.getElementById('forgot-pw-wrap').style.display = 'block';
+  document.getElementById('forgot-email').value = document.getElementById('lemail').value;
+  document.getElementById('lerr').style.display = 'none';
+}
+function hideForgotPw(e) {
+  e.preventDefault();
+  document.getElementById('forgot-pw-wrap').style.display = 'none';
+  document.getElementById('login-form-wrap').style.display = 'block';
+  document.getElementById('lerr').style.display = 'none';
+}
+async function doForgotPw() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const err = document.getElementById('lerr');
+  if (!email) { err.textContent = 'Please enter your email.'; err.style.display = 'block'; return; }
+  const r = await fetch('/admin/api/auth/forgot-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({email})
+  });
+  const d = await r.json();
+  err.style.display = 'none';
+  document.getElementById('forgot-pw-wrap').innerHTML =
+    '<p style="text-align:center;font-size:14px;color:#16a34a">✓ If that email exists, a reset link has been sent.<br><br>' +
+    '<a href="#" onclick="location.reload()" style="color:#dc2626">Back to sign in</a></p>';
+}
+async function doResetPw() {
+  const wrap = document.getElementById('reset-pw-wrap');
+  const token = wrap.dataset.token;
+  const p1 = document.getElementById('reset-pw1').value;
+  const p2 = document.getElementById('reset-pw2').value;
+  const err = document.getElementById('lerr');
+  err.style.display = 'none';
+  if (p1 !== p2) { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+  if (p1.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
+  const r = await fetch('/admin/api/auth/reset-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({token, new_password: p1})
+  });
+  const d = await r.json();
+  if (r.ok) {
+    wrap.innerHTML = '<p style="text-align:center;font-size:14px;color:#16a34a">✓ Password updated! <a href="/admin" style="color:#dc2626">Sign in now</a></p>';
+  } else {
+    err.textContent = d.detail || 'Reset failed.'; err.style.display = 'block';
+  }
+}
+
+function showForcePwOverlay() {
+  const el = document.getElementById('force-pw-overlay');
+  el.style.display = 'flex';
+}
+async function doForcePasswordChange() {
+  const cur = document.getElementById('fpc-cur').value;
+  const nw = document.getElementById('fpc-new').value;
+  const con = document.getElementById('fpc-con').value;
+  const err = document.getElementById('fpc-err');
+  err.style.display = 'none';
+  if (nw !== con) { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+  if (nw.length < 8) { err.textContent = 'At least 8 characters required.'; err.style.display = 'block'; return; }
+  const r = await fetch('/admin/api/auth/change-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({current_password: cur, new_password: nw})
+  });
+  const d = await r.json();
+  if (r.ok) {
+    document.getElementById('force-pw-overlay').style.display = 'none';
+    toast('Password updated successfully', 'success');
+  } else {
+    err.textContent = d.detail || 'Failed to update password.'; err.style.display = 'block';
+  }
+}
+
 async function doLogout() {
   await fetch('/admin/api/auth/logout', {method:'POST'}).catch(()=>{});
   CU = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
+  document.getElementById('login-form-wrap').style.display = 'block';
+  document.getElementById('forgot-pw-wrap').style.display = 'none';
   document.getElementById('lpw').value = '';
 }
 
@@ -1044,8 +1206,121 @@ function pgMyAccountCompany(){return pgPlaceholder('My Account – Company Detai
 function pgMyAccountInvoices(){return pgPlaceholder('My Account – Invoices')}
 function pgMyAccountSupport(){return pgPlaceholder('My Account – Support')}
 function pgTodo(){return pgPlaceholder('My To-Do')}
-function pgProfile(){return pgPlaceholder('My Profile')}
-function pgEditProfile(){return pgPlaceholder('Edit Profile')}
+function pgProfile(){
+  if (!CU) return pgPlaceholder('My Profile');
+  const initials = CU.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+  return `<div class="pg-hdr"><h1 class="pg-title">My Profile</h1>
+  <button class="btn-pri" onclick="nav('edit-profile')"><i class="fa-solid fa-pen"></i> Edit Profile</button></div>
+  <div style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start">
+    <div class="card" style="text-align:center;padding:32px 24px">
+      <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;margin:0 auto 16px">
+        ${CU.profile_photo ? `<img src="${CU.profile_photo}" style="width:80px;height:80px;border-radius:50%;object-fit:cover">` : initials}
+      </div>
+      <div style="font-size:18px;font-weight:700;color:#111">${CU.full_name || CU.email}</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:4px">${CU.role_name || 'Staff'}</div>
+      ${CU.is_admin ? '<div style="margin-top:8px;display:inline-block;padding:3px 10px;background:#fef3c7;color:#92400e;border-radius:99px;font-size:11px;font-weight:600">Administrator</div>' : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">Contact Information</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">EMAIL</div><div style="font-size:14px;color:#111">${CU.email}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">PHONE</div><div style="font-size:14px;color:#111">${CU.phone||'—'}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">LANGUAGE</div><div style="font-size:14px;color:#111">${CU.language||'en'}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">TIMEZONE</div><div style="font-size:14px;color:#111">${CU.timezone||'UTC'}</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">Account Activity</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">LAST LOGIN</div><div style="font-size:14px;color:#111">${CU.last_login ? new Date(CU.last_login).toLocaleString() : '—'}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">LAST IP</div><div style="font-size:14px;color:#111;font-family:monospace">${CU.last_ip||'—'}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">MEMBER SINCE</div><div style="font-size:14px;color:#111">${new Date(CU.created_at).toLocaleDateString()}</div></div>
+          <div><div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px">STATUS</div><div style="font-size:14px;color:#16a34a;font-weight:600">${CU.is_active?'Active':'Inactive'}</div></div>
+        </div>
+      </div>
+      ${CU.email_signature ? `<div class="card"><div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Email Signature</div><div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:13px;color:#374151">${CU.email_signature}</div></div>` : ''}
+    </div>
+  </div>`;
+}
+
+function pgEditProfile(){
+  if (!CU) return pgPlaceholder('Edit Profile');
+  const timezones = ['UTC','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Asia/Tokyo','Australia/Sydney'];
+  const tzOpts = timezones.map(t=>`<option value="${t}"${CU.timezone===t?' selected':''}>${t}</option>`).join('');
+  return `<div class="pg-hdr"><h1 class="pg-title">Edit Profile</h1></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">Personal Information</div>
+      <div class="fg"><label class="lbl">FIRST NAME</label><input id="ep-fn" class="fc" value="${CU.first_name||''}"></div>
+      <div class="fg"><label class="lbl">LAST NAME</label><input id="ep-ln" class="fc" value="${CU.last_name||''}"></div>
+      <div class="fg"><label class="lbl">PHONE</label><input id="ep-ph" class="fc" value="${CU.phone||''}"></div>
+      <div class="fg"><label class="lbl">LANGUAGE</label>
+        <select id="ep-lang" class="fc">
+          <option value="en"${CU.language==='en'?' selected':''}>English</option>
+          <option value="es"${CU.language==='es'?' selected':''}>Spanish</option>
+          <option value="fr"${CU.language==='fr'?' selected':''}>French</option>
+          <option value="de"${CU.language==='de'?' selected':''}>German</option>
+          <option value="pt"${CU.language==='pt'?' selected':''}>Portuguese</option>
+        </select>
+      </div>
+      <div class="fg"><label class="lbl">TIMEZONE</label><select id="ep-tz" class="fc">${tzOpts}</select></div>
+      <button class="btn-pri" onclick="saveProfile()"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">Email Signature</div>
+        <textarea id="ep-sig" class="fc" rows="5" style="resize:vertical">${CU.email_signature||''}</textarea>
+        <div style="font-size:11px;color:#9ca3af;margin-top:4px">Appended to outbound emails from your account.</div>
+      </div>
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">Change Password</div>
+        <div class="fg"><label class="lbl">CURRENT PASSWORD</label><input id="ep-cur-pw" type="password" class="fc" placeholder="••••••••"></div>
+        <div class="fg"><label class="lbl">NEW PASSWORD</label><input id="ep-new-pw" type="password" class="fc" placeholder="At least 8 characters"></div>
+        <div class="fg"><label class="lbl">CONFIRM PASSWORD</label><input id="ep-con-pw" type="password" class="fc" placeholder="Repeat new password"></div>
+        <button class="btn-sec" onclick="savePassword()"><i class="fa-solid fa-lock"></i> Update Password</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function saveProfile() {
+  const data = {
+    first_name: document.getElementById('ep-fn').value.trim(),
+    last_name: document.getElementById('ep-ln').value.trim(),
+    phone: document.getElementById('ep-ph').value.trim(),
+    language: document.getElementById('ep-lang').value,
+    timezone: document.getElementById('ep-tz').value,
+    email_signature: document.getElementById('ep-sig').value,
+  };
+  const r = await fetch('/admin/api/auth/profile', {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (r.ok) {
+    CU = {...CU, ...await r.json()};
+    const name = [CU.first_name, CU.last_name].filter(Boolean).join(' ');
+    document.getElementById('sb-name').textContent = name;
+    toast('Profile saved', 'success');
+  } else { toast('Failed to save profile', 'error'); }
+}
+
+async function savePassword() {
+  const cur = document.getElementById('ep-cur-pw').value;
+  const nw = document.getElementById('ep-new-pw').value;
+  const con = document.getElementById('ep-con-pw').value;
+  if (!cur || !nw) { toast('Please fill all password fields', 'error'); return; }
+  if (nw !== con) { toast('Passwords do not match', 'error'); return; }
+  if (nw.length < 8) { toast('Password must be at least 8 characters', 'error'); return; }
+  const r = await fetch('/admin/api/auth/change-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({current_password: cur, new_password: nw})
+  });
+  const d = await r.json();
+  if (r.ok) {
+    ['ep-cur-pw','ep-new-pw','ep-con-pw'].forEach(id => document.getElementById(id).value = '');
+    toast('Password updated successfully', 'success');
+  } else { toast(d.detail || 'Failed to update password', 'error'); }
+}
 function pgTimesheets(){return pgPlaceholder('Timesheets')}
 
 // ═══════════════════════════════
