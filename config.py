@@ -109,6 +109,28 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = ""
     """Email address for the built-in admin account. Synced on every startup."""
 
+    # ------------------------------------------------------------------
+    # SMTP / Outbound email
+    # ------------------------------------------------------------------
+
+    SMTP_HOST: str = ""
+    """SMTP server hostname (e.g. smtp.gmail.com)."""
+
+    SMTP_PORT: int = 587
+    """SMTP port. 587 = STARTTLS (recommended), 465 = SSL."""
+
+    SMTP_USER: str = ""
+    """SMTP login username (usually the sender email address)."""
+
+    SMTP_PASS: str = ""
+    """SMTP login password or app-specific password."""
+
+    SMTP_FROM: str = ""
+    """From address for outbound CRM emails. Falls back to SMTP_USER if blank."""
+
+    SMTP_FROM_NAME: str = "Uplinx CRM"
+    """Display name for the From address."""
+
     ADMIN_PASSWORD: str = ""
     """If set, the 'admin' account password is created/updated to this value on every startup."""
 

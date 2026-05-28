@@ -132,7 +132,12 @@ def _staff_dict(s: StaffMember) -> dict:
         "role_id": s.role_id, "role_name": s.role.name if s.role else None,
         "is_admin": s.is_admin, "is_active": s.is_active,
         "profile_photo": s.profile_photo,
+        "email_signature": s.email_signature,
+        "language": s.language,
+        "timezone": s.timezone,
         "last_login": s.last_login.isoformat() if s.last_login else None,
+        "last_ip": s.last_ip,
+        "force_password_change": s.force_password_change,
         "created_at": s.created_at.isoformat(),
     }
 
@@ -246,9 +251,64 @@ async def admin_frontend():
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+_LOGIN_LOCKOUT_ATTEMPTS = 5
+_LOGIN_LOCKOUT_MINUTES = 15
+_RESET_TOKEN_HOURS = 1
+_REMEMBER_ME_DAYS = 30
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    return xff.split(",")[0].strip() if xff else (request.client.host if request.client else "unknown")
+
+
+async def _send_email(to: str, subject: str, html: str) -> bool:
+    """Send a transactional email. Returns True on success, False if SMTP not configured."""
+    from config import settings as _s
+    import smtplib, ssl
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    if not _s.SMTP_HOST or not _s.SMTP_USER:
+        return False
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{_s.SMTP_FROM_NAME} <{_s.SMTP_FROM or _s.SMTP_USER}>"
+    msg["To"] = to
+    msg.attach(MIMEText(html, "html"))
+    try:
+        ctx = ssl.create_default_context()
+        if _s.SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(_s.SMTP_HOST, _s.SMTP_PORT, context=ctx) as srv:
+                srv.login(_s.SMTP_USER, _s.SMTP_PASS)
+                srv.sendmail(msg["From"], [to], msg.as_string())
+        else:
+            with smtplib.SMTP(_s.SMTP_HOST, _s.SMTP_PORT) as srv:
+                srv.starttls(context=ctx)
+                srv.login(_s.SMTP_USER, _s.SMTP_PASS)
+                srv.sendmail(msg["From"], [to], msg.as_string())
+        return True
+    except Exception:
+        return False
+
+
 class LoginReq(BaseModel):
     email: str
     password: str
+    remember_me: bool = False
+
+
+class ForgotPasswordReq(BaseModel):
+    email: str
+
+
+class ResetPasswordReq(BaseModel):
+    token: str
+    new_password: str
+
+
+class ChangePasswordReq(BaseModel):
+    current_password: str
+    new_password: str
 
 
 @router.post("/api/auth/seed-admin")
@@ -274,19 +334,47 @@ async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/auth/login")
-async def admin_login(req: LoginReq, response: Response, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(StaffMember).options(selectinload(StaffMember.role)).where(
-        StaffMember.email == req.email.lower().strip(),
-        StaffMember.is_active == True,
-    ))
+async def admin_login(req: LoginReq, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    now = _utcnow()
+    result = await db.execute(
+        select(StaffMember).options(selectinload(StaffMember.role)).where(
+            StaffMember.email == req.email.lower().strip(),
+        )
+    )
     staff = result.scalar_one_or_none()
-    if not staff or not _verify_pw(req.password, staff.hashed_password):
+
+    # Always spend the same time even on unknown email (prevent enumeration)
+    if not staff:
+        _verify_pw(req.password, "pbkdf2:sha256:260000$x$x")
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    staff.last_login = _utcnow()
+
+    # Check lockout
+    if staff.locked_until and staff.locked_until > now:
+        remaining = int((staff.locked_until - now).total_seconds() / 60) + 1
+        raise HTTPException(status_code=429, detail=f"Account locked. Try again in {remaining} minute(s).")
+
+    if not staff.is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled. Contact your administrator.")
+
+    if not _verify_pw(req.password, staff.hashed_password):
+        staff.failed_login_attempts = (staff.failed_login_attempts or 0) + 1
+        if staff.failed_login_attempts >= _LOGIN_LOCKOUT_ATTEMPTS:
+            staff.locked_until = now + timedelta(minutes=_LOGIN_LOCKOUT_MINUTES)
+            staff.failed_login_attempts = 0
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Success — reset counters, log IP/time
+    staff.failed_login_attempts = 0
+    staff.locked_until = None
+    staff.last_login = now
+    staff.last_ip = _client_ip(request)
+    await db.commit()
+
+    max_age = 86400 * _REMEMBER_ME_DAYS if req.remember_me else _ADMIN_SESSION_LIFETIME
     token = _make_admin_token(staff.id)
-    response.set_cookie("admin_session", token, httponly=True, samesite="lax",
-                        max_age=_ADMIN_SESSION_LIFETIME)
-    return {"ok": True, "staff": _staff_dict(staff)}
+    response.set_cookie("admin_session", token, httponly=True, samesite="lax", max_age=max_age)
+    return {"ok": True, "staff": _staff_dict(staff), "force_password_change": staff.force_password_change}
 
 
 @router.post("/api/auth/logout")
@@ -297,6 +385,94 @@ async def admin_logout(response: Response):
 
 @router.get("/api/auth/me")
 async def admin_me(staff: StaffMember = Depends(get_current_admin)):
+    return {**_staff_dict(staff), "force_password_change": staff.force_password_change}
+
+
+@router.post("/api/auth/forgot-password")
+async def admin_forgot_password(req: ForgotPasswordReq, request: Request, db: AsyncSession = Depends(get_db)):
+    """Send a password-reset email. Always returns 200 to prevent enumeration."""
+    from config import settings as _s
+    result = await db.execute(
+        select(StaffMember).where(StaffMember.email == req.email.lower().strip(), StaffMember.is_active == True)
+    )
+    staff = result.scalar_one_or_none()
+    if staff:
+        token = secrets.token_urlsafe(64)
+        staff.password_reset_token = token
+        staff.password_reset_expires = _utcnow() + timedelta(hours=_RESET_TOKEN_HOURS)
+        await db.commit()
+        base = _s.BASE_URL.rstrip("/")
+        reset_url = f"{base}/admin?reset_token={token}"
+        html = f"""
+        <p>Hi {staff.first_name},</p>
+        <p>Someone requested a password reset for your Uplinx CRM account.</p>
+        <p><a href="{reset_url}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Reset my password</a></p>
+        <p>This link expires in {_RESET_TOKEN_HOURS} hour(s). If you didn't request this, ignore this email.</p>
+        """
+        await _send_email(staff.email, "Uplinx CRM — Password Reset", html)
+    return {"ok": True, "detail": "If that email exists, a reset link has been sent."}
+
+
+@router.post("/api/auth/reset-password")
+async def admin_reset_password(req: ResetPasswordReq, db: AsyncSession = Depends(get_db)):
+    now = _utcnow()
+    result = await db.execute(
+        select(StaffMember).where(
+            StaffMember.password_reset_token == req.token,
+            StaffMember.password_reset_expires > now,
+            StaffMember.is_active == True,
+        )
+    )
+    staff = result.scalar_one_or_none()
+    if not staff:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or has expired.")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+    staff.hashed_password = _hash_pw(req.new_password)
+    staff.password_reset_token = None
+    staff.password_reset_expires = None
+    staff.last_password_change_at = now
+    staff.force_password_change = False
+    staff.failed_login_attempts = 0
+    staff.locked_until = None
+    await db.commit()
+    return {"ok": True, "detail": "Password updated. Please log in."}
+
+
+@router.post("/api/auth/change-password")
+async def admin_change_password(
+    req: ChangePasswordReq,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _verify_pw(req.current_password, staff.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+    staff.hashed_password = _hash_pw(req.new_password)
+    staff.last_password_change_at = _utcnow()
+    staff.force_password_change = False
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/api/auth/profile")
+async def get_my_profile(staff: StaffMember = Depends(get_current_admin)):
+    return _staff_dict(staff)
+
+
+@router.put("/api/auth/profile")
+async def update_my_profile(
+    data: dict,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    allowed = {"first_name", "last_name", "phone", "language", "timezone", "email_signature", "profile_photo"}
+    for k, v in data.items():
+        if k in allowed:
+            setattr(staff, k, v)
+    staff.updated_at = _utcnow()
+    await db.commit()
     return _staff_dict(staff)
 
 
