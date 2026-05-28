@@ -236,7 +236,7 @@ async def security_headers(request: Request, call_next):
 
 SESSION_COOKIE = "uplinx_session"
 LOGIN_COOKIE = "uplinx_login"
-PUBLIC_PATHS = {"/health", "/", "/auth/meta", "/auth/meta/callback",
+PUBLIC_PATHS = {"/health", "/", "/ads", "/auth/meta", "/auth/meta/callback",
                 "/auth/meta/posting", "/auth/meta/posting/callback",
                 "/auth/google", "/auth/google/callback", "/setup",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
@@ -1069,6 +1069,10 @@ async def api_get_app_pages(
 _frontend_html: str | None = None
 
 @app.get("/", response_class=HTMLResponse)
+async def root_redirect():
+    return RedirectResponse(url="/admin", status_code=302)
+
+@app.get("/ads", response_class=HTMLResponse)
 async def frontend(request: Request):
     global _frontend_html
     if _frontend_html is None:
