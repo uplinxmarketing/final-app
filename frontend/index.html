@@ -1689,7 +1689,8 @@ function openDashboardUserForm() {
   document.getElementById('d-new-role').value = 'user';
   document.getElementById('d-new-access').value = 'both';
   document.getElementById('d-new-status').textContent = '';
-  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+  const _editSec = document.getElementById('dashboard-edit-user-section');
+  if (_editSec) _editSec.style.display = 'none';
   document.getElementById('dashboard-add-user-section').style.display = 'block';
   document.getElementById('dashboard-add-user-section').scrollIntoView({behavior:'smooth'});
 }
@@ -1760,7 +1761,8 @@ async function saveDashboardPermissions() {
 }
 
 function closeDashboardEditUser() {
-  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+  const _editSec = document.getElementById('dashboard-edit-user-section');
+  if (_editSec) _editSec.style.display = 'none';
 }
 
 // saveDashboardUser kept for backward compat (dashboardSaveUser calls it)
