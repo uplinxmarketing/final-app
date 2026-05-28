@@ -1062,12 +1062,15 @@ async def api_get_app_pages(
     return pages
 
 
+_frontend_html: str | None = None
+
 @app.get("/", response_class=HTMLResponse)
 async def frontend(request: Request):
-    html_path = Path("frontend/index.html")
-    if html_path.exists():
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>Uplinx Meta Manager</h1><p>Frontend not found.</p>")
+    global _frontend_html
+    if _frontend_html is None:
+        html_path = Path("frontend/index.html")
+        _frontend_html = html_path.read_text(encoding="utf-8") if html_path.exists() else "<h1>Uplinx Meta Manager</h1><p>Frontend not found.</p>"
+    return HTMLResponse(_frontend_html, headers={"Cache-Control": "no-store"})
 
 # ── Meta OAuth ────────────────────────────────────────────────────────────────
 
