@@ -1761,7 +1761,8 @@ async function saveDashboardPermissions() {
 }
 
 function closeDashboardEditUser() {
-  document.getElementById('dashboard-edit-user-section').style.display = 'none';
+  const _editSec = document.getElementById('dashboard-edit-user-section');
+  if (_editSec) _editSec.style.display = 'none';
 }
 
 // saveDashboardUser kept for backward compat (dashboardSaveUser calls it)
