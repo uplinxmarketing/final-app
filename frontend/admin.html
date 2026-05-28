@@ -780,9 +780,13 @@ async function doLogin() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({email, password: pw})
     });
-    const d = await r.json();
-    if (r.ok) { CU = d; showApp(); }
-    else { err.textContent = d.detail || 'Invalid credentials.'; err.style.display = 'block'; }
+    let d;
+    try { d = await r.json(); } catch(_) { d = null; }
+    if (r.ok && d) { CU = d; showApp(); }
+    else {
+      const msg = d?.detail || (r.status ? `Server error ${r.status}` : 'Connection error. Please try again.');
+      err.textContent = msg; err.style.display = 'block';
+    }
   } catch(e) {
     err.textContent = 'Connection error. Please try again.'; err.style.display = 'block';
   } finally {
