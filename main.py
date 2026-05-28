@@ -29,6 +29,7 @@ from config import settings
 import base64 as _b64
 
 from database import (
+    async_engine,
     init_db, get_db,
     ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
     MetaApp,
