@@ -915,3 +915,16 @@ class CRMScheduledEmail(AdminBase):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+# ── Dashboard Layout ──────────────────────────────────────────────────────────
+
+class CRMDashboardLayout(AdminBase):
+    __tablename__ = "crm_dashboard_layouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False, unique=True)
+    layout: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    staff: Mapped["StaffMember"] = relationship("StaffMember")

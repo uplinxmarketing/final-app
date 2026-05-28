@@ -14,7 +14,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc, delete, update
+from sqlalchemy import select, func, desc, delete, update, extract, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +31,7 @@ from admin_models import (
     CRMCustomField, CRMCustomFieldValue, CRMTaggable, CRMReminder,
     CRMPolyNote, CRMFile, CRMFilter, CRMFilterDefault, CRMNotification,
     CRMSalesActivity, CRMProjectActivity, CRMMailQueue, CRMTrackedMail,
-    CRMScheduledEmail,
+    CRMScheduledEmail, CRMDashboardLayout,
 )
 
 router = APIRouter(prefix="/admin")
@@ -2586,3 +2586,267 @@ async def init_admin_db(engine) -> None:
             db.add(admin)
 
         await db.commit()
+
+
+# ── Dashboard Layout ──────────────────────────────────────────────────────────
+
+class _DashboardLayoutIn(BaseModel):
+    layout: Any
+
+@router.get("/api/dashboard/layout")
+async def get_dashboard_layout(request: Request, db: AsyncSession = Depends(get_db)):
+    staff = await _require_staff(request, db)
+    row = (await db.execute(
+        select(CRMDashboardLayout).where(CRMDashboardLayout.staff_id == staff.id)
+    )).scalar_one_or_none()
+    return {"layout": row.layout if row else None}
+
+@router.put("/api/dashboard/layout")
+async def save_dashboard_layout(request: Request, data: _DashboardLayoutIn, db: AsyncSession = Depends(get_db)):
+    staff = await _require_staff(request, db)
+    row = (await db.execute(
+        select(CRMDashboardLayout).where(CRMDashboardLayout.staff_id == staff.id)
+    )).scalar_one_or_none()
+    if row:
+        row.layout = data.layout
+        row.updated_at = datetime.now(timezone.utc)
+    else:
+        row = CRMDashboardLayout(staff_id=staff.id, layout=data.layout)
+        db.add(row)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Dashboard Stats ──────────────────────────────────────────────────────────
+
+@router.get("/api/dashboard/stats")
+async def get_dashboard_stats(request: Request, db: AsyncSession = Depends(get_db)):
+    staff = await _require_staff(request, db)
+    now = datetime.now(timezone.utc)
+    cur_year = now.year
+
+    inv_awaiting = (await db.scalar(
+        select(func.count()).select_from(CRMInvoice)
+        .where(CRMInvoice.status.in_(["unpaid", "partially_paid", "overdue"]))
+    )) or 0
+    inv_total = (await db.scalar(select(func.count()).select_from(CRMInvoice))) or 0
+    leads_converted = (await db.scalar(
+        select(func.count()).select_from(CRMLead)
+        .where(CRMLead.converted_customer_id.isnot(None))
+    )) or 0
+    leads_total = (await db.scalar(select(func.count()).select_from(CRMLead))) or 0
+    projects_active = (await db.scalar(
+        select(func.count()).select_from(CRMProject).where(CRMProject.status == "in_progress")
+    )) or 0
+    projects_total = (await db.scalar(select(func.count()).select_from(CRMProject))) or 0
+    tasks_not_done = (await db.scalar(
+        select(func.count()).select_from(CRMTask).where(CRMTask.status != "complete")
+    )) or 0
+    tasks_total = (await db.scalar(select(func.count()).select_from(CRMTask))) or 0
+    file_count = (await db.scalar(select(func.count()).select_from(CRMFile))) or 0
+
+    inv_by_status = (await db.execute(
+        select(CRMInvoice.status, func.count()).group_by(CRMInvoice.status)
+    )).all()
+    inv_overview = [{"status": r[0] or "draft", "count": r[1]} for r in inv_by_status]
+
+    prop_by_status = (await db.execute(
+        select(CRMProposal.status, func.count()).group_by(CRMProposal.status)
+    )).all()
+    prop_overview = [{"status": r[0] or "draft", "count": r[1]} for r in prop_by_status]
+
+    pay_monthly = (await db.execute(
+        select(
+            extract("month", CRMPayment.date).label("mo"),
+            func.sum(CRMPayment.amount).label("total"),
+        )
+        .where(extract("year", CRMPayment.date) == cur_year)
+        .group_by("mo").order_by("mo")
+    )).all()
+    m_inc = {int(r.mo): float(r.total or 0) for r in pay_monthly}
+    monthly_income = [m_inc.get(m, 0.0) for m in range(1, 13)]
+
+    inv_amt_rows = (await db.execute(
+        select(CRMInvoice.status, func.sum(CRMInvoice.total)).group_by(CRMInvoice.status)
+    )).all()
+    inv_amt = {r[0]: float(r[1] or 0) for r in inv_amt_rows}
+
+    all_tasks_q = (await db.execute(
+        select(CRMTask, CRMProject.name.label("pname"))
+        .outerjoin(CRMProject, CRMTask.project_id == CRMProject.id)
+        .where(CRMTask.status != "complete")
+        .order_by(desc(CRMTask.created_at)).limit(100)
+    )).all()
+    my_tasks = [
+        {"id": r.CRMTask.id, "name": r.CRMTask.name, "status": r.CRMTask.status,
+         "priority": r.CRMTask.priority,
+         "start_date": r.CRMTask.start_date.isoformat() if r.CRMTask.start_date else None,
+         "due_date": r.CRMTask.due_date.isoformat() if r.CRMTask.due_date else None,
+         "project_name": r.pname or ""}
+        for r in all_tasks_q
+        if staff.id in (r.CRMTask.assignees or [])
+    ][:20]
+
+    my_pid = (await db.execute(
+        select(CRMProjectMember.project_id).where(CRMProjectMember.staff_id == staff.id)
+    )).scalars().all()
+    my_projs = (await db.execute(
+        select(CRMProject).where(CRMProject.id.in_(my_pid))
+        .order_by(desc(CRMProject.created_at)).limit(8)
+    )).scalars().all()
+    my_projects = [
+        {"id": p.id, "name": p.name, "status": p.status, "progress": p.progress,
+         "deadline": p.deadline.isoformat() if p.deadline else None}
+        for p in my_projs
+    ]
+
+    my_rems = (await db.execute(
+        select(CRMReminder)
+        .where(CRMReminder.is_notified == False)
+        .where(CRMReminder.created_by == staff.id)
+        .order_by(CRMReminder.remind_at).limit(5)
+    )).scalars().all()
+    my_reminders = [
+        {"id": r.id, "description": r.description,
+         "remind_at": r.remind_at.isoformat() if r.remind_at else None,
+         "rel_type": r.rel_type}
+        for r in my_rems
+    ]
+
+    anns = (await db.execute(
+        select(CRMAnnouncement).order_by(desc(CRMAnnouncement.created_at)).limit(5)
+    )).scalars().all()
+    announcements = [
+        {"id": a.id, "content": a.content,
+         "created_at": a.created_at.isoformat() if a.created_at else None}
+        for a in anns
+    ]
+
+    act_q = (await db.execute(
+        select(CRMActivity, StaffMember.first_name, StaffMember.last_name)
+        .outerjoin(StaffMember, CRMActivity.staff_id == StaffMember.id)
+        .order_by(desc(CRMActivity.created_at)).limit(10)
+    )).all()
+    activity = [
+        {"id": r[0].id, "description": r[0].description or r[0].action,
+         "module": r[0].module,
+         "date": r[0].created_at.isoformat() if r[0].created_at else None,
+         "user": f"{r[1] or ''} {r[2] or ''}".strip() or "System"}
+        for r in act_q
+    ]
+
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month = month_start.replace(year=month_start.year + 1, month=1) if month_start.month == 12 else month_start.replace(month=month_start.month + 1)
+    cal_evs = (await db.execute(
+        select(CRMEvent)
+        .where(CRMEvent.start_date >= month_start)
+        .where(CRMEvent.start_date < next_month).limit(50)
+    )).scalars().all()
+    calendar_events = [
+        {"id": e.id, "title": e.title, "start_date": e.start_date.isoformat(), "color": e.color}
+        for e in cal_evs
+    ]
+
+    pay_q = (await db.execute(
+        select(CRMPayment, CRMInvoice.invoice_number)
+        .outerjoin(CRMInvoice, CRMPayment.invoice_id == CRMInvoice.id)
+        .order_by(desc(CRMPayment.date)).limit(10)
+    )).all()
+    recent_payments = [
+        {"id": r[0].id, "amount": r[0].amount,
+         "date": r[0].date.isoformat() if r[0].date else None,
+         "invoice_number": r[1] or f"INV-{r[0].invoice_id}"}
+        for r in pay_q
+    ]
+
+    exp_cutoff = now + timedelta(days=30)
+    exp_q = (await db.execute(
+        select(CRMContract)
+        .where(CRMContract.end_date.isnot(None))
+        .where(CRMContract.end_date <= exp_cutoff)
+        .where(CRMContract.status != "cancelled")
+        .order_by(CRMContract.end_date).limit(10)
+    )).scalars().all()
+    expiring_contracts = [
+        {"id": c.id, "subject": c.subject,
+         "end_date": c.end_date.isoformat() if c.end_date else None,
+         "status": c.status}
+        for c in exp_q
+    ]
+
+    todos_unf = (await db.execute(
+        select(CRMTodo).where(CRMTodo.staff_id == staff.id)
+        .where(CRMTodo.is_done == False).order_by(CRMTodo.created_at).limit(5)
+    )).scalars().all()
+    todos_fin = (await db.execute(
+        select(CRMTodo).where(CRMTodo.staff_id == staff.id)
+        .where(CRMTodo.is_done == True).order_by(desc(CRMTodo.done_at)).limit(5)
+    )).scalars().all()
+
+    leads_src = (await db.execute(
+        select(CRMLeadSource.name, func.count(CRMLead.id))
+        .outerjoin(CRMLead, CRMLead.source_id == CRMLeadSource.id)
+        .group_by(CRMLeadSource.name)
+    )).all()
+    leads_by_source = [{"source": r[0] or "Unknown", "count": r[1]} for r in leads_src]
+
+    proj_status_rows = (await db.execute(
+        select(CRMProject.status, func.count()).group_by(CRMProject.status)
+    )).all()
+
+    proj_act = (await db.execute(
+        select(CRMProjectActivity).order_by(desc(CRMProjectActivity.dateadded)).limit(8)
+    )).scalars().all()
+
+    unb_q = (await db.execute(
+        select(CRMTimesheet, StaffMember.first_name, StaffMember.last_name,
+               CRMProject.name.label("pname"))
+        .join(StaffMember, CRMTimesheet.staff_id == StaffMember.id)
+        .outerjoin(CRMProject, CRMTimesheet.project_id == CRMProject.id)
+        .where(CRMTimesheet.end_time.isnot(None))
+        .order_by(desc(CRMTimesheet.start_time)).limit(20)
+    )).all()
+    unbilled_time = [
+        {"id": r[0].id, "duration": r[0].duration,
+         "staff_name": f"{r[1] or ''} {r[2] or ''}".strip(),
+         "project_name": r[3] or "",
+         "start_date": r[0].start_time.isoformat() if r[0].start_time else None}
+        for r in unb_q
+    ]
+
+    return {
+        "storage": {"file_count": file_count, "limit_gb": 5},
+        "invoices_awaiting": inv_awaiting, "invoices_total": inv_total,
+        "leads_converted": leads_converted, "leads_total": leads_total,
+        "projects_active": projects_active, "projects_total": projects_total,
+        "tasks_not_done": tasks_not_done, "tasks_total": tasks_total,
+        "invoice_overview": inv_overview,
+        "estimate_overview": [],
+        "proposal_overview": prop_overview,
+        "income": {
+            "year": cur_year, "monthly": monthly_income,
+            "outstanding": inv_amt.get("unpaid", 0) + inv_amt.get("partially_paid", 0),
+            "past_due": inv_amt.get("overdue", 0),
+            "paid": inv_amt.get("paid", 0),
+        },
+        "my_tasks": my_tasks,
+        "my_projects": my_projects,
+        "my_reminders": my_reminders,
+        "announcements": announcements,
+        "activity": activity,
+        "calendar_events": calendar_events,
+        "recent_payments": recent_payments,
+        "expiring_contracts": expiring_contracts,
+        "todos_unfinished": [{"id": t.id, "title": t.title} for t in todos_unf],
+        "todos_finished": [{"id": t.id, "title": t.title} for t in todos_fin],
+        "leads_by_source": leads_by_source,
+        "projects_by_status": [{"status": r[0] or "unknown", "count": r[1]} for r in proj_status_rows],
+        "project_activity": [
+            {"id": a.id, "fullname": a.fullname, "description_key": a.description_key,
+             "date": a.dateadded.isoformat() if a.dateadded else None}
+            for a in proj_act
+        ],
+        "unbilled_time": unbilled_time,
+        "goals": [],
+        "subscriptions": {"active": 0, "mrr": 0, "churned": 0, "failed": 0},
+    }
