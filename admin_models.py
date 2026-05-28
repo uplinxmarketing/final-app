@@ -36,11 +36,59 @@ class CRMRole(AdminBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    # JSON blob: { module: { permission: bool } }
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # JSON blob: { module: { capability: bool } }
     permissions: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     staff: Mapped[list["StaffMember"]] = relationship("StaffMember", back_populates="role")
+
+
+class CRMApp(AdminBase):
+    """A connected application that shares auth/clients with the CRM."""
+    __tablename__ = "crm_apps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    icon: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    user_access: Mapped[list["CRMUserAppAccess"]] = relationship("CRMUserAppAccess", back_populates="app", cascade="all, delete-orphan")
+
+
+class CRMUserAppAccess(AdminBase):
+    """Which staff members can access which apps."""
+    __tablename__ = "crm_user_app_access"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    app_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_apps.id", ondelete="CASCADE"), nullable=False)
+    granted_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    app: Mapped[CRMApp] = relationship("CRMApp", back_populates="user_access")
+    client_access: Mapped[list["CRMUserAppClientAccess"]] = relationship(
+        "CRMUserAppClientAccess",
+        primaryjoin="and_(CRMUserAppClientAccess.staff_id==CRMUserAppAccess.staff_id, CRMUserAppClientAccess.app_id==CRMUserAppAccess.app_id)",
+        foreign_keys="[CRMUserAppClientAccess.staff_id, CRMUserAppClientAccess.app_id]",
+        viewonly=True,
+    )
+
+
+class CRMUserAppClientAccess(AdminBase):
+    """Which clients a staff member can manage within a specific app."""
+    __tablename__ = "crm_user_app_client_access"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    app_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_apps.id", ondelete="CASCADE"), nullable=False)
+    # client_id references crm_customers once Module 08 is built
+    client_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
 class StaffMember(AdminBase):
