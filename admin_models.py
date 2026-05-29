@@ -1426,3 +1426,130 @@ class CRMDashboardLayout(AdminBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     staff: Mapped["StaffMember"] = relationship("StaffMember")
+
+
+# ── MODULE 23: Tickets ────────────────────────────────────────────────────────
+
+class CRMTicketDepartment(AdminBase):
+    __tablename__ = "crm_ticket_departments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    imap_host: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    imap_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    imap_username: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    imap_password: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    imap_encryption: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="ssl")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    tickets: Mapped[list["CRMTicket"]] = relationship("CRMTicket", back_populates="department")
+
+
+class CRMTicketPriority(AdminBase):
+    __tablename__ = "crm_ticket_priorities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="#6366f1")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    tickets: Mapped[list["CRMTicket"]] = relationship("CRMTicket", back_populates="priority_obj")
+
+
+class CRMTicketStatus(AdminBase):
+    __tablename__ = "crm_ticket_statuses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="#6366f1")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    tickets: Mapped[list["CRMTicket"]] = relationship("CRMTicket", back_populates="status_obj")
+
+
+class CRMTicketService(AdminBase):
+    __tablename__ = "crm_ticket_services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    tickets: Mapped[list["CRMTicket"]] = relationship("CRMTicket", back_populates="service")
+
+
+class CRMTicket(AdminBase):
+    __tablename__ = "crm_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    ticket_key: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True,
+                                             default=lambda: secrets.token_hex(8))
+    customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="SET NULL"), nullable=True)
+    contact_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    department_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_ticket_departments.id", ondelete="SET NULL"), nullable=True)
+    priority_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_ticket_priorities.id", ondelete="SET NULL"), nullable=True)
+    status_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_ticket_statuses.id", ondelete="SET NULL"), nullable=True)
+    service_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_ticket_services.id", ondelete="SET NULL"), nullable=True)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="SET NULL"), nullable=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    assigned_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    cc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    last_reply_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    client_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    admin_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    merged_into_ticket_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    customer: Mapped[Optional["CRMCustomer"]] = relationship("CRMCustomer")
+    contact: Mapped[Optional["CRMContact"]] = relationship("CRMContact")
+    department: Mapped[Optional[CRMTicketDepartment]] = relationship("CRMTicketDepartment", back_populates="tickets")
+    priority_obj: Mapped[Optional[CRMTicketPriority]] = relationship("CRMTicketPriority", back_populates="tickets")
+    status_obj: Mapped[Optional[CRMTicketStatus]] = relationship("CRMTicketStatus", back_populates="tickets")
+    service: Mapped[Optional[CRMTicketService]] = relationship("CRMTicketService", back_populates="tickets")
+    assigned_user: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[assigned_user_id])
+    replies: Mapped[list["CRMTicketReply"]] = relationship("CRMTicketReply", back_populates="ticket",
+                                                            cascade="all, delete-orphan",
+                                                            order_by="CRMTicketReply.created_at")
+
+
+class CRMTicketReply(AdminBase):
+    __tablename__ = "crm_ticket_replies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    ticket_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_tickets.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    contact_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_internal_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    attachments: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    ticket: Mapped[CRMTicket] = relationship("CRMTicket", back_populates="replies")
+    user: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[user_id])
+    contact: Mapped[Optional["CRMContact"]] = relationship("CRMContact", foreign_keys=[contact_id])
+
+
+class CRMPredefinedReply(AdminBase):
+    __tablename__ = "crm_predefined_replies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+
+
+class CRMSpamFilter(AdminBase):
+    __tablename__ = "crm_spam_filters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pattern: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
