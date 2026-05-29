@@ -24,7 +24,7 @@ from admin_models import (
     StaffMember, CRMCustomer, CRMContact, CRMNote,
     CRMLead, CRMLeadSource, CRMLeadStatus, CRMProject, CRMProjectMember,
     CRMTask, CRMTaskComment, CRMTimesheet, CRMInvoice, CRMProposal,
-    CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
+    CRMEstimate, CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
     CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
@@ -43,7 +43,8 @@ CAPABILITY_MATRIX: dict[str, dict[str, str]] = {
     "dashboard":      {"view": "View Dashboard"},
     "customers":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "import": "Import", "export": "Export"},
     "leads":          {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "convert": "Convert to Customer", "import": "Import"},
-    "estimates":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client"},
+    "estimates":      {"view": "View", "view_all": "View All", "create": "Create", "edit": "Edit", "delete": "Delete",
+                       "send": "Send to Client", "mark_sent": "Mark Sent", "convert_to_invoice": "Convert to Invoice"},
     "proposals":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client"},
     "invoices":       {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client", "record_payment": "Record Payment"},
     "payments":       {"view": "View", "create": "Create", "delete": "Delete"},
@@ -1899,6 +1900,516 @@ class ProposalReq(BaseModel):
     items: Optional[list] = None
 
 
+# ── Estimates ────────────────────────────────────────────────────────────────
+
+def _estimate_dict(e: CRMEstimate, include_items: bool = False) -> dict:
+    d: dict = {
+        "id": e.id, "number": e.number, "prefix": e.prefix,
+        "formatted_number": e.formatted_number,
+        "customer_id": e.customer_id,
+        "customer_name": e.customer.company_name if e.customer else None,
+        "lead_id": e.lead_id,
+        "sale_agent_id": e.sale_agent_id,
+        "project_id": e.project_id,
+        "billing_address": e.billing_address or {},
+        "shipping_address": e.shipping_address or {},
+        "date": e.date.isoformat() if e.date else None,
+        "expiry_date": e.expiry_date.isoformat() if e.expiry_date else None,
+        "currency": e.currency,
+        "discount_type": e.discount_type, "discount_value": e.discount_value,
+        "subtotal": e.subtotal, "tax_total": e.tax_total,
+        "discount_total": e.discount_total, "adjustment": e.adjustment,
+        "total": e.total,
+        "status": e.status, "pipeline_order": e.pipeline_order,
+        "client_note": e.client_note, "terms": e.terms,
+        "hash": e.hash,
+        "acceptance_first_name": e.acceptance_first_name,
+        "acceptance_last_name": e.acceptance_last_name,
+        "acceptance_email": e.acceptance_email,
+        "acceptance_date": e.acceptance_date.isoformat() if e.acceptance_date else None,
+        "converted_to_invoice_id": e.converted_to_invoice_id,
+        "converted_at": e.converted_at.isoformat() if e.converted_at else None,
+        "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+        "created_at": e.created_at.isoformat(),
+    }
+    if include_items:
+        d["items"] = [_line_item_dict(li) for li in (e.items or [])]
+        d["admin_note"] = e.admin_note
+    return d
+
+
+def _line_item_dict(li: CRMLineItem) -> dict:
+    return {
+        "id": li.id, "description": li.description, "long_description": li.long_description,
+        "qty": li.qty, "rate": li.rate, "discount": li.discount,
+        "tax_ids": li.tax_ids or [], "amount": li.amount, "sort_order": li.sort_order,
+    }
+
+
+def _next_estimate_number(existing_numbers: list[int]) -> int:
+    return max(existing_numbers, default=0) + 1
+
+
+class EstimateReq(BaseModel):
+    customer_id: Optional[int] = None
+    lead_id: Optional[int] = None
+    sale_agent_id: Optional[int] = None
+    project_id: Optional[int] = None
+    billing_address: Optional[dict] = None
+    shipping_address: Optional[dict] = None
+    date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    currency: str = "USD"
+    discount_type: str = "before_tax"
+    discount_value: float = 0.0
+    subtotal: float = 0.0
+    tax_total: float = 0.0
+    discount_total: float = 0.0
+    adjustment: float = 0.0
+    total: float = 0.0
+    status: str = "draft"
+    client_note: Optional[str] = None
+    terms: Optional[str] = None
+    admin_note: Optional[str] = None
+    items: Optional[list] = None
+
+
+@router.get("/api/estimates")
+async def list_estimates(
+    status: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    q: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _perm(staff, "estimates", "view"):
+        raise HTTPException(403)
+    query = (
+        select(CRMEstimate)
+        .options(selectinload(CRMEstimate.customer))
+        .order_by(desc(CRMEstimate.created_at))
+    )
+    if status and status != "all":
+        query = query.where(CRMEstimate.status == status)
+    if customer_id:
+        query = query.where(CRMEstimate.customer_id == customer_id)
+    if not _perm(staff, "estimates", "view_all"):
+        query = query.where(CRMEstimate.sale_agent_id == staff.id)
+    r = await db.execute(query)
+    estimates = r.scalars().all()
+    if q:
+        ql = q.lower()
+        estimates = [e for e in estimates if ql in (e.formatted_number or "").lower()
+                     or ql in (e.customer.company_name if e.customer else "").lower()]
+    return [_estimate_dict(e) for e in estimates]
+
+
+@router.post("/api/estimates")
+async def create_estimate(req: EstimateReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "create"):
+        raise HTTPException(403)
+    # Generate number
+    r = await db.execute(select(func.max(CRMEstimate.number)))
+    max_num = r.scalar() or 0
+    num = max_num + 1
+    formatted = f"EST-{num:06d}"
+    data = req.model_dump()
+    items_data = data.pop("items", None) or []
+    date_str = data.pop("date", None)
+    expiry_str = data.pop("expiry_date", None)
+    e = CRMEstimate(
+        **data,
+        number=num,
+        formatted_number=formatted,
+        date=datetime.fromisoformat(date_str) if date_str else _utcnow(),
+        expiry_date=datetime.fromisoformat(expiry_str) if expiry_str else _utcnow() + timedelta(days=7),
+        sale_agent_id=data.get("sale_agent_id") or staff.id,
+    )
+    db.add(e)
+    await db.flush()
+    for i, it in enumerate(items_data):
+        db.add(CRMLineItem(
+            estimate_id=e.id,
+            description=it.get("description", ""),
+            long_description=it.get("long_description"),
+            qty=float(it.get("qty", 1)),
+            rate=float(it.get("rate", 0)),
+            discount=float(it.get("discount", 0)),
+            tax_ids=it.get("tax_ids", []),
+            amount=float(it.get("amount", 0)),
+            sort_order=i,
+        ))
+    await _log(db, staff, "estimates", "created", e.id, e.formatted_number)
+    await db.commit()
+    return {"id": e.id, "formatted_number": e.formatted_number}
+
+
+@router.get("/api/estimates/{eid}")
+async def get_estimate(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "view"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMEstimate).where(CRMEstimate.id == eid)
+        .options(selectinload(CRMEstimate.customer), selectinload(CRMEstimate.items))
+    )
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    return _estimate_dict(e, include_items=True)
+
+
+@router.put("/api/estimates/{eid}")
+async def update_estimate(eid: int, req: EstimateReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "edit"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimate).where(CRMEstimate.id == eid))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    data = req.model_dump(exclude_unset=True)
+    items_data = data.pop("items", None)
+    date_str = data.pop("date", None)
+    expiry_str = data.pop("expiry_date", None)
+    for k, v in data.items():
+        setattr(e, k, v)
+    if date_str:
+        e.date = datetime.fromisoformat(date_str)
+    if expiry_str:
+        e.expiry_date = datetime.fromisoformat(expiry_str)
+    e.updated_at = _utcnow()
+    if items_data is not None:
+        await db.execute(delete(CRMLineItem).where(CRMLineItem.estimate_id == eid))
+        for i, it in enumerate(items_data):
+            db.add(CRMLineItem(
+                estimate_id=eid,
+                description=it.get("description", ""),
+                long_description=it.get("long_description"),
+                qty=float(it.get("qty", 1)),
+                rate=float(it.get("rate", 0)),
+                discount=float(it.get("discount", 0)),
+                tax_ids=it.get("tax_ids", []),
+                amount=float(it.get("amount", 0)),
+                sort_order=i,
+            ))
+    await _log(db, staff, "estimates", "updated", e.id, e.formatted_number)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/api/estimates/{eid}")
+async def delete_estimate(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "delete"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimate).where(CRMEstimate.id == eid))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    await _log(db, staff, "estimates", "deleted", e.id, e.formatted_number)
+    await db.execute(delete(CRMEstimate).where(CRMEstimate.id == eid))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/estimates/{eid}/send")
+async def send_estimate(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "send"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMEstimate).where(CRMEstimate.id == eid)
+        .options(selectinload(CRMEstimate.customer), selectinload(CRMEstimate.items))
+    )
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    from config import settings as _s
+    base = _s.BASE_URL.rstrip("/")
+    public_url = f"{base}/estimate/{e.id}/{e.hash}"
+    # Get recipient email
+    to_email = None
+    if e.customer_id:
+        contact_r = await db.execute(
+            select(CRMContact).where(CRMContact.customer_id == e.customer_id, CRMContact.is_primary == True).limit(1)
+        )
+        ct = contact_r.scalar_one_or_none()
+        if ct:
+            to_email = ct.email
+    if not to_email and e.billing_address:
+        to_email = (e.billing_address or {}).get("email")
+    if to_email:
+        html = f"""
+        <p>Please find your estimate <strong>{e.formatted_number}</strong> from Uplinx CRM.</p>
+        <p><a href="{public_url}" style="background:#6366f1;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;display:inline-block">View Estimate</a></p>
+        <p>Total: <strong>{e.currency} {e.total:,.2f}</strong></p>
+        {f'<p>{e.client_note}</p>' if e.client_note else ''}
+        """
+        await _send_email(to_email, f"Estimate {e.formatted_number}", html)
+    e.status = "sent"
+    e.sent_at = _utcnow()
+    await db.commit()
+    return {"ok": True, "public_url": public_url}
+
+
+@router.post("/api/estimates/{eid}/mark-sent")
+async def mark_estimate_sent(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "mark_sent"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimate).where(CRMEstimate.id == eid))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    e.status = "sent"
+    e.sent_at = e.sent_at or _utcnow()
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/estimates/{eid}/convert-to-invoice")
+async def convert_estimate_to_invoice(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimates", "convert_to_invoice"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMEstimate).where(CRMEstimate.id == eid)
+        .options(selectinload(CRMEstimate.items))
+    )
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    if e.converted_to_invoice_id:
+        raise HTTPException(400, detail="Already converted to invoice")
+    # Generate invoice number
+    inv_r = await db.execute(select(func.count()).select_from(CRMInvoice))
+    inv_count = (inv_r.scalar() or 0) + 1
+    inv = CRMInvoice(
+        invoice_number=f"INV-{inv_count:06d}",
+        customer_id=e.customer_id,
+        project_id=e.project_id,
+        currency=e.currency,
+        date=_utcnow(),
+        due_date=_utcnow() + timedelta(days=30),
+        status="not_sent",
+        discount_type=e.discount_type,
+        discount_value=e.discount_value,
+        adjustment=e.adjustment,
+        subtotal=e.subtotal,
+        tax_total=e.tax_total,
+        total=e.total,
+        client_note=e.client_note,
+        terms=e.terms,
+        admin_note=e.admin_note,
+        assigned_to=e.sale_agent_id,
+    )
+    db.add(inv)
+    await db.flush()
+    for li in (e.items or []):
+        db.add(CRMLineItem(
+            invoice_id=inv.id,
+            description=li.description,
+            long_description=li.long_description,
+            qty=li.qty, rate=li.rate, discount=li.discount,
+            tax_ids=li.tax_ids, amount=li.amount, sort_order=li.sort_order,
+        ))
+    e.converted_to_invoice_id = inv.id
+    e.converted_at = _utcnow()
+    e.status = "accepted"
+    await _log(db, staff, "estimates", "converted_to_invoice", e.id, e.formatted_number)
+    await db.commit()
+    return {"ok": True, "invoice_id": inv.id}
+
+
+# Public estimate view (no auth)
+@router.get("/estimate/{eid}/{hash_val}", response_class=HTMLResponse)
+async def public_estimate_view(eid: int, hash_val: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMEstimate).where(CRMEstimate.id == eid)
+        .options(selectinload(CRMEstimate.customer), selectinload(CRMEstimate.items))
+    )
+    e = r.scalar_one_or_none()
+    if not e or e.hash != hash_val:
+        return HTMLResponse("<h2 style='font-family:sans-serif;text-align:center;margin-top:10vh'>Estimate not found or link expired.</h2>", status_code=404)
+    # Update status to open if sent
+    if e.status == "sent":
+        e.status = "open"
+        await db.commit()
+    items_html = "".join(f"""
+        <tr><td style='padding:10px 8px;border-bottom:1px solid #f3f4f6'>{li.description}{'<br><small style=color:#9ca3af>' + (li.long_description or '') + '</small>' if li.long_description else ''}</td>
+        <td style='padding:10px 8px;border-bottom:1px solid #f3f4f6;text-align:right'>{li.qty}</td>
+        <td style='padding:10px 8px;border-bottom:1px solid #f3f4f6;text-align:right'>{e.currency} {li.rate:,.2f}</td>
+        <td style='padding:10px 8px;border-bottom:1px solid #f3f4f6;text-align:right'>{li.discount}%</td>
+        <td style='padding:10px 8px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600'>{e.currency} {li.amount:,.2f}</td></tr>
+    """ for li in (e.items or []))
+    can_act = e.status in ("open", "sent", "draft") and not e.acceptance_date
+    acceptance_block = ""
+    if e.acceptance_date:
+        acceptance_block = f"<div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;margin-top:24px;text-align:center'><span style='color:#16a34a;font-weight:600'>✓ Accepted</span> by {e.acceptance_first_name or ''} {e.acceptance_last_name or ''} on {e.acceptance_date.strftime('%b %d, %Y')}</div>"
+    declined_block = ""
+    if e.status == "declined":
+        declined_block = "<div style='background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:20px;margin-top:24px;text-align:center'><span style='color:#dc2626;font-weight:600'>✗ Declined</span></div>"
+    action_buttons = ""
+    if can_act:
+        action_buttons = f"""
+        <div style='display:flex;gap:12px;justify-content:center;margin-top:32px'>
+          <button onclick="document.getElementById('esign-modal').style.display='flex'"
+            style='background:#6366f1;color:#fff;border:none;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer'>
+            ✓ Accept Estimate
+          </button>
+          <button onclick="declineEstimate()"
+            style='background:#fff;color:#dc2626;border:2px solid #dc2626;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer'>
+            ✗ Decline
+          </button>
+        </div>
+        <div id="esign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+          <div style="background:#fff;border-radius:12px;padding:32px;max-width:480px;width:90%;max-height:90vh;overflow-y:auto">
+            <h3 style="margin:0 0 20px;font-size:18px">Accept Estimate {e.formatted_number}</h3>
+            <p style="color:#6b7280;font-size:13px;margin-bottom:20px">By signing below, you agree to the terms of this estimate.</p>
+            <div style="margin-bottom:14px"><label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">First Name *</label>
+              <input id="sig-fn" style="width:100%;box-sizing:border-box;border:1.5px solid #e5e7eb;border-radius:6px;padding:9px 12px;font-size:14px"></div>
+            <div style="margin-bottom:14px"><label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Last Name *</label>
+              <input id="sig-ln" style="width:100%;box-sizing:border-box;border:1.5px solid #e5e7eb;border-radius:6px;padding:9px 12px;font-size:14px"></div>
+            <div style="margin-bottom:14px"><label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Email *</label>
+              <input id="sig-em" type="email" style="width:100%;box-sizing:border-box;border:1.5px solid #e5e7eb;border-radius:6px;padding:9px 12px;font-size:14px"></div>
+            <div style="margin-bottom:20px"><label style="font-size:13px;font-weight:500;display:block;margin-bottom:8px">Signature *</label>
+              <canvas id="sig-pad" width="416" height="120" style="border:1.5px solid #e5e7eb;border-radius:6px;background:#fafafa;touch-action:none;cursor:crosshair;max-width:100%"></canvas>
+              <button onclick="clearSig()" style="margin-top:6px;background:none;border:none;color:#6366f1;font-size:12px;cursor:pointer">Clear</button></div>
+            <p style="font-size:11px;color:#9ca3af;margin-bottom:20px">By clicking Accept, you confirm your acceptance of this estimate and all terms contained herein.</p>
+            <div style="display:flex;gap:10px">
+              <button onclick="submitAccept({e.id},'{e.hash}')" style="flex:1;background:#6366f1;color:#fff;border:none;padding:12px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">Accept</button>
+              <button onclick="document.getElementById('esign-modal').style.display='none'" style="flex:1;background:#f3f4f6;color:#374151;border:none;padding:12px;border-radius:6px;font-size:14px;cursor:pointer">Cancel</button>
+            </div>
+          </div>
+        </div>"""
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Estimate {e.formatted_number}</title>
+<style>*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;color:#111827}}
+.card{{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:40px;max-width:800px;margin:40px auto}}</style>
+</head>
+<body>
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;flex-wrap:wrap;gap:16px">
+    <div><h1 style="margin:0;font-size:26px;font-weight:700;color:#6366f1">ESTIMATE</h1>
+    <div style="font-size:20px;font-weight:600;margin-top:4px">{e.formatted_number}</div></div>
+    <div style="text-align:right">
+      <div style="font-size:13px;color:#6b7280">Date: <strong>{e.date.strftime('%b %d, %Y') if e.date else 'N/A'}</strong></div>
+      <div style="font-size:13px;color:#6b7280">Expires: <strong>{e.expiry_date.strftime('%b %d, %Y') if e.expiry_date else 'N/A'}</strong></div>
+      <div style="margin-top:8px"><span style="background:{'#f0fdf4' if e.status=='accepted' else '#fef3c7' if e.status in ('sent','open') else '#f3f4f6'};color:{'#16a34a' if e.status=='accepted' else '#d97706' if e.status in ('sent','open') else '#6b7280'};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;text-transform:capitalize">{e.status}</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px">
+    <div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9ca3af;margin-bottom:6px">Bill To</div>
+    <div style="font-size:14px;line-height:1.6">{(e.billing_address or {}).get('name', e.customer.company_name if e.customer else '')}<br>
+    {(e.billing_address or {}).get('address', '')}<br>
+    {(e.billing_address or {}).get('city', '')} {(e.billing_address or {}).get('state', '')} {(e.billing_address or {}).get('zip', '')}<br>
+    {(e.billing_address or {}).get('country', '')}</div></div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+    <thead><tr style="background:#f9fafb">
+      <th style="padding:10px 8px;text-align:left;font-size:12px;font-weight:600;color:#6b7280;border-bottom:2px solid #e5e7eb">DESCRIPTION</th>
+      <th style="padding:10px 8px;text-align:right;font-size:12px;font-weight:600;color:#6b7280;border-bottom:2px solid #e5e7eb">QTY</th>
+      <th style="padding:10px 8px;text-align:right;font-size:12px;font-weight:600;color:#6b7280;border-bottom:2px solid #e5e7eb">RATE</th>
+      <th style="padding:10px 8px;text-align:right;font-size:12px;font-weight:600;color:#6b7280;border-bottom:2px solid #e5e7eb">DISC%</th>
+      <th style="padding:10px 8px;text-align:right;font-size:12px;font-weight:600;color:#6b7280;border-bottom:2px solid #e5e7eb">AMOUNT</th>
+    </tr></thead>
+    <tbody>{items_html}</tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:24px">
+    <div style="min-width:260px">
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span style="color:#6b7280">Subtotal</span><span>{e.currency} {e.subtotal:,.2f}</span></div>
+      {f'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span style=color:#6b7280>Tax</span><span>{e.currency} {e.tax_total:,.2f}</span></div>' if e.tax_total else ''}
+      {f'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span style=color:#6b7280>Discount</span><span>-{e.currency} {e.discount_total:,.2f}</span></div>' if e.discount_total else ''}
+      {f'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span style=color:#6b7280>Adjustment</span><span>{e.currency} {e.adjustment:,.2f}</span></div>' if e.adjustment else ''}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:18px;font-weight:700;border-top:2px solid #e5e7eb;margin-top:4px"><span>Total</span><span style="color:#6366f1">{e.currency} {e.total:,.2f}</span></div>
+    </div>
+  </div>
+  {f'<div style="margin-bottom:24px"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:8px">Note</div><div style="font-size:14px;color:#374151;line-height:1.6">{e.client_note}</div></div>' if e.client_note else ''}
+  {f'<div style="margin-bottom:24px;padding:20px;background:#f9fafb;border-radius:8px"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:8px">Terms & Conditions</div><div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap">{e.terms}</div></div>' if e.terms else ''}
+  {acceptance_block}
+  {declined_block}
+  {action_buttons}
+</div>
+<script>
+// Signature pad
+let _drawing=false,_lx=0,_ly=0;
+const pad=document.getElementById('sig-pad');
+const ctx=pad?.getContext('2d');
+function getPos(e,el){{const r=el.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{{x:(t.clientX-r.left)*(el.width/r.width),y:(t.clientY-r.top)*(el.height/r.height)}};}}
+if(pad){{
+  pad.addEventListener('mousedown',e=>{{_drawing=true;const p=getPos(e,pad);_lx=p.x;_ly=p.y;ctx.beginPath();}});
+  pad.addEventListener('mousemove',e=>{{if(!_drawing)return;const p=getPos(e,pad);ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#111';ctx.beginPath();ctx.moveTo(_lx,_ly);ctx.lineTo(p.x,p.y);ctx.stroke();_lx=p.x;_ly=p.y;}});
+  pad.addEventListener('mouseup',()=>_drawing=false);
+  pad.addEventListener('mouseleave',()=>_drawing=false);
+  pad.addEventListener('touchstart',e=>{{e.preventDefault();_drawing=true;const p=getPos(e,pad);_lx=p.x;_ly=p.y;}},{{passive:false}});
+  pad.addEventListener('touchmove',e=>{{e.preventDefault();if(!_drawing)return;const p=getPos(e,pad);ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#111';ctx.beginPath();ctx.moveTo(_lx,_ly);ctx.lineTo(p.x,p.y);ctx.stroke();_lx=p.x;_ly=p.y;}},{{passive:false}});
+  pad.addEventListener('touchend',()=>_drawing=false);
+}}
+function clearSig(){{ctx?.clearRect(0,0,pad.width,pad.height);}}
+function isBlank(){{const d=ctx?.getImageData(0,0,pad.width,pad.height).data;return!d||!d.some(v=>v!==0);}}
+async function submitAccept(id,hash){{
+  const fn=document.getElementById('sig-fn').value.trim();
+  const ln=document.getElementById('sig-ln').value.trim();
+  const em=document.getElementById('sig-em').value.trim();
+  if(!fn||!ln||!em){{alert('Please fill in all fields.');return;}}
+  if(isBlank()){{alert('Please provide your signature.');return;}}
+  const sig=pad.toDataURL('image/png');
+  const r=await fetch(`/admin/api/estimates/${{id}}/accept`,{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{first_name:fn,last_name:ln,email:em,signature_image:sig,hash:hash}})}});
+  const d=await r.json();
+  if(r.ok){{document.getElementById('esign-modal').style.display='none';location.reload();}}
+  else{{alert(d.detail||'Error accepting estimate');}}
+}}
+async function declineEstimate(){{
+  if(!confirm('Are you sure you want to decline this estimate?'))return;
+  const r=await fetch(`/admin/api/estimates/{e.id}/decline`,{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{hash:'{e.hash}'}})}});
+  if(r.ok)location.reload();
+}}
+</script>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+class AcceptEstimateReq(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    signature_image: Optional[str] = None
+    hash: str
+
+
+@router.post("/api/estimates/{eid}/accept")
+async def accept_estimate(eid: int, req: AcceptEstimateReq, request: Request, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEstimate).where(CRMEstimate.id == eid))
+    e = r.scalar_one_or_none()
+    if not e or e.hash != req.hash:
+        raise HTTPException(404)
+    if e.status == "declined":
+        raise HTTPException(400, detail="Estimate already declined")
+    e.status = "accepted"
+    e.acceptance_first_name = req.first_name
+    e.acceptance_last_name = req.last_name
+    e.acceptance_email = req.email
+    e.acceptance_date = _utcnow()
+    e.acceptance_ip = _client_ip(request)
+    e.signature_image = req.signature_image
+    await db.commit()
+    return {"ok": True}
+
+
+class DeclineEstimateReq(BaseModel):
+    hash: str
+
+
+@router.post("/api/estimates/{eid}/decline")
+async def decline_estimate(eid: int, req: DeclineEstimateReq, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEstimate).where(CRMEstimate.id == eid))
+    e = r.scalar_one_or_none()
+    if not e or e.hash != req.hash:
+        raise HTTPException(404)
+    e.status = "declined"
+    await db.commit()
+    return {"ok": True}
+
+
 @router.get("/api/proposals")
 async def list_proposals(
     status: Optional[str] = None, customer_id: Optional[int] = None,
@@ -3176,6 +3687,8 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS can_login BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS hashed_password TEXT",
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS email_opt_ins TEXT",
+        # crm_line_items — Module 12 additions
+        "ALTER TABLE crm_line_items ADD COLUMN IF NOT EXISTS estimate_id INTEGER",
     ]
     for _sql in _migrations:
         try:
