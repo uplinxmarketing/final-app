@@ -1762,7 +1762,315 @@ function debounce(fn, ms) {
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function pgNewCustomer(){nav('customers');setTimeout(()=>openCustomerModal(),100)}
-function pgProposals(){return pgPlaceholder('Proposals')}
+// ── MODULE 14: PROPOSALS ─────────────────────────────────────────────────────
+let _propView = 'table';
+let _propStatus = 'all';
+let _propSearch = '';
+let _propItems = [];
+let _propEditId = null;
+let _propDebounce = null;
+
+const PROP_STATUSES = ['draft','sent','open','revised','declined','accepted'];
+const PROP_STATUS_COLOR = {draft:'#6b7280',sent:'#6366f1',open:'#f59e0b',revised:'#8b5cf6',declined:'#ef4444',accepted:'#10b981'};
+
+function pgProposals() {
+  if (!hasPerm('proposals','view')) return `<div class="empty-state"><i class="fa-solid fa-lock"></i><p>No access to Proposals</p></div>`;
+  return `<div class="page-header">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0"><i class="fa-solid fa-handshake"></i> Proposals</h2>
+      <div class="seg-ctrl" style="margin-left:8px">
+        <button class="seg-btn${_propView==='table'?' active':''}" onclick="_propView='table';init_proposals()">Table</button>
+        <button class="seg-btn${_propView==='pipeline'?' active':''}" onclick="_propView='pipeline';init_proposals()">Pipeline</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input id="prop-search" type="search" placeholder="Search proposals…" value="${esc(_propSearch)}"
+        oninput="clearTimeout(_propDebounce);_propDebounce=setTimeout(()=>{_propSearch=this.value;loadProposals()},300)"
+        style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.9rem;width:200px">
+      <button class="btn-primary" onclick="openPropModal(null)"><i class="fa-solid fa-plus"></i> New Proposal</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+    ${['all',...PROP_STATUSES].map(s=>`<button class="tab-pill${_propStatus===s?' active':''}" onclick="_propStatus='${s}';loadProposals()">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('')}
+  </div>
+  <div id="prop-container"></div>
+  <div id="prop-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePropModal()">
+    <div class="modal-box" style="max-width:860px;width:95vw">
+      <div class="modal-header"><h3 id="prop-modal-title">New Proposal</h3><button onclick="closePropModal()" class="modal-close">✕</button></div>
+      <div class="modal-body" style="overflow-y:auto;max-height:80vh">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="grid-column:1/-1"><label class="field-label">Subject *</label>
+            <input id="prop-subject" class="field-input" placeholder="Proposal subject"></div>
+          <div><label class="field-label">Customer</label>
+            <select id="prop-customer" class="field-input"><option value="">— None —</option></select></div>
+          <div><label class="field-label">Sale Agent</label>
+            <select id="prop-agent" class="field-input"><option value="">— None —</option></select></div>
+          <div><label class="field-label">Date</label>
+            <input id="prop-date" type="date" class="field-input"></div>
+          <div><label class="field-label">Valid Till</label>
+            <input id="prop-open-till" type="date" class="field-input"></div>
+          <div><label class="field-label">Currency</label>
+            <select id="prop-currency" class="field-input">
+              <option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option>
+            </select></div>
+          <div><label class="field-label">Status</label>
+            <select id="prop-status" class="field-input">
+              ${PROP_STATUSES.map(s=>`<option value="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+            </select></div>
+        </div>
+        <div style="margin-bottom:16px"><label class="field-label">Proposal Content</label>
+          <textarea id="prop-content" class="field-input" rows="6" placeholder="Write your proposal body here…" style="resize:vertical"></textarea></div>
+        <h4 style="margin:16px 0 8px">Line Items</h4>
+        <div id="prop-items-wrap"></div>
+        <div style="text-align:right;margin-top:8px">
+          <button class="btn-ghost" onclick="addPropItem()"><i class="fa-solid fa-plus"></i> Add Item</button>
+        </div>
+        <div id="prop-totals" style="max-width:340px;margin:12px 0 0 auto;font-size:.9rem"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+          <div><label class="field-label">Discount Type</label>
+            <select id="prop-disc-type" class="field-input" onchange="recomputePropTotals()">
+              <option value="before_tax">Fixed Amount</option><option value="percentage">Percentage</option>
+            </select></div>
+          <div><label class="field-label">Discount Value</label>
+            <input id="prop-disc-val" type="number" step="0.01" value="0" class="field-input" oninput="recomputePropTotals()"></div>
+          <div><label class="field-label">Adjustment</label>
+            <input id="prop-adjustment" type="number" step="0.01" value="0" class="field-input" oninput="recomputePropTotals()"></div>
+        </div>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div><label class="field-label">Client Note</label>
+              <textarea id="prop-client-note" class="field-input" rows="3"></textarea></div>
+            <div><label class="field-label">Terms</label>
+              <textarea id="prop-terms" class="field-input" rows="3"></textarea></div>
+            <div style="grid-column:1/-1"><label class="field-label">Admin Note</label>
+              <textarea id="prop-admin-note" class="field-input" rows="2"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closePropModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveProposal()">Save Proposal</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function init_proposals() {
+  await loadProposals();
+  const cr = await fetch('/admin/api/customers?limit=200');
+  const customers = cr.ok ? await cr.json() : [];
+  const sr = await fetch('/admin/api/staff');
+  const staff = sr.ok ? await sr.json() : [];
+  const csel = document.getElementById('prop-customer');
+  const asel = document.getElementById('prop-agent');
+  if (csel) {
+    csel.innerHTML = '<option value="">— None —</option>' + customers.map(c=>`<option value="${c.id}">${esc(c.company_name)}</option>`).join('');
+  }
+  if (asel) {
+    asel.innerHTML = '<option value="">— None —</option>' + staff.map(s=>`<option value="${s.id}">${esc(s.first_name+' '+s.last_name)}</option>`).join('');
+  }
+}
+
+async function loadProposals() {
+  const wrap = document.getElementById('prop-container');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+  const params = new URLSearchParams();
+  if (_propStatus !== 'all') params.set('status', _propStatus);
+  const r = await fetch('/admin/api/proposals?' + params);
+  if (!r.ok) { wrap.innerHTML = '<p style="color:red">Failed to load proposals</p>'; return; }
+  let rows = await r.json();
+  if (_propSearch) {
+    const q = _propSearch.toLowerCase();
+    rows = rows.filter(p => (p.subject||'').toLowerCase().includes(q) || (p.proposal_number||'').toLowerCase().includes(q) || (p.customer_name||'').toLowerCase().includes(q));
+  }
+  if (_propView === 'pipeline') renderPropPipeline(rows, wrap);
+  else renderPropTable(rows, wrap);
+}
+
+function renderPropTable(rows, wrap) {
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-handshake"></i><p>No proposals found</p></div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Number</th><th>Subject</th><th>Customer</th><th>Status</th><th>Date</th><th>Valid Till</th><th>Total</th><th>Actions</th></tr></thead>
+    <tbody>${rows.map(p=>`<tr>
+      <td><code>${esc(p.formatted_number||p.proposal_number)}</code></td>
+      <td>${esc(p.subject)}</td>
+      <td>${esc(p.customer_name||'—')}</td>
+      <td><span class="badge" style="background:${PROP_STATUS_COLOR[p.status]||'#6b7280'};color:#fff">${p.status}</span></td>
+      <td>${fmtDate(p.date)}</td>
+      <td>${fmtDate(p.open_till)}</td>
+      <td>${fmtMoney(p.total,p.currency)}</td>
+      <td>
+        <button class="btn-icon" title="Edit" onclick="openPropModal(${p.id})"><i class="fa-solid fa-pen"></i></button>
+        ${!p.sent_at?`<button class="btn-icon" title="Send" onclick="sendProposal(${p.id})"><i class="fa-solid fa-paper-plane"></i></button>`:''}
+        ${p.hash?`<button class="btn-icon" title="Copy link" onclick="copyPropLink(${p.id},'${p.hash}')"><i class="fa-solid fa-link"></i></button>`:''}
+        ${!p.converted_to_invoice_id?`<button class="btn-icon" title="Convert to Invoice" onclick="convertPropToInvoice(${p.id})"><i class="fa-solid fa-file-invoice-dollar"></i></button>`:''}
+        <button class="btn-icon danger" title="Delete" onclick="deleteProp(${p.id})"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderPropPipeline(rows, wrap) {
+  const cols = {};
+  PROP_STATUSES.forEach(s => cols[s] = []);
+  rows.forEach(p => { if (cols[p.status]) cols[p.status].push(p); });
+  wrap.innerHTML = `<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px">
+    ${PROP_STATUSES.map(s=>`<div style="min-width:220px;background:#f9fafb;border-radius:10px;padding:12px">
+      <div style="font-weight:600;margin-bottom:8px;color:${PROP_STATUS_COLOR[s]||'#222'}">${s.charAt(0).toUpperCase()+s.slice(1)} <span style="color:#6b7280;font-size:.8rem">(${cols[s].length})</span></div>
+      ${cols[s].map(p=>`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer" onclick="openPropModal(${p.id})">
+        <div style="font-weight:600;font-size:.88rem">${esc(p.subject)}</div>
+        <div style="font-size:.78rem;color:#6b7280;margin-top:2px">${esc(p.customer_name||'')}</div>
+        <div style="font-size:.82rem;margin-top:6px;font-weight:600">${fmtMoney(p.total,p.currency)}</div>
+      </div>`).join('')}
+    </div>`).join('')}
+  </div>`;
+}
+
+function addPropItem() {
+  _propItems.push({description:'',long_description:'',qty:1,rate:0,discount:0,tax_ids:[],amount:0});
+  renderPropItemsUI();
+}
+
+function renderPropItemsUI() {
+  const w = document.getElementById('prop-items-wrap');
+  if (!w) return;
+  if (!_propItems.length) { w.innerHTML = '<p style="color:#6b7280;font-size:.85rem">No items — click Add Item</p>'; recomputePropTotals(); return; }
+  w.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f9fafb"><th style="padding:6px">Description</th><th style="padding:6px;width:60px">Qty</th><th style="padding:6px;width:80px">Rate</th><th style="padding:6px;width:70px">Disc%</th><th style="padding:6px;width:80px">Amount</th><th style="padding:6px;width:30px"></th></tr></thead>
+    <tbody>${_propItems.map((it,i)=>`<tr>
+      <td style="padding:4px"><input class="field-input" style="margin:0" value="${esc(it.description)}" oninput="_propItems[${i}].description=this.value" placeholder="Item description"></td>
+      <td style="padding:4px"><input class="field-input" type="number" style="margin:0" value="${it.qty}" oninput="_propItems[${i}].qty=+this.value;refreshPropItemAmount(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.rate}" oninput="_propItems[${i}].rate=+this.value;refreshPropItemAmount(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.discount}" oninput="_propItems[${i}].discount=+this.value;refreshPropItemAmount(${i})"></td>
+      <td style="padding:4px;font-weight:600">${fmtMoney(it.amount)}</td>
+      <td style="padding:4px"><button class="btn-icon danger" onclick="_propItems.splice(${i},1);renderPropItemsUI()"><i class="fa-solid fa-times"></i></button></td>
+    </tr>`).join('')}</tbody></table>`;
+  recomputePropTotals();
+}
+
+function refreshPropItemAmount(i) {
+  const it = _propItems[i];
+  it.amount = +(it.qty * it.rate * (1 - it.discount/100)).toFixed(4);
+  renderPropItemsUI();
+}
+
+function recomputePropTotals() {
+  const subtotal = _propItems.reduce((s,it) => s + it.amount, 0);
+  const dtype = document.getElementById('prop-disc-type')?.value || 'before_tax';
+  const dval = +(document.getElementById('prop-disc-val')?.value || 0);
+  const adj = +(document.getElementById('prop-adjustment')?.value || 0);
+  const discTotal = dtype === 'percentage' ? subtotal * dval / 100 : dval;
+  const total = subtotal - discTotal + adj;
+  const el = document.getElementById('prop-totals');
+  if (el) el.innerHTML = `<table style="width:100%;font-size:.88rem"><tr><td>Subtotal</td><td style="text-align:right">${fmtMoney(subtotal)}</td></tr>
+    <tr><td>Discount</td><td style="text-align:right">-${fmtMoney(discTotal)}</td></tr>
+    <tr><td>Adjustment</td><td style="text-align:right">${fmtMoney(adj)}</td></tr>
+    <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td style="text-align:right">${fmtMoney(total)}</td></tr></table>`;
+}
+
+async function openPropModal(id) {
+  _propEditId = id;
+  _propItems = [];
+  document.getElementById('prop-modal-title').textContent = id ? 'Edit Proposal' : 'New Proposal';
+  document.getElementById('prop-subject').value = '';
+  document.getElementById('prop-content').value = '';
+  document.getElementById('prop-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('prop-open-till').value = '';
+  document.getElementById('prop-currency').value = 'USD';
+  document.getElementById('prop-status').value = 'draft';
+  document.getElementById('prop-disc-type').value = 'before_tax';
+  document.getElementById('prop-disc-val').value = '0';
+  document.getElementById('prop-adjustment').value = '0';
+  document.getElementById('prop-client-note').value = '';
+  document.getElementById('prop-terms').value = '';
+  document.getElementById('prop-admin-note').value = '';
+  if (id) {
+    const r = await fetch(`/admin/api/proposals/${id}`);
+    if (r.ok) {
+      const p = await r.json();
+      document.getElementById('prop-subject').value = p.subject || '';
+      document.getElementById('prop-content').value = p.content || '';
+      document.getElementById('prop-date').value = p.date ? p.date.slice(0,10) : '';
+      document.getElementById('prop-open-till').value = p.open_till ? p.open_till.slice(0,10) : '';
+      document.getElementById('prop-currency').value = p.currency || 'USD';
+      document.getElementById('prop-status').value = p.status || 'draft';
+      document.getElementById('prop-disc-type').value = p.discount_type || 'before_tax';
+      document.getElementById('prop-disc-val').value = p.discount_value || 0;
+      document.getElementById('prop-adjustment').value = p.adjustment || 0;
+      document.getElementById('prop-client-note').value = p.client_note || '';
+      document.getElementById('prop-terms').value = p.terms || '';
+      document.getElementById('prop-admin-note').value = p.admin_note || '';
+      if (document.getElementById('prop-customer')) document.getElementById('prop-customer').value = p.customer_id || '';
+      if (document.getElementById('prop-agent')) document.getElementById('prop-agent').value = p.sale_agent_id || '';
+      _propItems = (p.items || []).map(it=>({...it}));
+    }
+  }
+  renderPropItemsUI();
+  document.getElementById('prop-modal').style.display = 'flex';
+}
+
+function closePropModal() { document.getElementById('prop-modal').style.display = 'none'; }
+
+async function saveProposal() {
+  const subject = document.getElementById('prop-subject').value.trim();
+  if (!subject) { toast('Subject is required','error'); return; }
+  const payload = {
+    subject,
+    customer_id: +document.getElementById('prop-customer').value || null,
+    sale_agent_id: +document.getElementById('prop-agent').value || null,
+    date: document.getElementById('prop-date').value || null,
+    open_till: document.getElementById('prop-open-till').value || null,
+    currency: document.getElementById('prop-currency').value,
+    status: document.getElementById('prop-status').value,
+    discount_type: document.getElementById('prop-disc-type').value,
+    discount_value: +(document.getElementById('prop-disc-val').value || 0),
+    adjustment: +(document.getElementById('prop-adjustment').value || 0),
+    content: document.getElementById('prop-content').value,
+    client_note: document.getElementById('prop-client-note').value,
+    terms: document.getElementById('prop-terms').value,
+    admin_note: document.getElementById('prop-admin-note').value,
+    items: _propItems,
+  };
+  const url = _propEditId ? `/admin/api/proposals/${_propEditId}` : '/admin/api/proposals';
+  const method = _propEditId ? 'PUT' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if (r.ok) { closePropModal(); toast(_propEditId?'Proposal updated':'Proposal created','success'); loadProposals(); }
+  else { const d = await r.json(); toast(d.detail||'Save failed','error'); }
+}
+
+async function deleteProp(id) {
+  if (!confirm('Delete this proposal?')) return;
+  const r = await fetch(`/admin/api/proposals/${id}`,{method:'DELETE'});
+  if (r.ok) { toast('Deleted','success'); loadProposals(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function sendProposal(id) {
+  if (!confirm('Send this proposal to the customer?')) return;
+  const r = await fetch(`/admin/api/proposals/${id}/send`,{method:'POST'});
+  if (r.ok) { const d = await r.json(); toast('Proposal sent','success'); if(d.public_url) copyToClipboard(d.public_url); loadProposals(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function convertPropToInvoice(id) {
+  if (!confirm('Convert this proposal to an invoice?')) return;
+  const r = await fetch(`/admin/api/proposals/${id}/convert-to-invoice`,{method:'POST'});
+  if (r.ok) { const d = await r.json(); toast(`Converted to invoice ${d.formatted_number}`,'success'); loadProposals(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+function copyPropLink(id, hash) {
+  const url = `${location.origin}/admin/proposal/${id}/${hash}`;
+  copyToClipboard(url);
+  toast('Public link copied','success');
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{});
+  else { const el=document.createElement('textarea');el.value=text;document.body.appendChild(el);el.select();document.execCommand('copy');document.body.removeChild(el); }
+}
+// ── END MODULE 14 ─────────────────────────────────────────────────────────────
+
 // ── MODULE 12: ESTIMATES ──────────────────────────────────────────────────────
 let _estView = 'table'; // 'table' | 'pipeline'
 let _estStatus = 'all';
@@ -2359,7 +2667,322 @@ async function deleteERRequest(id) {
   else { const d = await r.json(); toast(d.detail||'Failed','error'); }
 }
 // ── END MODULE 13 REQUESTS ────────────────────────────────────────────────────
-function pgInvoices(){return pgPlaceholder('Invoices')}
+
+// ── MODULE 15: INVOICES ───────────────────────────────────────────────────────
+let _invStatus = 'all';
+let _invSearch = '';
+let _invItems = [];
+let _invEditId = null;
+let _invDebounce = null;
+let _payModalInvId = null;
+
+const INV_STATUSES = ['draft','not_sent','unpaid','partially_paid','overdue','paid'];
+const INV_STATUS_COLOR = {draft:'#6b7280',not_sent:'#8b5cf6',unpaid:'#f59e0b',partially_paid:'#3b82f6',overdue:'#ef4444',paid:'#10b981'};
+const INV_STATUS_LABEL = {draft:'Draft',not_sent:'Not Sent',unpaid:'Unpaid',partially_paid:'Partial',overdue:'Overdue',paid:'Paid'};
+
+function pgInvoices() {
+  if (!hasPerm('invoices','view')) return `<div class="empty-state"><i class="fa-solid fa-lock"></i><p>No access to Invoices</p></div>`;
+  return `<div class="page-header">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0"><i class="fa-solid fa-file-invoice-dollar"></i> Invoices</h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input id="inv-search" type="search" placeholder="Search invoices…" value="${esc(_invSearch)}"
+        oninput="clearTimeout(_invDebounce);_invDebounce=setTimeout(()=>{_invSearch=this.value;loadInvoices()},300)"
+        style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.9rem;width:200px">
+      <button class="btn-primary" onclick="openInvModal(null)"><i class="fa-solid fa-plus"></i> New Invoice</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+    ${['all',...INV_STATUSES].map(s=>`<button class="tab-pill${_invStatus===s?' active':''}" onclick="_invStatus='${s}';loadInvoices()">${s==='all'?'All':(INV_STATUS_LABEL[s]||s)}</button>`).join('')}
+  </div>
+  <div id="inv-container"></div>
+
+  <div id="inv-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeInvModal()">
+    <div class="modal-box" style="max-width:860px;width:95vw">
+      <div class="modal-header"><h3 id="inv-modal-title">New Invoice</h3><button onclick="closeInvModal()" class="modal-close">✕</button></div>
+      <div class="modal-body" style="overflow-y:auto;max-height:80vh">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div><label class="field-label">Customer</label>
+            <select id="inv-customer" class="field-input"><option value="">— None —</option></select></div>
+          <div><label class="field-label">Sale Agent</label>
+            <select id="inv-agent" class="field-input"><option value="">— None —</option></select></div>
+          <div><label class="field-label">Invoice Date</label>
+            <input id="inv-date" type="date" class="field-input"></div>
+          <div><label class="field-label">Due Date</label>
+            <input id="inv-due-date" type="date" class="field-input"></div>
+          <div><label class="field-label">Currency</label>
+            <select id="inv-currency" class="field-input">
+              <option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option>
+            </select></div>
+          <div><label class="field-label">Status</label>
+            <select id="inv-status" class="field-input">
+              ${INV_STATUSES.map(s=>`<option value="${s}">${INV_STATUS_LABEL[s]||s}</option>`).join('')}
+            </select></div>
+          <div><label class="field-label">Order / Reference #</label>
+            <input id="inv-order-num" class="field-input" placeholder="PO number…"></div>
+        </div>
+        <h4 style="margin:16px 0 8px">Line Items</h4>
+        <div id="inv-items-wrap"></div>
+        <div style="text-align:right;margin-top:8px">
+          <button class="btn-ghost" onclick="addInvItem()"><i class="fa-solid fa-plus"></i> Add Item</button>
+        </div>
+        <div id="inv-totals" style="max-width:340px;margin:12px 0 0 auto;font-size:.9rem"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div><label class="field-label">Discount Type</label>
+            <select id="inv-disc-type" class="field-input" onchange="recomputeInvTotals()">
+              <option value="before_tax">Fixed Amount</option><option value="percentage">Percentage</option>
+            </select></div>
+          <div><label class="field-label">Discount Value</label>
+            <input id="inv-disc-val" type="number" step="0.01" value="0" class="field-input" oninput="recomputeInvTotals()"></div>
+          <div><label class="field-label">Adjustment</label>
+            <input id="inv-adjustment" type="number" step="0.01" value="0" class="field-input" oninput="recomputeInvTotals()"></div>
+        </div>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div><label class="field-label">Client Note</label>
+              <textarea id="inv-client-note" class="field-input" rows="3"></textarea></div>
+            <div><label class="field-label">Terms</label>
+              <textarea id="inv-terms" class="field-input" rows="3"></textarea></div>
+            <div style="grid-column:1/-1"><label class="field-label">Admin Note</label>
+              <textarea id="inv-admin-note" class="field-input" rows="2"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeInvModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveInvoice()">Save Invoice</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pay-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePayModal()">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header"><h3>Record Payment</h3><button onclick="closePayModal()" class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px"><label class="field-label">Amount *</label>
+          <input id="pay-amount" type="number" step="0.01" class="field-input" placeholder="0.00"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Payment Date</label>
+          <input id="pay-date" type="date" class="field-input"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Transaction / Reference #</label>
+          <input id="pay-tx" class="field-input"></div>
+        <div><label class="field-label">Note</label>
+          <textarea id="pay-note" class="field-input" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closePayModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitPayment()">Save Payment</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function init_invoices() {
+  await loadInvoices();
+  const cr = await fetch('/admin/api/customers?limit=200');
+  const customers = cr.ok ? await cr.json() : [];
+  const sr = await fetch('/admin/api/staff');
+  const staff = sr.ok ? await sr.json() : [];
+  const csel = document.getElementById('inv-customer');
+  const asel = document.getElementById('inv-agent');
+  if (csel) csel.innerHTML = '<option value="">— None —</option>' + customers.map(c=>`<option value="${c.id}">${esc(c.company_name)}</option>`).join('');
+  if (asel) asel.innerHTML = '<option value="">— None —</option>' + staff.map(s=>`<option value="${s.id}">${esc(s.first_name+' '+s.last_name)}</option>`).join('');
+}
+
+async function loadInvoices() {
+  const wrap = document.getElementById('inv-container');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+  const params = new URLSearchParams();
+  if (_invStatus !== 'all') params.set('status', _invStatus);
+  const r = await fetch('/admin/api/invoices?' + params);
+  if (!r.ok) { wrap.innerHTML = '<p style="color:red">Failed to load invoices</p>'; return; }
+  let rows = await r.json();
+  if (_invSearch) {
+    const q = _invSearch.toLowerCase();
+    rows = rows.filter(i => (i.invoice_number||'').toLowerCase().includes(q) || (i.customer_name||'').toLowerCase().includes(q));
+  }
+  renderInvTable(rows, wrap);
+}
+
+function renderInvTable(rows, wrap) {
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-file-invoice-dollar"></i><p>No invoices found</p></div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Date</th><th>Due</th><th>Total</th><th>Paid</th><th>Due</th><th>Actions</th></tr></thead>
+    <tbody>${rows.map(inv=>{
+      const amtDue = (inv.total||0) - (inv.amount_paid||0);
+      return `<tr>
+        <td><code>${esc(inv.formatted_number||inv.invoice_number)}</code></td>
+        <td>${esc(inv.customer_name||'—')}</td>
+        <td><span class="badge" style="background:${INV_STATUS_COLOR[inv.status]||'#6b7280'};color:#fff">${INV_STATUS_LABEL[inv.status]||inv.status}</span></td>
+        <td>${fmtDate(inv.date)}</td>
+        <td>${fmtDate(inv.due_date)}</td>
+        <td>${fmtMoney(inv.total,inv.currency)}</td>
+        <td>${fmtMoney(inv.amount_paid,inv.currency)}</td>
+        <td style="font-weight:${amtDue>0?'600':'400'};color:${amtDue>0?'#ef4444':'#10b981'}">${fmtMoney(amtDue,inv.currency)}</td>
+        <td>
+          <button class="btn-icon" title="Edit" onclick="openInvModal(${inv.id})"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn-icon" title="Record Payment" onclick="openPayModal(${inv.id})"><i class="fa-solid fa-dollar-sign"></i></button>
+          ${!inv.sent_at?`<button class="btn-icon" title="Send" onclick="sendInvoice(${inv.id})"><i class="fa-solid fa-paper-plane"></i></button>`:''}
+          ${inv.hash?`<button class="btn-icon" title="Copy link" onclick="copyInvLink(${inv.id},'${inv.hash}')"><i class="fa-solid fa-link"></i></button>`:''}
+          <button class="btn-icon danger" title="Delete" onclick="deleteInvoice(${inv.id})"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function addInvItem() {
+  _invItems.push({description:'',long_description:'',qty:1,rate:0,discount:0,tax_ids:[],amount:0});
+  renderInvItemsUI();
+}
+
+function renderInvItemsUI() {
+  const w = document.getElementById('inv-items-wrap');
+  if (!w) return;
+  if (!_invItems.length) { w.innerHTML = '<p style="color:#6b7280;font-size:.85rem">No items — click Add Item</p>'; recomputeInvTotals(); return; }
+  w.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f9fafb"><th style="padding:6px">Description</th><th style="padding:6px;width:60px">Qty</th><th style="padding:6px;width:80px">Rate</th><th style="padding:6px;width:70px">Disc%</th><th style="padding:6px;width:80px">Amount</th><th style="padding:6px;width:30px"></th></tr></thead>
+    <tbody>${_invItems.map((it,i)=>`<tr>
+      <td style="padding:4px"><input class="field-input" style="margin:0" value="${esc(it.description)}" oninput="_invItems[${i}].description=this.value" placeholder="Item description"></td>
+      <td style="padding:4px"><input class="field-input" type="number" style="margin:0" value="${it.qty}" oninput="_invItems[${i}].qty=+this.value;refreshInvItemAmount(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.rate}" oninput="_invItems[${i}].rate=+this.value;refreshInvItemAmount(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.discount}" oninput="_invItems[${i}].discount=+this.value;refreshInvItemAmount(${i})"></td>
+      <td style="padding:4px;font-weight:600">${fmtMoney(it.amount)}</td>
+      <td style="padding:4px"><button class="btn-icon danger" onclick="_invItems.splice(${i},1);renderInvItemsUI()"><i class="fa-solid fa-times"></i></button></td>
+    </tr>`).join('')}</tbody></table>`;
+  recomputeInvTotals();
+}
+
+function refreshInvItemAmount(i) {
+  const it = _invItems[i];
+  it.amount = +(it.qty * it.rate * (1 - it.discount/100)).toFixed(4);
+  renderInvItemsUI();
+}
+
+function recomputeInvTotals() {
+  const subtotal = _invItems.reduce((s,it) => s + it.amount, 0);
+  const dtype = document.getElementById('inv-disc-type')?.value || 'before_tax';
+  const dval = +(document.getElementById('inv-disc-val')?.value || 0);
+  const adj = +(document.getElementById('inv-adjustment')?.value || 0);
+  const discTotal = dtype === 'percentage' ? subtotal * dval / 100 : dval;
+  const total = subtotal - discTotal + adj;
+  const el = document.getElementById('inv-totals');
+  if (el) el.innerHTML = `<table style="width:100%;font-size:.88rem"><tr><td>Subtotal</td><td style="text-align:right">${fmtMoney(subtotal)}</td></tr>
+    <tr><td>Discount</td><td style="text-align:right">-${fmtMoney(discTotal)}</td></tr>
+    <tr><td>Adjustment</td><td style="text-align:right">${fmtMoney(adj)}</td></tr>
+    <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td style="text-align:right">${fmtMoney(total)}</td></tr></table>`;
+}
+
+async function openInvModal(id) {
+  _invEditId = id;
+  _invItems = [];
+  document.getElementById('inv-modal-title').textContent = id ? 'Edit Invoice' : 'New Invoice';
+  document.getElementById('inv-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('inv-due-date').value = '';
+  document.getElementById('inv-currency').value = 'USD';
+  document.getElementById('inv-status').value = 'draft';
+  document.getElementById('inv-disc-type').value = 'before_tax';
+  document.getElementById('inv-disc-val').value = '0';
+  document.getElementById('inv-adjustment').value = '0';
+  document.getElementById('inv-client-note').value = '';
+  document.getElementById('inv-terms').value = '';
+  document.getElementById('inv-admin-note').value = '';
+  document.getElementById('inv-order-num').value = '';
+  if (id) {
+    const r = await fetch(`/admin/api/invoices/${id}`);
+    if (r.ok) {
+      const inv = await r.json();
+      document.getElementById('inv-date').value = inv.date ? inv.date.slice(0,10) : '';
+      document.getElementById('inv-due-date').value = inv.due_date ? inv.due_date.slice(0,10) : '';
+      document.getElementById('inv-currency').value = inv.currency || 'USD';
+      document.getElementById('inv-status').value = inv.status || 'draft';
+      document.getElementById('inv-disc-type').value = inv.discount_type || 'before_tax';
+      document.getElementById('inv-disc-val').value = inv.discount_value || 0;
+      document.getElementById('inv-adjustment').value = inv.adjustment || 0;
+      document.getElementById('inv-client-note').value = inv.client_note || '';
+      document.getElementById('inv-terms').value = inv.terms || '';
+      document.getElementById('inv-admin-note').value = inv.admin_note || '';
+      document.getElementById('inv-order-num').value = inv.order_number || '';
+      if (document.getElementById('inv-customer')) document.getElementById('inv-customer').value = inv.customer_id || '';
+      if (document.getElementById('inv-agent')) document.getElementById('inv-agent').value = inv.sale_agent_id || '';
+      _invItems = (inv.items || []).map(it=>({...it}));
+    }
+  }
+  renderInvItemsUI();
+  document.getElementById('inv-modal').style.display = 'flex';
+}
+
+function closeInvModal() { document.getElementById('inv-modal').style.display = 'none'; }
+
+async function saveInvoice() {
+  const payload = {
+    customer_id: +document.getElementById('inv-customer').value || null,
+    sale_agent_id: +document.getElementById('inv-agent').value || null,
+    date: document.getElementById('inv-date').value || null,
+    due_date: document.getElementById('inv-due-date').value || null,
+    currency: document.getElementById('inv-currency').value,
+    status: document.getElementById('inv-status').value,
+    discount_type: document.getElementById('inv-disc-type').value,
+    discount_value: +(document.getElementById('inv-disc-val').value || 0),
+    adjustment: +(document.getElementById('inv-adjustment').value || 0),
+    client_note: document.getElementById('inv-client-note').value,
+    terms: document.getElementById('inv-terms').value,
+    admin_note: document.getElementById('inv-admin-note').value,
+    order_number: document.getElementById('inv-order-num').value,
+    items: _invItems,
+  };
+  const url = _invEditId ? `/admin/api/invoices/${_invEditId}` : '/admin/api/invoices';
+  const method = _invEditId ? 'PUT' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if (r.ok) { closeInvModal(); toast(_invEditId?'Invoice updated':'Invoice created','success'); loadInvoices(); }
+  else { const d = await r.json(); toast(d.detail||'Save failed','error'); }
+}
+
+async function deleteInvoice(id) {
+  if (!confirm('Delete this invoice?')) return;
+  const r = await fetch(`/admin/api/invoices/${id}`,{method:'DELETE'});
+  if (r.ok) { toast('Deleted','success'); loadInvoices(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function sendInvoice(id) {
+  if (!confirm('Send this invoice to the customer?')) return;
+  const r = await fetch(`/admin/api/invoices/${id}/send`,{method:'POST'});
+  if (r.ok) { const d = await r.json(); toast('Invoice sent','success'); if(d.public_url) copyToClipboard(d.public_url); loadInvoices(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+function copyInvLink(id, hash) {
+  const url = `${location.origin}/admin/invoice/${id}/${hash}`;
+  copyToClipboard(url);
+  toast('Public link copied','success');
+}
+
+function openPayModal(invId) {
+  _payModalInvId = invId;
+  document.getElementById('pay-amount').value = '';
+  document.getElementById('pay-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('pay-tx').value = '';
+  document.getElementById('pay-note').value = '';
+  document.getElementById('pay-modal').style.display = 'flex';
+}
+
+function closePayModal() { document.getElementById('pay-modal').style.display = 'none'; }
+
+async function submitPayment() {
+  const amount = +(document.getElementById('pay-amount').value || 0);
+  if (!amount) { toast('Amount is required','error'); return; }
+  const payload = {
+    amount,
+    date: document.getElementById('pay-date').value || null,
+    transaction_id: document.getElementById('pay-tx').value || null,
+    note: document.getElementById('pay-note').value || null,
+  };
+  const r = await fetch(`/admin/api/invoices/${_payModalInvId}/payments`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if (r.ok) { closePayModal(); toast('Payment recorded','success'); loadInvoices(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+// ── END MODULE 15 ─────────────────────────────────────────────────────────────
 function pgCreditNotes(){return pgPlaceholder('Credit Notes')}
 function pgPayments(){return pgPlaceholder('Payments')}
 function pgSubscriptions(){return pgPlaceholder('Subscriptions')}

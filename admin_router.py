@@ -358,29 +358,59 @@ def _task_dict(t: CRMTask) -> dict:
 def _invoice_dict(inv: CRMInvoice) -> dict:
     return {
         "id": inv.id, "invoice_number": inv.invoice_number,
+        "number": getattr(inv, "number", 0), "prefix": getattr(inv, "prefix", "INV"),
+        "formatted_number": getattr(inv, "formatted_number", inv.invoice_number),
         "customer_id": inv.customer_id,
         "customer_name": inv.customer.company_name if inv.customer else None,
         "project_id": inv.project_id, "status": inv.status,
         "date": inv.date.isoformat() if inv.date else None,
         "due_date": inv.due_date.isoformat() if inv.due_date else None,
         "currency": inv.currency, "subtotal": inv.subtotal,
-        "tax_total": inv.tax_total, "total": inv.total,
-        "amount_paid": inv.amount_paid, "tags": inv.tags or [],
-        "is_recurring": inv.is_recurring,
+        "discount_type": inv.discount_type, "discount_value": inv.discount_value,
+        "discount_total": getattr(inv, "discount_total", 0.0),
+        "tax_total": inv.tax_total, "adjustment": inv.adjustment,
+        "total": inv.total, "amount_paid": inv.amount_paid,
+        "tags": inv.tags or [], "is_recurring": inv.is_recurring,
+        "admin_note": inv.admin_note, "bill_to": inv.bill_to,
+        "order_number": inv.order_number,
+        "assigned_to": inv.assigned_to,
+        "sale_agent_id": getattr(inv, "sale_agent_id", None),
+        "hash": getattr(inv, "hash", ""),
+        "sent_at": inv.sent_at.isoformat() if inv.sent_at else None,
         "created_at": inv.created_at.isoformat(),
+        "updated_at": inv.updated_at.isoformat() if getattr(inv, "updated_at", None) else None,
     }
 
 
 def _proposal_dict(p: CRMProposal) -> dict:
     return {
         "id": p.id, "proposal_number": p.proposal_number, "subject": p.subject,
+        "number": getattr(p, "number", 0), "prefix": getattr(p, "prefix", "PROP"),
+        "formatted_number": getattr(p, "formatted_number", p.proposal_number),
         "customer_id": p.customer_id,
         "customer_name": p.customer.company_name if p.customer else None,
+        "lead_id": p.lead_id,
+        "sale_agent_id": getattr(p, "sale_agent_id", None),
         "status": p.status,
+        "pipeline_order": getattr(p, "pipeline_order", 0),
         "date": p.date.isoformat() if p.date else None,
         "open_till": p.open_till.isoformat() if p.open_till else None,
-        "total": p.total, "currency": p.currency, "tags": p.tags or [],
+        "currency": p.currency,
+        "discount_type": p.discount_type, "discount_value": p.discount_value,
+        "discount_total": getattr(p, "discount_total", 0.0),
+        "subtotal": p.subtotal, "tax_total": p.tax_total,
+        "adjustment": p.adjustment, "total": p.total,
+        "allow_comments": getattr(p, "allow_comments", False),
+        "admin_note": getattr(p, "admin_note", None),
+        "tags": p.tags or [],
+        "assigned_to": p.assigned_to,
+        "hash": getattr(p, "hash", ""),
+        "converted_to_invoice_id": getattr(p, "converted_to_invoice_id", None),
+        "converted_at": p.converted_at.isoformat() if getattr(p, "converted_at", None) else None,
+        "acceptance_date": p.acceptance_date.isoformat() if getattr(p, "acceptance_date", None) else None,
+        "sent_at": p.sent_at.isoformat() if p.sent_at else None,
         "created_at": p.created_at.isoformat(),
+        "updated_at": p.updated_at.isoformat() if getattr(p, "updated_at", None) else None,
     }
 
 
@@ -1743,7 +1773,9 @@ async def add_task_comment(tid: int, req: CommentReq, staff: StaffMember = Depen
 class InvoiceReq(BaseModel):
     customer_id: Optional[int] = None
     project_id: Optional[int] = None
+    sale_agent_id: Optional[int] = None
     invoice_number: Optional[str] = None
+    prefix: str = "INV"
     status: str = "draft"
     date: Optional[str] = None
     due_date: Optional[str] = None
@@ -1756,7 +1788,34 @@ class InvoiceReq(BaseModel):
     admin_note: Optional[str] = None
     tags: Optional[list] = None
     assigned_to: Optional[int] = None
+    billing_address: Optional[dict] = None
+    shipping_address: Optional[dict] = None
+    order_number: Optional[str] = None
+    allowed_payment_modes: Optional[list] = None
+    is_recurring: bool = False
+    recurring_config: Optional[dict] = None
     items: Optional[list] = None
+
+
+def _compute_inv_totals(items: list, discount_type: str, discount_value: float, adjustment: float) -> dict:
+    subtotal = sum(it.get("qty", 1) * it.get("rate", 0) for it in items)
+    tax_total = 0.0
+    for it in items:
+        rate = it.get("rate", 0)
+        qty = it.get("qty", 1)
+        disc = it.get("discount", 0)
+        line_sub = qty * rate * (1 - disc / 100)
+        tax_ids = it.get("tax_ids", [])
+        if isinstance(tax_ids, list):
+            for tid in tax_ids:
+                if isinstance(tid, dict):
+                    tax_total += line_sub * tid.get("rate", 0) / 100
+    discount_total = (subtotal * discount_value / 100) if discount_type == "percentage" else discount_value
+    total = subtotal - discount_total + tax_total + adjustment
+    for it in items:
+        it["amount"] = round(it.get("qty", 1) * it.get("rate", 0) * (1 - it.get("discount", 0) / 100), 4)
+    return {"subtotal": round(subtotal, 4), "tax_total": round(tax_total, 4),
+            "discount_total": round(discount_total, 4), "total": round(total, 4)}
 
 
 @router.get("/api/invoices")
@@ -1775,22 +1834,29 @@ async def list_invoices(
     return [_invoice_dict(i) for i in r.scalars().all()]
 
 
-async def _next_inv_number(db: AsyncSession) -> str:
+async def _next_inv_number(db: AsyncSession, prefix: str = "INV") -> tuple[str, int, str]:
     r = await db.execute(select(func.count()).select_from(CRMInvoice))
     n = (r.scalar() or 0) + 1
-    return f"INV-{n:04d}"
+    formatted = f"{prefix}-{n:04d}"
+    return formatted, n, formatted
 
 
 @router.post("/api/invoices")
 async def create_invoice(req: InvoiceReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    inv_num = req.invoice_number or await _next_inv_number(db)
+    prefix = (req.prefix or "INV").upper()
+    inv_num_str, num_int, formatted = await _next_inv_number(db, prefix)
+    inv_number = req.invoice_number or inv_num_str
     items = req.items or []
-    subtotal = sum(it.get("amount", it.get("qty", 1) * it.get("rate", 0)) for it in items)
+    totals = _compute_inv_totals(items, req.discount_type, req.discount_value, req.adjustment)
     inv = CRMInvoice(
-        invoice_number=inv_num, customer_id=req.customer_id, project_id=req.project_id,
+        invoice_number=inv_number, number=num_int, prefix=prefix, formatted_number=formatted,
+        customer_id=req.customer_id, project_id=req.project_id, sale_agent_id=req.sale_agent_id,
         status=req.status, currency=req.currency, discount_type=req.discount_type,
         discount_value=req.discount_value, adjustment=req.adjustment,
-        subtotal=subtotal, total=subtotal + req.adjustment - req.discount_value,
+        billing_address=req.billing_address, shipping_address=req.shipping_address,
+        order_number=req.order_number, allowed_payment_modes=req.allowed_payment_modes,
+        is_recurring=req.is_recurring, recurring_config=req.recurring_config,
+        **totals,
         client_note=req.client_note, terms=req.terms, admin_note=req.admin_note,
         tags=req.tags or [], assigned_to=req.assigned_to,
         date=datetime.fromisoformat(req.date) if req.date else _utcnow(),
@@ -1799,13 +1865,12 @@ async def create_invoice(req: InvoiceReq, staff: StaffMember = Depends(get_curre
     db.add(inv)
     await db.flush()
     for so, it in enumerate(items):
-        li = CRMLineItem(invoice_id=inv.id, description=it.get("description", ""),
-                         long_description=it.get("long_description"), qty=it.get("qty", 1),
-                         rate=it.get("rate", 0), discount=it.get("discount", 0),
-                         tax_ids=it.get("tax_ids", []), amount=it.get("amount", 0), sort_order=so)
-        db.add(li)
+        db.add(CRMLineItem(invoice_id=inv.id, description=it.get("description", ""),
+                           long_description=it.get("long_description"), qty=it.get("qty", 1),
+                           rate=it.get("rate", 0), discount=it.get("discount", 0),
+                           tax_ids=it.get("tax_ids", []), amount=it.get("amount", 0), sort_order=so))
     await _log(db, staff, "invoices", "created", inv.id, inv.invoice_number)
-    return {"id": inv.id, "invoice_number": inv.invoice_number}
+    return {"id": inv.id, "invoice_number": inv.invoice_number, "formatted_number": formatted}
 
 
 @router.get("/api/invoices/{inv_id}")
@@ -1820,11 +1885,16 @@ async def get_invoice(inv_id: int, staff: StaffMember = Depends(get_current_admi
     d["items"] = [{"id": i.id, "description": i.description, "long_description": i.long_description,
                     "qty": i.qty, "rate": i.rate, "discount": i.discount,
                     "tax_ids": i.tax_ids or [], "amount": i.amount} for i in inv.items]
-    d["payments"] = [{"id": p.id, "amount": p.amount, "date": p.date.isoformat(),
-                       "transaction_id": p.transaction_id} for p in inv.payments]
+    d["payments"] = [{"id": p.id, "amount": p.amount,
+                       "date": p.date.isoformat() if p.date else None,
+                       "transaction_id": p.transaction_id, "note": p.note} for p in inv.payments]
+    d["billing_address"] = getattr(inv, "billing_address", None)
+    d["shipping_address"] = getattr(inv, "shipping_address", None)
     d["bill_to"] = inv.bill_to
     d["client_note"] = inv.client_note
     d["terms"] = inv.terms
+    d["recurring_config"] = inv.recurring_config
+    d["allowed_payment_modes"] = getattr(inv, "allowed_payment_modes", None)
     return d
 
 
@@ -1834,20 +1904,27 @@ async def update_invoice(inv_id: int, req: InvoiceReq, staff: StaffMember = Depe
     inv = r.scalar_one_or_none()
     if not inv:
         raise HTTPException(404)
-    fields = req.model_dump(exclude={"items", "date", "due_date", "invoice_number"}, exclude_unset=True)
+    fields = req.model_dump(exclude={"items", "date", "due_date", "invoice_number", "prefix"}, exclude_unset=True)
     for k, v in fields.items():
-        setattr(inv, k, v)
+        if hasattr(inv, k):
+            setattr(inv, k, v)
     if req.date:
         inv.date = datetime.fromisoformat(req.date)
     if req.due_date:
         inv.due_date = datetime.fromisoformat(req.due_date)
     if req.items is not None:
+        items = req.items
+        totals = _compute_inv_totals(items, req.discount_type, req.discount_value, req.adjustment)
+        for k, v in totals.items():
+            setattr(inv, k, v)
         await db.execute(delete(CRMLineItem).where(CRMLineItem.invoice_id == inv_id))
-        for so, it in enumerate(req.items):
+        for so, it in enumerate(items):
             db.add(CRMLineItem(invoice_id=inv_id, description=it.get("description", ""),
-                               qty=it.get("qty", 1), rate=it.get("rate", 0),
-                               discount=it.get("discount", 0), tax_ids=it.get("tax_ids", []),
-                               amount=it.get("amount", 0), sort_order=so))
+                               long_description=it.get("long_description"), qty=it.get("qty", 1),
+                               rate=it.get("rate", 0), discount=it.get("discount", 0),
+                               tax_ids=it.get("tax_ids", []), amount=it.get("amount", 0), sort_order=so))
+    inv.updated_at = _utcnow()
+    await _log(db, staff, "invoices", "updated", inv.id, inv.invoice_number)
     return {"ok": True}
 
 
@@ -1855,6 +1932,98 @@ async def update_invoice(inv_id: int, req: InvoiceReq, staff: StaffMember = Depe
 async def delete_invoice(inv_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(CRMInvoice).where(CRMInvoice.id == inv_id))
     return {"ok": True}
+
+
+@router.post("/api/invoices/{inv_id}/send")
+async def send_invoice(inv_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMInvoice).where(CRMInvoice.id == inv_id)
+                         .options(selectinload(CRMInvoice.customer)))
+    inv = r.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(404)
+    inv.sent_at = _utcnow()
+    if inv.status == "draft":
+        inv.status = "not_sent"
+    from config import settings as _s
+    public_url = f"{_s.BASE_URL.rstrip('/')}/admin/invoice/{inv.id}/{getattr(inv, 'hash', '')}"
+    if inv.customer and inv.customer.email:
+        html = (f"<p>Dear {inv.customer.company_name},</p>"
+                f"<p>Please find your invoice <strong>{inv.invoice_number}</strong> at the link below:</p>"
+                f"<p><a href='{public_url}'>{public_url}</a></p>")
+        await _send_email(inv.customer.email, f"Invoice {inv.invoice_number}", html)
+    inv.status = "not_sent"
+    inv.sent_at = _utcnow()
+    await _log(db, staff, "invoices", "sent", inv.id, inv.invoice_number)
+    return {"ok": True, "public_url": public_url}
+
+
+@router.post("/api/invoices/{inv_id}/mark-sent")
+async def mark_invoice_sent(inv_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMInvoice).where(CRMInvoice.id == inv_id))
+    inv = r.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(404)
+    inv.sent_at = _utcnow()
+    inv.status = "not_sent"
+    await _log(db, staff, "invoices", "mark_sent", inv.id, inv.invoice_number)
+    return {"ok": True}
+
+
+@router.get("/invoice/{inv_id}/{hash_val}", response_class=HTMLResponse)
+async def public_invoice_page(inv_id: int, hash_val: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMInvoice).where(CRMInvoice.id == inv_id)
+                         .options(selectinload(CRMInvoice.customer), selectinload(CRMInvoice.items),
+                                  selectinload(CRMInvoice.payments)))
+    inv = r.scalar_one_or_none()
+    if not inv or getattr(inv, "hash", "") != hash_val:
+        raise HTTPException(404)
+    items_html = "".join(
+        f"<tr><td>{i.description}</td><td style='text-align:right'>{i.qty}</td>"
+        f"<td style='text-align:right'>${i.rate:,.2f}</td>"
+        f"<td style='text-align:right'>${i.amount:,.2f}</td></tr>" for i in inv.items
+    )
+    payments_html = ""
+    for p in inv.payments:
+        payments_html += f"<tr><td>{p.date.strftime('%Y-%m-%d') if p.date else ''}</td><td>${p.amount:,.2f}</td><td>{p.transaction_id or ''}</td></tr>"
+    amount_due = inv.total - inv.amount_paid
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoice {inv.invoice_number}</title>
+<style>
+  body{{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#222}}
+  h1{{color:#6366f1}}
+  table{{width:100%;border-collapse:collapse;margin:16px 0}}
+  th,td{{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}}
+  th{{background:#f9fafb;font-weight:600}}
+  .totals-row{{font-weight:600}}
+  .badge{{display:inline-block;padding:4px 10px;border-radius:9999px;font-size:.8rem;font-weight:600;
+    background:{'#10b981' if inv.status=='paid' else '#f59e0b' if inv.status in ('unpaid','not_sent') else '#6b7280'};color:#fff}}
+  .due-box{{background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:24px 0}}
+</style>
+</head><body>
+<h1>Invoice #{inv.invoice_number}</h1>
+<p>Status: <span class="badge">{inv.status.replace('_',' ').title()}</span></p>
+{'<p>To: '+inv.customer.company_name+'</p>' if inv.customer else ''}
+<p>Date: {inv.date.strftime('%B %d, %Y') if inv.date else 'N/A'} &nbsp;|&nbsp; Due: {inv.due_date.strftime('%B %d, %Y') if inv.due_date else 'N/A'}</p>
+<table>
+  <thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
+  <tbody>{items_html}</tbody>
+</table>
+<table style="max-width:360px;margin-left:auto">
+  <tr><td>Subtotal</td><td style="text-align:right">${inv.subtotal:,.2f}</td></tr>
+  <tr><td>Discount</td><td style="text-align:right">-${getattr(inv,'discount_total',0):,.2f}</td></tr>
+  <tr><td>Tax</td><td style="text-align:right">${inv.tax_total:,.2f}</td></tr>
+  <tr><td>Adjustment</td><td style="text-align:right">${inv.adjustment:,.2f}</td></tr>
+  <tr class="totals-row"><td>Total</td><td style="text-align:right">${inv.total:,.2f}</td></tr>
+  <tr><td>Amount Paid</td><td style="text-align:right">${inv.amount_paid:,.2f}</td></tr>
+  <tr class="totals-row"><td>Amount Due</td><td style="text-align:right">${amount_due:,.2f}</td></tr>
+</table>
+{f'<div class="due-box"><strong>Amount Due: ${amount_due:,.2f} {inv.currency}</strong></div>' if amount_due > 0 else '<p style="color:#10b981;font-weight:600">✓ This invoice is fully paid.</p>'}
+{f'<h3>Payment History</h3><table><thead><tr><th>Date</th><th>Amount</th><th>Reference</th></tr></thead><tbody>{payments_html}</tbody></table>' if inv.payments else ''}
+{f'<h3>Note</h3><p>{inv.client_note}</p>' if inv.client_note else ''}
+{f'<h3>Terms</h3><p>{inv.terms}</p>' if inv.terms else ''}
+</body></html>"""
+    return HTMLResponse(html)
 
 
 class PaymentReq(BaseModel):
@@ -1890,17 +2059,25 @@ class ProposalReq(BaseModel):
     subject: str
     customer_id: Optional[int] = None
     lead_id: Optional[int] = None
+    sale_agent_id: Optional[int] = None
     status: str = "draft"
+    prefix: str = "PROP"
     date: Optional[str] = None
     open_till: Optional[str] = None
     currency: str = "USD"
     discount_type: str = "before_tax"
     discount_value: float = 0.0
     adjustment: float = 0.0
+    content: Optional[str] = None
+    allow_comments: bool = False
     client_note: Optional[str] = None
     terms: Optional[str] = None
+    admin_note: Optional[str] = None
     tags: Optional[list] = None
     assigned_to: Optional[int] = None
+    billing_address: Optional[dict] = None
+    shipping_address: Optional[dict] = None
+    proposal_to: Optional[dict] = None
     items: Optional[list] = None
 
 
@@ -2863,24 +3040,51 @@ async def list_proposals(
     return [_proposal_dict(p) for p in r.scalars().all()]
 
 
-async def _next_prop_number(db: AsyncSession) -> str:
+async def _next_prop_number(db: AsyncSession, prefix: str = "PROP") -> tuple[str, int, str]:
     r = await db.execute(select(func.count()).select_from(CRMProposal))
     n = (r.scalar() or 0) + 1
-    return f"PROP-{n:04d}"
+    formatted = f"{prefix}-{n:04d}"
+    return formatted, n, formatted
+
+
+def _compute_prop_totals(items: list, discount_type: str, discount_value: float, adjustment: float) -> dict:
+    subtotal = sum(it.get("qty", 1) * it.get("rate", 0) for it in items)
+    tax_total = 0.0
+    for it in items:
+        rate = it.get("rate", 0)
+        qty = it.get("qty", 1)
+        disc = it.get("discount", 0)
+        line_sub = qty * rate * (1 - disc / 100)
+        tax_ids = it.get("tax_ids", [])
+        if isinstance(tax_ids, list):
+            for tid in tax_ids:
+                if isinstance(tid, dict):
+                    tax_total += line_sub * tid.get("rate", 0) / 100
+    discount_total = (subtotal * discount_value / 100) if discount_type == "percentage" else discount_value
+    total = subtotal - discount_total + tax_total + adjustment
+    for it in items:
+        it["amount"] = round(it.get("qty", 1) * it.get("rate", 0) * (1 - it.get("discount", 0) / 100), 4)
+    return {"subtotal": round(subtotal, 4), "tax_total": round(tax_total, 4),
+            "discount_total": round(discount_total, 4), "total": round(total, 4)}
 
 
 @router.post("/api/proposals")
 async def create_proposal(req: ProposalReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    prefix = (req.prefix or "PROP").upper()
+    prop_num_str, num_int, formatted = await _next_prop_number(db, prefix)
     items = req.items or []
-    subtotal = sum(it.get("amount", 0) for it in items)
+    totals = _compute_prop_totals(items, req.discount_type, req.discount_value, req.adjustment)
     prop = CRMProposal(
-        proposal_number=await _next_prop_number(db), subject=req.subject,
-        customer_id=req.customer_id, lead_id=req.lead_id, status=req.status,
+        proposal_number=prop_num_str, number=num_int, prefix=prefix, formatted_number=formatted,
+        subject=req.subject, customer_id=req.customer_id, lead_id=req.lead_id,
+        sale_agent_id=req.sale_agent_id, status=req.status,
         currency=req.currency, discount_type=req.discount_type, discount_value=req.discount_value,
-        adjustment=req.adjustment, subtotal=subtotal,
-        total=subtotal + req.adjustment - req.discount_value,
-        client_note=req.client_note, terms=req.terms, tags=req.tags or [],
-        assigned_to=req.assigned_to,
+        adjustment=req.adjustment, **totals,
+        content=req.content, allow_comments=req.allow_comments,
+        client_note=req.client_note, terms=req.terms, admin_note=req.admin_note,
+        tags=req.tags or [], assigned_to=req.assigned_to,
+        billing_address=req.billing_address, shipping_address=req.shipping_address,
+        proposal_to=req.proposal_to,
         date=datetime.fromisoformat(req.date) if req.date else _utcnow(),
         open_till=datetime.fromisoformat(req.open_till) if req.open_till else None,
     )
@@ -2888,10 +3092,11 @@ async def create_proposal(req: ProposalReq, staff: StaffMember = Depends(get_cur
     await db.flush()
     for so, it in enumerate(items):
         db.add(CRMLineItem(proposal_id=prop.id, description=it.get("description", ""),
-                           qty=it.get("qty", 1), rate=it.get("rate", 0),
-                           discount=it.get("discount", 0), amount=it.get("amount", 0), sort_order=so))
+                           long_description=it.get("long_description"), qty=it.get("qty", 1),
+                           rate=it.get("rate", 0), discount=it.get("discount", 0),
+                           tax_ids=it.get("tax_ids", []), amount=it.get("amount", 0), sort_order=so))
     await _log(db, staff, "proposals", "created", prop.id, prop.subject)
-    return {"id": prop.id, "proposal_number": prop.proposal_number}
+    return {"id": prop.id, "proposal_number": prop.proposal_number, "formatted_number": formatted}
 
 
 @router.get("/api/proposals/{pid}")
@@ -2902,10 +3107,15 @@ async def get_proposal(pid: int, staff: StaffMember = Depends(get_current_admin)
     if not p:
         raise HTTPException(404)
     d = _proposal_dict(p)
-    d["items"] = [{"id": i.id, "description": i.description, "qty": i.qty, "rate": i.rate,
-                    "discount": i.discount, "tax_ids": i.tax_ids or [], "amount": i.amount} for i in p.items]
+    d["items"] = [{"id": i.id, "description": i.description, "long_description": i.long_description,
+                    "qty": i.qty, "rate": i.rate, "discount": i.discount,
+                    "tax_ids": i.tax_ids or [], "amount": i.amount} for i in p.items]
+    d["content"] = getattr(p, "content", None)
     d["client_note"] = p.client_note
     d["terms"] = p.terms
+    d["billing_address"] = getattr(p, "billing_address", None)
+    d["shipping_address"] = getattr(p, "shipping_address", None)
+    d["proposal_to"] = getattr(p, "proposal_to", None)
     return d
 
 
@@ -2915,13 +3125,27 @@ async def update_proposal(pid: int, req: ProposalReq, staff: StaffMember = Depen
     p = r.scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    fields = req.model_dump(exclude={"items", "date", "open_till"}, exclude_unset=True)
+    fields = req.model_dump(exclude={"items", "date", "open_till", "prefix"}, exclude_unset=True)
     for k, v in fields.items():
-        setattr(p, k, v)
+        if hasattr(p, k):
+            setattr(p, k, v)
     if req.date:
         p.date = datetime.fromisoformat(req.date)
     if req.open_till:
         p.open_till = datetime.fromisoformat(req.open_till)
+    if req.items is not None:
+        items = req.items
+        totals = _compute_prop_totals(items, req.discount_type, req.discount_value, req.adjustment)
+        for k, v in totals.items():
+            setattr(p, k, v)
+        await db.execute(delete(CRMLineItem).where(CRMLineItem.proposal_id == pid))
+        for so, it in enumerate(items):
+            db.add(CRMLineItem(proposal_id=pid, description=it.get("description", ""),
+                               long_description=it.get("long_description"), qty=it.get("qty", 1),
+                               rate=it.get("rate", 0), discount=it.get("discount", 0),
+                               tax_ids=it.get("tax_ids", []), amount=it.get("amount", 0), sort_order=so))
+    p.updated_at = _utcnow()
+    await _log(db, staff, "proposals", "updated", p.id, p.subject)
     return {"ok": True}
 
 
@@ -2929,6 +3153,192 @@ async def update_proposal(pid: int, req: ProposalReq, staff: StaffMember = Depen
 async def delete_proposal(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(CRMProposal).where(CRMProposal.id == pid))
     return {"ok": True}
+
+
+@router.post("/api/proposals/{pid}/send")
+async def send_proposal(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid)
+                         .options(selectinload(CRMProposal.customer)))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    from config import settings as _s
+    public_url = f"{_s.BASE_URL.rstrip('/')}/admin/proposal/{p.id}/{getattr(p, 'hash', '')}"
+    if p.customer and p.customer.email:
+        html = (f"<p>Dear {p.customer.company_name},</p>"
+                f"<p>Please review your proposal <strong>{p.proposal_number}</strong>:</p>"
+                f"<p><a href='{public_url}'>{public_url}</a></p>")
+        await _send_email(p.customer.email, f"Proposal {p.proposal_number}", html)
+    p.status = "sent"
+    p.sent_at = _utcnow()
+    await _log(db, staff, "proposals", "sent", p.id, p.subject)
+    return {"ok": True, "public_url": public_url}
+
+
+@router.post("/api/proposals/{pid}/mark-sent")
+async def mark_proposal_sent(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    p.status = "sent"
+    p.sent_at = _utcnow()
+    await _log(db, staff, "proposals", "mark_sent", p.id, p.subject)
+    return {"ok": True}
+
+
+@router.post("/api/proposals/{pid}/convert-to-invoice")
+async def convert_proposal_to_invoice(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid)
+                         .options(selectinload(CRMProposal.items)))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    if getattr(p, "converted_to_invoice_id", None):
+        raise HTTPException(400, "Proposal already converted")
+    prefix = "INV"
+    inv_num_str, num_int, formatted = await _next_inv_number(db, prefix)
+    inv = CRMInvoice(
+        invoice_number=inv_num_str, number=num_int, prefix=prefix, formatted_number=formatted,
+        customer_id=p.customer_id, status="draft", currency=p.currency,
+        discount_type=p.discount_type, discount_value=p.discount_value,
+        adjustment=p.adjustment, subtotal=p.subtotal, tax_total=p.tax_total,
+        discount_total=getattr(p, "discount_total", 0.0), total=p.total,
+        client_note=p.client_note, terms=p.terms, admin_note=getattr(p, "admin_note", None),
+        date=_utcnow(),
+    )
+    db.add(inv)
+    await db.flush()
+    for so, it in enumerate(p.items):
+        db.add(CRMLineItem(invoice_id=inv.id, description=it.description,
+                           long_description=it.long_description, qty=it.qty, rate=it.rate,
+                           discount=it.discount, tax_ids=it.tax_ids, amount=it.amount, sort_order=so))
+    p.converted_to_invoice_id = inv.id
+    p.converted_at = _utcnow()
+    p.status = "accepted"
+    await db.commit()
+    return {"ok": True, "invoice_id": inv.id, "formatted_number": formatted}
+
+
+@router.post("/api/proposals/{pid}/accept")
+async def accept_proposal(pid: int, request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid))
+    p = r.scalar_one_or_none()
+    if not p or getattr(p, "hash", "") != body.get("hash", ""):
+        raise HTTPException(404)
+    p.status = "accepted"
+    p.acceptance_first_name = body.get("first_name")
+    p.acceptance_last_name = body.get("last_name")
+    p.acceptance_email = body.get("email")
+    p.acceptance_date = _utcnow()
+    p.acceptance_ip = _client_ip(request)
+    p.signature_image = body.get("signature_image")
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/proposals/{pid}/decline")
+async def decline_proposal(pid: int, request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid))
+    p = r.scalar_one_or_none()
+    if not p or getattr(p, "hash", "") != body.get("hash", ""):
+        raise HTTPException(404)
+    p.status = "declined"
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/proposal/{pid}/{hash_val}", response_class=HTMLResponse)
+async def public_proposal_page(pid: int, hash_val: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMProposal).where(CRMProposal.id == pid)
+                         .options(selectinload(CRMProposal.customer), selectinload(CRMProposal.items)))
+    p = r.scalar_one_or_none()
+    if not p or getattr(p, "hash", "") != hash_val:
+        raise HTTPException(404)
+    items_html = "".join(
+        f"<tr><td>{i.description}</td><td style='text-align:right'>{i.qty}</td>"
+        f"<td style='text-align:right'>${i.rate:,.2f}</td>"
+        f"<td style='text-align:right'>${i.amount:,.2f}</td></tr>" for i in p.items
+    )
+    already = p.status in ("accepted", "declined")
+    accept_block = ""
+    if not already:
+        accept_block = f"""
+<div id="esign-section" style="margin-top:48px;padding:24px;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb">
+  <h2 style="margin-top:0">Accept This Proposal</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <input id="fn" placeholder="First Name" style="padding:8px;border:1px solid #d1d5db;border-radius:6px">
+    <input id="ln" placeholder="Last Name" style="padding:8px;border:1px solid #d1d5db;border-radius:6px">
+  </div>
+  <input id="em" placeholder="Email" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;width:100%;box-sizing:border-box;margin-bottom:16px">
+  <p style="margin:0 0 8px;font-weight:600">Signature:</p>
+  <canvas id="sig" width="600" height="150" style="border:1px solid #d1d5db;border-radius:6px;background:#fff;max-width:100%"></canvas>
+  <br><button onclick="clearSig()" style="margin-top:4px;padding:4px 10px;font-size:.8rem">Clear</button>
+  <div style="display:flex;gap:12px;margin-top:20px">
+    <button onclick="doAccept()" style="background:#10b981;color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-weight:600;font-size:1rem">✓ Accept Proposal</button>
+    <button onclick="doDecline()" style="background:#ef4444;color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-weight:600;font-size:1rem">✗ Decline</button>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('sig');const ctx=canvas.getContext('2d');let drawing=false;
+canvas.onmousedown=e=>{{drawing=true;ctx.beginPath();ctx.moveTo(e.offsetX,e.offsetY)}};
+canvas.onmousemove=e=>{{if(!drawing)return;ctx.lineTo(e.offsetX,e.offsetY);ctx.stroke()}};
+canvas.onmouseup=()=>drawing=false;canvas.onmouseleave=()=>drawing=false;
+canvas.ontouchstart=e=>{{e.preventDefault();const t=e.touches[0];const r=canvas.getBoundingClientRect();drawing=true;ctx.beginPath();ctx.moveTo(t.clientX-r.left,t.clientY-r.top)}};
+canvas.ontouchmove=e=>{{e.preventDefault();const t=e.touches[0];const r=canvas.getBoundingClientRect();ctx.lineTo(t.clientX-r.left,t.clientY-r.top);ctx.stroke()}};
+canvas.ontouchend=()=>drawing=false;
+function clearSig(){{ctx.clearRect(0,0,canvas.width,canvas.height)}}
+async function doAccept(){{
+  const fn=document.getElementById('fn').value.trim(),ln=document.getElementById('ln').value.trim(),em=document.getElementById('em').value.trim();
+  if(!fn||!ln||!em){{alert('Please fill in all fields');return}}
+  const sig=canvas.toDataURL();
+  const res=await fetch('/admin/api/proposals/{pid}/accept',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{hash:'{hash_val}',first_name:fn,last_name:ln,email:em,signature_image:sig}})}});
+  if(res.ok){{document.getElementById('esign-section').innerHTML='<p style="color:#10b981;font-size:1.2rem;font-weight:600">✓ Proposal accepted. Thank you!</p>'}}
+  else alert('Error accepting proposal')
+}}
+async function doDecline(){{
+  if(!confirm('Are you sure you want to decline this proposal?'))return;
+  const res=await fetch('/admin/api/proposals/{pid}/decline',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{hash:'{hash_val}'}})}});
+  if(res.ok){{document.getElementById('esign-section').innerHTML='<p style="color:#ef4444;font-weight:600">Proposal declined.</p>'}}
+}}
+</script>"""
+    status_color = {"accepted": "#10b981", "declined": "#ef4444", "sent": "#3b82f6", "draft": "#6b7280", "open": "#f59e0b"}.get(p.status, "#6b7280")
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposal {p.proposal_number}</title>
+<style>
+  body{{font-family:sans-serif;max-width:860px;margin:40px auto;padding:0 20px;color:#222}}
+  h1{{color:#6366f1}}
+  table{{width:100%;border-collapse:collapse;margin:16px 0}}
+  th,td{{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}}
+  th{{background:#f9fafb;font-weight:600}}
+  .badge{{display:inline-block;padding:4px 10px;border-radius:9999px;font-size:.8rem;font-weight:600;background:{status_color};color:#fff}}
+  .totals-row{{font-weight:600}}
+</style>
+</head><body>
+<h1>{p.subject}</h1>
+<p>Proposal #: <strong>{p.proposal_number}</strong> &nbsp; Status: <span class="badge">{p.status.title()}</span></p>
+{'<p>To: '+p.customer.company_name+'</p>' if p.customer else ''}
+<p>Date: {p.date.strftime('%B %d, %Y') if p.date else 'N/A'} &nbsp;|&nbsp; Valid till: {p.open_till.strftime('%B %d, %Y') if p.open_till else 'N/A'}</p>
+{f'<div style="margin:24px 0;padding:20px;background:#f9fafb;border-radius:8px">{p.content}</div>' if getattr(p,'content',None) else ''}
+<table>
+  <thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
+  <tbody>{items_html}</tbody>
+</table>
+<table style="max-width:360px;margin-left:auto">
+  <tr><td>Subtotal</td><td style="text-align:right">${p.subtotal:,.2f}</td></tr>
+  <tr><td>Discount</td><td style="text-align:right">-${getattr(p,'discount_total',0):,.2f}</td></tr>
+  <tr><td>Tax</td><td style="text-align:right">${p.tax_total:,.2f}</td></tr>
+  <tr><td>Adjustment</td><td style="text-align:right">${p.adjustment:,.2f}</td></tr>
+  <tr class="totals-row"><td>Total</td><td style="text-align:right">${p.total:,.2f}</td></tr>
+</table>
+{f'<h3>Note</h3><p>{p.client_note}</p>' if p.client_note else ''}
+{f'<h3>Terms</h3><p>{p.terms}</p>' if p.terms else ''}
+{accept_block}
+</body></html>"""
+    return HTMLResponse(html)
 
 
 # ── Expenses ──────────────────────────────────────────────────────────────────
@@ -4128,6 +4538,44 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS email_opt_ins TEXT",
         # crm_line_items — Module 12 additions
         "ALTER TABLE crm_line_items ADD COLUMN IF NOT EXISTS estimate_id INTEGER",
+        # crm_invoices — Module 15 additions
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS number INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS prefix VARCHAR(20) NOT NULL DEFAULT 'INV'",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS formatted_number VARCHAR(50) NOT NULL DEFAULT ''",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS sale_agent_id INTEGER",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS billing_address TEXT",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS shipping_address TEXT",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS discount_total DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS allowed_payment_modes TEXT",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS subscription_id INTEGER",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS hash VARCHAR(32)",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS last_overdue_reminder_at TIMESTAMP",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS last_due_reminder_at TIMESTAMP",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS cancel_overdue_reminders BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        # crm_proposals — Module 14 additions
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS number INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS prefix VARCHAR(20) NOT NULL DEFAULT 'PROP'",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS formatted_number VARCHAR(50) NOT NULL DEFAULT ''",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS sale_agent_id INTEGER",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS proposal_to TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS billing_address TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS shipping_address TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS pipeline_order INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS discount_total DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS content TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS admin_note TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS hash VARCHAR(32)",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS acceptance_first_name VARCHAR(100)",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS acceptance_last_name VARCHAR(100)",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS acceptance_email VARCHAR(255)",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS acceptance_date TIMESTAMP",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS acceptance_ip VARCHAR(45)",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS signature_image TEXT",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS converted_to_invoice_id INTEGER",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS converted_at TIMESTAMP",
+        "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
     ]
     for _sql in _migrations:
         try:
