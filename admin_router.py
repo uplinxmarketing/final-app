@@ -43,6 +43,7 @@ from admin_models import (
     CRMTicket, CRMTicketReply, CRMPredefinedReply, CRMSpamFilter,
     CRMKBGroup, CRMKBArticle, CRMKBArticleFeedback,
     CRMVaultEntry, CRMVaultEntryAccess,
+    CRMGoal,
 )
 
 router = APIRouter(prefix="/admin")
@@ -6471,6 +6472,10 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS rate_per_hour FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS project_cost FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS date_finished TIMESTAMP",
+        # crm_goals — Module 27 (tables auto-created; extra safety)
+        "ALTER TABLE crm_goals ADD COLUMN IF NOT EXISTS all_staff BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE crm_goals ADD COLUMN IF NOT EXISTS notify_on_success BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE crm_goals ADD COLUMN IF NOT EXISTS notify_on_failure BOOLEAN NOT NULL DEFAULT FALSE",
         # crm_kb_articles — Module 24 additions (tables auto-created; extra safety)
         "ALTER TABLE crm_kb_articles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         # crm_vault_entries — Module 25 additions (tables auto-created; extra safety)
@@ -6600,6 +6605,379 @@ async def init_admin_db(engine) -> None:
             db.add(admin)
 
         await db.commit()
+
+
+# ── Goals ─────────────────────────────────────────────────────────────────────
+
+GOAL_TYPES = [
+    "invoiced_amount", "paid_revenue", "leads_converted",
+    "new_clients", "hours_logged", "projects_completed",
+]
+
+
+async def _compute_goal_achieved(goal: CRMGoal, db: AsyncSession) -> float:
+    """Compute current achieved value for a goal based on its type and date range."""
+    uid_filter = []
+    if not goal.all_staff and goal.assigned_user_ids:
+        uid_filter = goal.assigned_user_ids
+
+    def date_cond(col):
+        conds = []
+        if goal.start_date:
+            conds.append(col >= goal.start_date)
+        if goal.end_date:
+            conds.append(col <= goal.end_date)
+        return conds
+
+    if goal.goal_type == "invoiced_amount":
+        q = select(func.coalesce(func.sum(CRMInvoice.subtotal + CRMInvoice.tax_total - CRMInvoice.discount_total), 0.0))
+        for c in date_cond(CRMInvoice.created_at):
+            q = q.where(c)
+        return float((await db.execute(q)).scalar() or 0)
+
+    if goal.goal_type == "paid_revenue":
+        q = select(func.coalesce(func.sum(CRMPayment.amount), 0.0)).where(CRMPayment.status == "completed")
+        for c in date_cond(CRMPayment.created_at):
+            q = q.where(c)
+        if uid_filter:
+            q = q.where(CRMPayment.created_by_user_id.in_(uid_filter))
+        return float((await db.execute(q)).scalar() or 0)
+
+    if goal.goal_type == "leads_converted":
+        q = select(func.count()).select_from(CRMLead).where(CRMLead.status_id.isnot(None))
+        for c in date_cond(CRMLead.created_at):
+            q = q.where(c)
+        if uid_filter:
+            q = q.where(CRMLead.assigned_to.in_(uid_filter))
+        return float((await db.execute(q)).scalar() or 0)
+
+    if goal.goal_type == "new_clients":
+        q = select(func.count()).select_from(CRMCustomer)
+        for c in date_cond(CRMCustomer.created_at):
+            q = q.where(c)
+        return float((await db.execute(q)).scalar() or 0)
+
+    if goal.goal_type == "hours_logged":
+        q = select(func.coalesce(func.sum(CRMTimesheet.duration), 0.0)).where(CRMTimesheet.end_time.isnot(None))
+        for c in date_cond(CRMTimesheet.start_time):
+            q = q.where(c)
+        if uid_filter:
+            q = q.where(CRMTimesheet.staff_id.in_(uid_filter))
+        return float((await db.execute(q)).scalar() or 0)
+
+    if goal.goal_type == "projects_completed":
+        q = select(func.count()).select_from(CRMProject).where(CRMProject.status == "finished")
+        for c in date_cond(CRMProject.created_at):
+            q = q.where(c)
+        return float((await db.execute(q)).scalar() or 0)
+
+    return 0.0
+
+
+def _goal_dict(g: CRMGoal, achieved: float = 0.0) -> dict:
+    pct = min(100.0, round(achieved / g.target_value * 100, 1)) if g.target_value else 0.0
+    return {
+        "id": g.id, "subject": g.subject, "goal_type": g.goal_type,
+        "target_value": g.target_value, "achieved_value": achieved, "percent": pct,
+        "start_date": g.start_date.isoformat() if g.start_date else None,
+        "end_date": g.end_date.isoformat() if g.end_date else None,
+        "assigned_user_ids": g.assigned_user_ids or [],
+        "all_staff": g.all_staff, "status": g.status,
+        "notify_on_success": g.notify_on_success,
+        "notify_on_failure": g.notify_on_failure,
+        "contract_type_id": g.contract_type_id,
+        "created_at": g.created_at.isoformat(),
+    }
+
+
+@router.get("/api/goals")
+async def list_goals(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    goals = (await db.execute(select(CRMGoal).order_by(desc(CRMGoal.created_at)))).scalars().all()
+    result = []
+    for g in goals:
+        achieved = await _compute_goal_achieved(g, db)
+        result.append(_goal_dict(g, achieved))
+    return result
+
+
+@router.post("/api/goals")
+async def create_goal(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    g = CRMGoal(
+        subject=req.get("subject", "Goal"),
+        goal_type=req.get("goal_type", "paid_revenue"),
+        target_value=float(req.get("target_value", 0)),
+        start_date=datetime.fromisoformat(req["start_date"]) if req.get("start_date") else None,
+        end_date=datetime.fromisoformat(req["end_date"]) if req.get("end_date") else None,
+        all_staff=req.get("all_staff", True),
+        assigned_user_ids=req.get("assigned_user_ids", []),
+        status=req.get("status", "active"),
+        notify_on_success=req.get("notify_on_success", True),
+        notify_on_failure=req.get("notify_on_failure", False),
+        contract_type_id=req.get("contract_type_id"),
+        created_by=staff.id,
+    )
+    db.add(g)
+    await db.flush()
+    return {"id": g.id}
+
+
+@router.put("/api/goals/{gid}")
+async def update_goal(gid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMGoal).where(CRMGoal.id == gid))
+    g = r.scalar_one_or_none()
+    if not g:
+        raise HTTPException(404)
+    for f in ("subject", "goal_type", "all_staff", "assigned_user_ids", "status",
+              "notify_on_success", "notify_on_failure", "contract_type_id"):
+        if f in req:
+            setattr(g, f, req[f])
+    if "target_value" in req:
+        g.target_value = float(req["target_value"])
+    if "start_date" in req:
+        g.start_date = datetime.fromisoformat(req["start_date"]) if req["start_date"] else None
+    if "end_date" in req:
+        g.end_date = datetime.fromisoformat(req["end_date"]) if req["end_date"] else None
+    return {"ok": True}
+
+
+@router.delete("/api/goals/{gid}")
+async def delete_goal(gid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMGoal).where(CRMGoal.id == gid))
+    return {"ok": True}
+
+
+# ── Reports ────────────────────────────────────────────────────────────────────
+
+@router.get("/api/reports/sales")
+async def report_sales(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    from_d = datetime.fromisoformat(from_date) if from_date else datetime(_utcnow().year, 1, 1, tzinfo=timezone.utc)
+    to_d = datetime.fromisoformat(to_date) if to_date else _utcnow()
+
+    # Monthly paid revenue
+    monthly_r = await db.execute(
+        select(extract("year", CRMPayment.created_at).label("yr"),
+               extract("month", CRMPayment.created_at).label("mo"),
+               func.sum(CRMPayment.amount).label("total"))
+        .where(CRMPayment.created_at >= from_d, CRMPayment.created_at <= to_d,
+               CRMPayment.status == "completed")
+        .group_by("yr", "mo").order_by("yr", "mo")
+    )
+    monthly = [{"year": int(r.yr), "month": int(r.mo), "total": float(r.total or 0)} for r in monthly_r]
+
+    # Top clients by revenue
+    top_clients_r = await db.execute(
+        select(CRMCustomer.company_name, func.sum(CRMPayment.amount).label("total"))
+        .join(CRMInvoice, CRMPayment.invoice_id == CRMInvoice.id)
+        .join(CRMCustomer, CRMInvoice.customer_id == CRMCustomer.id)
+        .where(CRMPayment.created_at >= from_d, CRMPayment.created_at <= to_d,
+               CRMPayment.status == "completed")
+        .group_by(CRMCustomer.company_name).order_by(desc("total")).limit(10)
+    )
+    top_clients = [{"name": r[0], "total": float(r[1] or 0)} for r in top_clients_r]
+
+    # Total summary
+    total_invoiced_r = await db.execute(
+        select(func.coalesce(func.sum(
+            CRMInvoice.subtotal + CRMInvoice.tax_total - CRMInvoice.discount_total), 0.0))
+        .where(CRMInvoice.created_at >= from_d, CRMInvoice.created_at <= to_d)
+    )
+    total_paid_r = await db.execute(
+        select(func.coalesce(func.sum(CRMPayment.amount), 0.0))
+        .where(CRMPayment.created_at >= from_d, CRMPayment.created_at <= to_d,
+               CRMPayment.status == "completed")
+    )
+    outstanding_r = await db.execute(
+        select(func.coalesce(func.sum(
+            CRMInvoice.subtotal + CRMInvoice.tax_total - CRMInvoice.discount_total), 0.0))
+        .where(CRMInvoice.status.in_(["unpaid", "partially_paid", "overdue"]),
+               CRMInvoice.due_date <= _utcnow())
+    )
+
+    return {
+        "from_date": from_d.isoformat(), "to_date": to_d.isoformat(),
+        "monthly": monthly, "top_clients": top_clients,
+        "total_invoiced": float(total_invoiced_r.scalar() or 0),
+        "total_paid": float(total_paid_r.scalar() or 0),
+        "outstanding": float(outstanding_r.scalar() or 0),
+    }
+
+
+@router.get("/api/reports/leads")
+async def report_leads(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    from_d = datetime.fromisoformat(from_date) if from_date else datetime(_utcnow().year, 1, 1, tzinfo=timezone.utc)
+    to_d = datetime.fromisoformat(to_date) if to_date else _utcnow()
+
+    base = select(CRMLead).where(CRMLead.created_at >= from_d, CRMLead.created_at <= to_d)
+
+    # By source
+    by_src_r = await db.execute(
+        select(CRMLeadSource.name, func.count(CRMLead.id))
+        .outerjoin(CRMLead, (CRMLead.source_id == CRMLeadSource.id) &
+                   (CRMLead.created_at >= from_d) & (CRMLead.created_at <= to_d))
+        .group_by(CRMLeadSource.name)
+    )
+    by_source = [{"source": r[0] or "Unknown", "count": r[1]} for r in by_src_r]
+
+    # By status
+    by_st_r = await db.execute(
+        select(CRMLeadStatus.name, CRMLeadStatus.color, func.count(CRMLead.id))
+        .outerjoin(CRMLead, (CRMLead.status_id == CRMLeadStatus.id) &
+                   (CRMLead.created_at >= from_d) & (CRMLead.created_at <= to_d))
+        .group_by(CRMLeadStatus.name, CRMLeadStatus.color)
+    )
+    by_status = [{"status": r[0], "color": r[1], "count": r[2]} for r in by_st_r]
+
+    total = (await db.execute(select(func.count()).select_from(CRMLead)
+                               .where(CRMLead.created_at >= from_d, CRMLead.created_at <= to_d))).scalar() or 0
+    converted = (await db.execute(select(func.count()).select_from(CRMLead)
+                                   .where(CRMLead.created_at >= from_d, CRMLead.created_at <= to_d,
+                                          CRMLead.converted == True))).scalar() or 0
+
+    return {
+        "from_date": from_d.isoformat(), "to_date": to_d.isoformat(),
+        "total": total, "converted": converted,
+        "conversion_rate": round(converted / total * 100, 1) if total else 0,
+        "by_source": by_source, "by_status": by_status,
+    }
+
+
+@router.get("/api/reports/leads-staff")
+async def report_leads_staff(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    from_d = datetime.fromisoformat(from_date) if from_date else datetime(_utcnow().year, 1, 1, tzinfo=timezone.utc)
+    to_d = datetime.fromisoformat(to_date) if to_date else _utcnow()
+
+    all_staff_r = await db.execute(select(StaffMember).where(StaffMember.is_active == True))
+    all_staff_list = all_staff_r.scalars().all()
+    result = []
+    for s in all_staff_list:
+        total_r = await db.execute(select(func.count()).select_from(CRMLead).where(
+            CRMLead.assigned_to == s.id, CRMLead.created_at >= from_d, CRMLead.created_at <= to_d))
+        conv_r = await db.execute(select(func.count()).select_from(CRMLead).where(
+            CRMLead.assigned_to == s.id, CRMLead.created_at >= from_d, CRMLead.created_at <= to_d,
+            CRMLead.converted == True))
+        total = total_r.scalar() or 0
+        conv = conv_r.scalar() or 0
+        if total == 0:
+            continue
+        result.append({
+            "staff_id": s.id, "full_name": s.full_name,
+            "assigned": total, "converted": conv,
+            "lost": total - conv,
+            "rate": round(conv / total * 100, 1) if total else 0,
+        })
+    return sorted(result, key=lambda x: x["converted"], reverse=True)
+
+
+@router.get("/api/reports/expenses")
+async def report_expenses(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    from_d = datetime.fromisoformat(from_date) if from_date else datetime(_utcnow().year, 1, 1, tzinfo=timezone.utc)
+    to_d = datetime.fromisoformat(to_date) if to_date else _utcnow()
+
+    by_cat_r = await db.execute(
+        select(CRMExpenseCategory.name, func.sum(CRMExpense.amount).label("total"),
+               func.count(CRMExpense.id).label("cnt"))
+        .outerjoin(CRMExpense, (CRMExpense.category_id == CRMExpenseCategory.id) &
+                   (CRMExpense.expense_date >= from_d) & (CRMExpense.expense_date <= to_d))
+        .group_by(CRMExpenseCategory.name).order_by(desc("total"))
+    )
+    by_category = [{"category": r[0], "total": float(r[1] or 0), "count": r[2]} for r in by_cat_r]
+
+    monthly_r = await db.execute(
+        select(extract("year", CRMExpense.expense_date).label("yr"),
+               extract("month", CRMExpense.expense_date).label("mo"),
+               func.sum(CRMExpense.amount).label("total"))
+        .where(CRMExpense.expense_date >= from_d, CRMExpense.expense_date <= to_d)
+        .group_by("yr", "mo").order_by("yr", "mo")
+    )
+    monthly = [{"year": int(r.yr), "month": int(r.mo), "total": float(r.total or 0)} for r in monthly_r]
+
+    total_r = await db.execute(
+        select(func.coalesce(func.sum(CRMExpense.amount), 0.0))
+        .where(CRMExpense.expense_date >= from_d, CRMExpense.expense_date <= to_d)
+    )
+    billable_r = await db.execute(
+        select(func.coalesce(func.sum(CRMExpense.amount), 0.0))
+        .where(CRMExpense.expense_date >= from_d, CRMExpense.expense_date <= to_d,
+               CRMExpense.billable == True)
+    )
+
+    return {
+        "from_date": from_d.isoformat(), "to_date": to_d.isoformat(),
+        "total": float(total_r.scalar() or 0),
+        "billable": float(billable_r.scalar() or 0),
+        "by_category": by_category, "monthly": monthly,
+    }
+
+
+@router.get("/api/reports/expenses-income")
+async def report_expenses_income(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    from_d = datetime.fromisoformat(from_date) if from_date else datetime(_utcnow().year, 1, 1, tzinfo=timezone.utc)
+    to_d = datetime.fromisoformat(to_date) if to_date else _utcnow()
+
+    income_r = await db.execute(
+        select(extract("year", CRMPayment.created_at).label("yr"),
+               extract("month", CRMPayment.created_at).label("mo"),
+               func.sum(CRMPayment.amount).label("total"))
+        .where(CRMPayment.created_at >= from_d, CRMPayment.created_at <= to_d,
+               CRMPayment.status == "completed")
+        .group_by("yr", "mo").order_by("yr", "mo")
+    )
+    income_map = {(int(r.yr), int(r.mo)): float(r.total or 0) for r in income_r}
+
+    exp_r = await db.execute(
+        select(extract("year", CRMExpense.expense_date).label("yr"),
+               extract("month", CRMExpense.expense_date).label("mo"),
+               func.sum(CRMExpense.amount).label("total"))
+        .where(CRMExpense.expense_date >= from_d, CRMExpense.expense_date <= to_d)
+        .group_by("yr", "mo").order_by("yr", "mo")
+    )
+    exp_map = {(int(r.yr), int(r.mo)): float(r.total or 0) for r in exp_r}
+
+    all_keys = sorted(set(income_map) | set(exp_map))
+    rows = []
+    for (yr, mo) in all_keys:
+        inc = income_map.get((yr, mo), 0)
+        exp = exp_map.get((yr, mo), 0)
+        rows.append({"year": yr, "month": mo, "income": inc, "expenses": exp, "profit": inc - exp})
+
+    return {"from_date": from_d.isoformat(), "to_date": to_d.isoformat(), "rows": rows}
+
+
+@router.get("/api/reports/kb")
+async def report_kb(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    articles_r = await db.execute(
+        select(CRMKBArticle)
+        .options(selectinload(CRMKBArticle.group), selectinload(CRMKBArticle.feedback))
+        .order_by(CRMKBArticle.group_id, CRMKBArticle.subject)
+    )
+    result = []
+    for a in articles_r.scalars().all():
+        helpful = sum(1 for f in (a.feedback or []) if f.vote == "helpful")
+        not_helpful = sum(1 for f in (a.feedback or []) if f.vote == "not_helpful")
+        total = helpful + not_helpful
+        result.append({
+            "id": a.id, "subject": a.subject,
+            "group_name": a.group.name if a.group else None,
+            "active": a.active, "staff_only": a.staff_only,
+            "helpful": helpful, "not_helpful": not_helpful, "total_votes": total,
+            "score": round(helpful / total * 100, 1) if total else None,
+        })
+    return result
 
 
 # ── Dashboard Layout ──────────────────────────────────────────────────────────

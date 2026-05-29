@@ -1643,3 +1643,29 @@ class CRMVaultEntryAccess(AdminBase):
 
     vault_entry: Mapped[CRMVaultEntry] = relationship("CRMVaultEntry", back_populates="access")
     user: Mapped["StaffMember"] = relationship("StaffMember", foreign_keys=[user_id])
+
+
+# ── Goals ─────────────────────────────────────────────────────────────────────
+
+class CRMGoal(AdminBase):
+    __tablename__ = "crm_goals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    goal_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # invoiced_amount | paid_revenue | leads_converted | new_clients | hours_logged | projects_completed
+    target_value: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    assigned_user_ids: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    all_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # active | achieved | failed
+    notify_on_success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notify_on_failure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    contract_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_contract_types.id", ondelete="SET NULL"), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    contract_type: Mapped[Optional["CRMContractType"]] = relationship("CRMContractType", foreign_keys=[contract_type_id])
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
