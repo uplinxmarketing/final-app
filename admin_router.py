@@ -5499,15 +5499,23 @@ async def update_settings(req: dict, staff: StaffMember = Depends(get_current_ad
 
 # ── Email Templates ───────────────────────────────────────────────────────────
 
+def _template_dict(t: CRMEmailTemplate, full: bool = False) -> dict:
+    d = {"id": t.id, "group": t.group, "name": t.name, "slug": t.slug,
+         "subject": t.subject, "is_active": t.is_active,
+         "from_name": t.from_name, "from_email": t.from_email,
+         "plain_text": t.plain_text,
+         "updated_at": t.updated_at.isoformat() if t.updated_at else None}
+    if full:
+        d["body"] = t.body
+    return d
+
+
 @router.get("/api/email-templates")
 async def list_email_templates(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(CRMEmailTemplate).order_by(CRMEmailTemplate.group, CRMEmailTemplate.name))
     result: dict = {}
     for t in r.scalars().all():
-        result.setdefault(t.group, []).append({
-            "id": t.id, "name": t.name, "slug": t.slug,
-            "subject": t.subject, "is_active": t.is_active,
-        })
+        result.setdefault(t.group, []).append(_template_dict(t))
     return result
 
 
@@ -5517,8 +5525,7 @@ async def get_email_template(tid: int, staff: StaffMember = Depends(get_current_
     t = r.scalar_one_or_none()
     if not t:
         raise HTTPException(404)
-    return {"id": t.id, "group": t.group, "name": t.name, "slug": t.slug,
-            "subject": t.subject, "body": t.body, "is_active": t.is_active}
+    return _template_dict(t, full=True)
 
 
 @router.put("/api/email-templates/{tid}")
@@ -5527,12 +5534,27 @@ async def update_email_template(tid: int, req: dict, staff: StaffMember = Depend
     t = r.scalar_one_or_none()
     if not t:
         raise HTTPException(404)
-    if "subject" in req:
-        t.subject = req["subject"]
-    if "body" in req:
-        t.body = req["body"]
-    if "is_active" in req:
-        t.is_active = req["is_active"]
+    for f in ("subject", "body", "is_active", "from_name", "from_email", "plain_text"):
+        if f in req:
+            setattr(t, f, req[f])
+    t.updated_at = _utcnow()
+    return {"ok": True}
+
+
+@router.post("/api/email-templates/{tid}/restore-default")
+async def restore_template_default(tid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEmailTemplate).where(CRMEmailTemplate.id == tid))
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    if t.default_body:
+        t.body = t.default_body
+    if t.default_subject:
+        t.subject = t.default_subject
+    t.from_name = None
+    t.from_email = None
+    t.plain_text = False
+    t.is_active = True
     t.updated_at = _utcnow()
     return {"ok": True}
 
@@ -6472,6 +6494,12 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS rate_per_hour FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS project_cost FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS date_finished TIMESTAMP",
+        # crm_email_templates — Module 29 additions
+        "ALTER TABLE crm_email_templates ADD COLUMN IF NOT EXISTS from_name VARCHAR(100)",
+        "ALTER TABLE crm_email_templates ADD COLUMN IF NOT EXISTS from_email VARCHAR(200)",
+        "ALTER TABLE crm_email_templates ADD COLUMN IF NOT EXISTS plain_text BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_email_templates ADD COLUMN IF NOT EXISTS default_body TEXT",
+        "ALTER TABLE crm_email_templates ADD COLUMN IF NOT EXISTS default_subject VARCHAR(255)",
         # crm_goals — Module 27 (tables auto-created; extra safety)
         "ALTER TABLE crm_goals ADD COLUMN IF NOT EXISTS all_staff BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE crm_goals ADD COLUMN IF NOT EXISTS notify_on_success BOOLEAN NOT NULL DEFAULT TRUE",
@@ -6603,6 +6631,87 @@ async def init_admin_db(engine) -> None:
                 is_admin=True,
             )
             db.add(admin)
+
+        # Seed email templates
+        et_exist = await db.execute(select(func.count()).select_from(CRMEmailTemplate))
+        if (et_exist.scalar() or 0) == 0:
+            _DEFAULT_TEMPLATES = [
+                # Client
+                ("client", "New Client Created", "new-client-created",
+                 "Welcome to {company_name}", "<p>Hi {contact_first_name},</p><p>Your account has been created at <strong>{company_name}</strong>. You can log in at {crm_url}.</p><p>Regards,<br>{company_name}</p>"),
+                ("client", "Contact Forgot Password", "contact-forgot-password",
+                 "Reset your password", "<p>Hi {contact_first_name},</p><p>Click the link below to reset your password:</p><p><a href='{reset_password_url}'>{reset_password_url}</a></p><p>This link expires in 2 hours.</p>"),
+                ("client", "Client Statement", "client-statement",
+                 "Account Statement — {company_name}", "<p>Hi {contact_first_name},</p><p>Please find attached your account statement for <strong>{client_company}</strong>.</p>"),
+                # Lead
+                ("lead", "New Lead Assigned", "new-lead-assigned",
+                 "New lead assigned to you: {lead_name}", "<p>Hi {staff_first_name},</p><p>A new lead has been assigned to you: <strong>{lead_name}</strong>.</p><p><a href='{lead_link}'>View Lead</a></p>"),
+                ("lead", "New Web-to-Lead Submission", "new-web-to-lead-form-submitted",
+                 "New Lead Form Submission", "<p>A new lead has been submitted via the website contact form.</p><p><strong>Name:</strong> {lead_name}<br><strong>Email:</strong> {lead_email}</p><p><a href='{lead_link}'>View in CRM</a></p>"),
+                # Estimate
+                ("estimate", "Send Estimate to Client", "estimate-send-to-client",
+                 "Estimate #{estimate_number} from {company_name}", "<p>Hi {contact_first_name},</p><p>Please find your estimate below.</p><p><strong>Estimate #:</strong> {estimate_number}<br><strong>Total:</strong> {estimate_total}<br><strong>Expires:</strong> {estimate_expiry_date}</p><p><a href='{estimate_link}'>View Estimate</a></p>"),
+                ("estimate", "Estimate Expiry Reminder", "estimate-expiry-reminder",
+                 "Your estimate #{estimate_number} is expiring soon", "<p>Hi {contact_first_name},</p><p>Your estimate <strong>#{estimate_number}</strong> from {company_name} expires soon on <strong>{estimate_expiry_date}</strong>.</p><p><a href='{estimate_link}'>View Estimate</a></p>"),
+                # Proposal
+                ("proposal", "Send Proposal to Client", "proposal-send-to-customer",
+                 "Proposal: {proposal_subject}", "<p>Hi {contact_first_name},</p><p>We have prepared a proposal for you.</p><p><strong>Subject:</strong> {proposal_subject}<br><strong>Total:</strong> {proposal_total}<br><strong>Valid until:</strong> {proposal_open_till}</p><p><a href='{proposal_link}'>View Proposal</a></p>"),
+                ("proposal", "Proposal Accepted — to Staff", "proposal-client-accepted",
+                 "Proposal #{proposal_number} accepted", "<p>{contact_first_name} {contact_last_name} has accepted proposal #{proposal_number}.</p><p><a href='{proposal_link}'>View Proposal</a></p>"),
+                ("proposal", "Proposal Declined — to Staff", "proposal-client-declined",
+                 "Proposal #{proposal_number} declined", "<p>{contact_first_name} {contact_last_name} has declined proposal #{proposal_number}.</p><p><a href='{proposal_link}'>View Proposal</a></p>"),
+                # Invoice
+                ("invoice", "Send Invoice to Client", "invoice-send-to-client",
+                 "Invoice #{invoice_number} from {company_name}", "<p>Hi {contact_first_name},</p><p>Please find your invoice attached.</p><p><strong>Invoice #:</strong> {invoice_number}<br><strong>Due Date:</strong> {invoice_due_date}<br><strong>Amount Due:</strong> {invoice_due_amount}</p><p><a href='{invoice_link}'>View &amp; Pay Invoice</a></p>"),
+                ("invoice", "Invoice Payment Recorded", "invoice-payment-recorded",
+                 "Payment received for Invoice #{invoice_number}", "<p>Hi {contact_first_name},</p><p>Thank you — we have received your payment for Invoice <strong>#{invoice_number}</strong>.</p>"),
+                ("invoice", "Invoice Overdue Notice", "invoice-overdue-notice",
+                 "Invoice #{invoice_number} is overdue", "<p>Hi {contact_first_name},</p><p>Invoice <strong>#{invoice_number}</strong> (Amount: {invoice_due_amount}) is now overdue.</p><p>Please make payment at your earliest convenience: <a href='{invoice_link}'>{invoice_link}</a></p>"),
+                ("invoice", "Invoice Due Reminder", "invoice-due-notice",
+                 "Invoice #{invoice_number} due soon", "<p>Hi {contact_first_name},</p><p>A friendly reminder that Invoice <strong>#{invoice_number}</strong> (Amount: {invoice_due_amount}) is due on <strong>{invoice_due_date}</strong>.</p><p><a href='{invoice_link}'>Pay Now</a></p>"),
+                # Credit Note
+                ("credit_note", "Send Credit Note to Client", "credit-note-send-to-client",
+                 "Credit Note #{credit_note_number} from {company_name}", "<p>Hi {contact_first_name},</p><p>A credit note has been issued to your account.</p><p><strong>Credit Note #:</strong> {credit_note_number}<br><strong>Date:</strong> {credit_note_date}<br><strong>Amount:</strong> {credit_note_total}</p>"),
+                # Contract
+                ("contract", "Send Contract to Client", "send-contract",
+                 "Contract for review: {contract_subject}", "<p>Hi {contact_first_name},</p><p>Please review and sign the following contract:</p><p><strong>Subject:</strong> {contract_subject}<br><strong>Value:</strong> {contract_value}<br><strong>Period:</strong> {contract_start_date} – {contract_end_date}</p><p><a href='{contract_link}'>View &amp; Sign Contract</a></p>"),
+                ("contract", "Contract Signed — to Staff", "contract-signed-to-staff",
+                 "Contract signed: {contract_subject}", "<p>The contract <strong>{contract_subject}</strong> has been signed by the client.</p><p><a href='{contract_link}'>View Contract</a></p>"),
+                ("contract", "Contract Expiry Reminder", "contract-expiration",
+                 "Contract expiring soon: {contract_subject}", "<p>Hi {contact_first_name},</p><p>Your contract <strong>{contract_subject}</strong> is expiring on <strong>{contract_end_date}</strong>.</p>"),
+                # Project
+                ("project", "Assigned to Project", "assigned-to-project",
+                 "You have been assigned to project: {project_name}", "<p>Hi {staff_first_name},</p><p>You have been assigned to the project <strong>{project_name}</strong>.</p><p><a href='{project_link}'>View Project</a></p>"),
+                ("project", "Project Finished — to Customer", "project-finished-to-customer",
+                 "Project {project_name} is complete!", "<p>Hi {contact_first_name},</p><p>Great news! Your project <strong>{project_name}</strong> has been marked as complete.</p>"),
+                # Task
+                ("task", "Task Assigned", "task-assigned",
+                 "Task assigned: {task_name}", "<p>Hi {staff_first_name},</p><p>A task has been assigned to you: <strong>{task_name}</strong>.</p><p><strong>Due:</strong> {task_due_date}<br><strong>Priority:</strong> {task_priority}</p><p><a href='{task_link}'>View Task</a></p>"),
+                ("task", "Task Deadline Notification", "task-deadline-notification",
+                 "Task due soon: {task_name}", "<p>Hi {staff_first_name},</p><p>The task <strong>{task_name}</strong> is due on <strong>{task_due_date}</strong>.</p>"),
+                # Ticket
+                ("ticket", "New Ticket — to Admin", "new-ticket-opened-admin",
+                 "New support ticket: {ticket_subject}", "<p>A new support ticket has been opened.</p><p><strong>ID:</strong> {ticket_id}<br><strong>Subject:</strong> {ticket_subject}<br><strong>Department:</strong> {ticket_department}<br><strong>Priority:</strong> {ticket_priority}</p><p><a href='{ticket_url}'>View Ticket</a></p>"),
+                ("ticket", "Ticket Auto-Response", "ticket-autoresponse",
+                 "We received your ticket: {ticket_subject}", "<p>Hi,</p><p>Thank you for contacting us. We have received your support request and will get back to you shortly.</p><p><strong>Ticket ID:</strong> {ticket_id}<br><strong>Subject:</strong> {ticket_subject}</p>"),
+                ("ticket", "Ticket Reply", "ticket-reply",
+                 "Re: {ticket_subject} [#{ticket_id}]", "<p>Hi,</p><p>There has been a new reply to your support ticket.</p><p><a href='{ticket_url}'>View Ticket</a></p>"),
+                # Staff
+                ("staff", "New Staff Created", "new-staff-created",
+                 "Welcome to {company_name}", "<p>Hi {staff_first_name},</p><p>Your staff account has been created at <strong>{company_name}</strong>.</p><p><strong>Email:</strong> {staff_email}<br><strong>Password:</strong> {password}</p><p>Please log in and change your password immediately.</p>"),
+                ("staff", "Staff Forgot Password", "staff-forgot-password",
+                 "Reset your password", "<p>Hi {staff_first_name},</p><p>Click the link below to reset your password:</p><p><a href='{reset_password_url}'>{reset_password_url}</a></p><p>This link expires in 2 hours. If you did not request this, ignore this email.</p>"),
+                # GDPR
+                ("gdpr", "GDPR Removal Request", "gdpr-removal-request",
+                 "Data Removal Request from {contact_first_name} {contact_last_name}", "<p>A data removal request has been submitted by:</p><p><strong>Name:</strong> {contact_first_name} {contact_last_name}<br><strong>Email:</strong> {contact_email}</p><p>Please review and process this request in accordance with your data protection policy.</p>"),
+            ]
+            for grp, name, slug, subject, body in _DEFAULT_TEMPLATES:
+                db.add(CRMEmailTemplate(
+                    group=grp, name=name, slug=slug,
+                    subject=subject, body=body,
+                    default_subject=subject, default_body=body,
+                    is_active=True,
+                ))
 
         await db.commit()
 

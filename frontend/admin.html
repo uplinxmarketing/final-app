@@ -6813,8 +6813,457 @@ async function deleteRole(id){
   if (res.ok) { toast('Role deleted','success'); nav('roles'); }
   else { const d=await res.json(); toast(d.detail||'Failed to delete','error'); }
 }
-function pgEmailTemplates(){return pgPlaceholder('Email Templates')}
-function pgSettings(){return pgPlaceholder('Settings')}
+/* ── Module 29: Email Templates ─────────────────────────────────────────────*/
+const ET_GROUP_LABELS = {
+  client:'Client',lead:'Lead',estimate:'Estimate',proposal:'Proposal',
+  invoice:'Invoice',credit_note:'Credit Note',contract:'Contract',
+  subscription:'Subscription',project:'Project',task:'Task',
+  ticket:'Ticket',staff:'Staff',gdpr:'GDPR',notifications:'Notifications'
+};
+const ET_MERGE_TAGS = {
+  system:['{company_name}','{crm_url}','{admin_url}','{email_signature}'],
+  contact:['{contact_first_name}','{contact_last_name}','{contact_email}','{contact_phone}'],
+  client:['{client_company}','{client_address}','{client_email}','{client_vat}'],
+  staff:['{staff_first_name}','{staff_last_name}','{staff_email}','{password}'],
+  invoice:['{invoice_number}','{invoice_status}','{invoice_link}','{invoice_due_date}','{invoice_total}','{invoice_due_amount}'],
+  estimate:['{estimate_number}','{estimate_status}','{estimate_link}','{estimate_total}','{estimate_expiry_date}'],
+  proposal:['{proposal_number}','{proposal_subject}','{proposal_link}','{proposal_total}','{proposal_open_till}'],
+  credit_note:['{credit_note_number}','{credit_note_date}','{credit_note_total}'],
+  contract:['{contract_subject}','{contract_link}','{contract_start_date}','{contract_end_date}','{contract_value}'],
+  project:['{project_name}','{project_link}','{project_start_date}','{project_deadline}'],
+  task:['{task_name}','{task_link}','{task_start_date}','{task_due_date}','{task_priority}','{task_status}'],
+  lead:['{lead_name}','{lead_email}','{lead_link}','{lead_assigned}'],
+  ticket:['{ticket_id}','{ticket_subject}','{ticket_url}','{ticket_department}','{ticket_priority}'],
+  auth:['{reset_password_url}','{set_password_url}','{email_verification_url}','{two_factor_auth_code}'],
+};
+let _etGroups = {};
+let _etSelGroup = null;
+let _etEditId = null;
+let _etTemplate = null;
+
+async function pgEmailTemplates() {
+  return `<div class="pg-hdr">
+    <h1 class="pg-title"><i class="fa-solid fa-envelope-open-text"></i> Email Templates</h1>
+  </div>
+  <div style="display:flex;gap:0;min-height:600px">
+    <div id="et-sidebar" style="width:200px;flex-shrink:0;border-right:1px solid #e5e7eb;padding-right:16px;margin-right:16px"></div>
+    <div id="et-main" style="flex:1;min-width:0"></div>
+  </div>
+  <script>initEmailTemplates()<\/script>`;
+}
+
+async function initEmailTemplates() {
+  const r = await apiFetch('/admin/api/email-templates');
+  _etGroups = await r.json();
+  _etSelGroup = Object.keys(_etGroups)[0] || null;
+  renderEtSidebar();
+  renderEtList();
+}
+
+function renderEtSidebar() {
+  const el = document.getElementById('et-sidebar');
+  if (!el) return;
+  el.innerHTML = Object.keys(ET_GROUP_LABELS).map(g => {
+    const count = (_etGroups[g] || []).length;
+    if (count === 0) return '';
+    return `<div onclick="etSelectGroup('${g}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_etSelGroup===g?'#eff6ff':'none'}">
+      <span style="font-size:13px;font-weight:${_etSelGroup===g?'600':'400'};color:${_etSelGroup===g?'#6366f1':'#374151'}">${ET_GROUP_LABELS[g]||g}</span>
+      <span style="font-size:11px;color:#9ca3af">${count}</span>
+    </div>`;
+  }).join('');
+}
+
+function etSelectGroup(g) {
+  _etSelGroup = g;
+  _etEditId = null;
+  renderEtSidebar();
+  renderEtList();
+}
+
+function renderEtList() {
+  const el = document.getElementById('et-main');
+  if (!el) return;
+  const templates = _etGroups[_etSelGroup] || [];
+  el.innerHTML = `<div class="card" style="padding:0">
+    <div style="padding:14px 20px;border-bottom:1px solid #f3f4f6">
+      <span style="font-weight:600;font-size:15px">${ET_GROUP_LABELS[_etSelGroup]||_etSelGroup} Templates</span>
+      <span style="font-size:12px;color:#9ca3af;margin-left:8px">${templates.length} templates</span>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Name</th><th>Subject</th><th>Active</th><th>Last Updated</th><th></th></tr></thead>
+      <tbody>
+        ${templates.length===0 ? `<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:32px">No templates in this category</td></tr>` :
+          templates.map(t => `<tr>
+            <td style="font-weight:500">${esc(t.name)}</td>
+            <td style="font-size:12px;color:#6b7280;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.subject)}</td>
+            <td>
+              <label style="position:relative;display:inline-block;width:36px;height:20px;cursor:pointer">
+                <input type="checkbox" ${t.is_active?'checked':''} onchange="toggleEtActive(${t.id},this.checked)" style="opacity:0;width:0;height:0">
+                <span style="position:absolute;inset:0;background:${t.is_active?'#6366f1':'#d1d5db'};border-radius:20px;transition:.2s"></span>
+                <span style="position:absolute;height:14px;width:14px;left:${t.is_active?'19px':'3px'};bottom:3px;background:#fff;border-radius:50%;transition:.2s"></span>
+              </label>
+            </td>
+            <td style="font-size:12px;color:#9ca3af">${t.updated_at?new Date(t.updated_at).toLocaleDateString():'—'}</td>
+            <td style="text-align:right">
+              <button class="btn-pri btn-sm" onclick="editEmailTemplate(${t.id})"><i class="fa-solid fa-pen"></i> Edit</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function toggleEtActive(id, val) {
+  await apiFetch(`/admin/api/email-templates/${id}`, { method:'PUT', body: JSON.stringify({is_active: val}) });
+  const allT = _etGroups[_etSelGroup];
+  const t = allT?.find(t=>t.id===id);
+  if (t) t.is_active = val;
+}
+
+async function editEmailTemplate(id) {
+  const r = await apiFetch(`/admin/api/email-templates/${id}`);
+  _etTemplate = await r.json();
+  _etEditId = id;
+  renderEtEditor();
+}
+
+function renderEtEditor() {
+  const el = document.getElementById('et-main');
+  const t = _etTemplate;
+  if (!el || !t) return;
+  const grpTags = ET_MERGE_TAGS[t.group] || [];
+  const allTags = [...ET_MERGE_TAGS.system, ...ET_MERGE_TAGS.contact, ...ET_MERGE_TAGS.client, ...grpTags, ...ET_MERGE_TAGS.auth];
+  el.innerHTML = `<div class="card" style="padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="margin:0">${esc(t.name)}</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sec btn-sm" onclick="restoreEtDefault(${t.id})"><i class="fa-solid fa-rotate-left"></i> Restore Default</button>
+        <button class="btn-sec" onclick="renderEtList()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+        <button class="btn-pri" onclick="saveEmailTemplate()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 240px;gap:20px">
+      <div>
+        <div class="fg" style="margin-bottom:12px">
+          <label class="lbl">SUBJECT</label>
+          <div style="display:flex;gap:8px">
+            <input id="et-subject" class="fc" value="${esc(t.subject)}">
+            <button class="btn-sec btn-sm" title="Insert tag" onclick="document.getElementById('et-subject').focus()" style="white-space:nowrap"><i class="fa-solid fa-tags"></i></button>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="lbl">BODY (HTML)</label>
+          <textarea id="et-body" class="fc" rows="20" style="font-family:monospace;font-size:12px;resize:vertical">${esc(t.body)}</textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div class="fg"><label class="lbl">FROM NAME (OVERRIDE)</label><input id="et-from-name" class="fc" value="${esc(t.from_name||'')}" placeholder="Leave blank to use system default"></div>
+          <div class="fg"><label class="lbl">FROM EMAIL (OVERRIDE)</label><input id="et-from-email" class="fc" type="email" value="${esc(t.from_email||'')}" placeholder="Leave blank to use system default"></div>
+        </div>
+        <div style="display:flex;gap:20px;margin-top:12px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="et-plain-text" ${t.plain_text?'checked':''}> Plain text only
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="et-active" ${t.is_active?'checked':''}> Active
+          </label>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Available Merge Tags</div>
+        <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">Click to copy · paste into subject or body</div>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:460px;overflow-y:auto">
+          ${allTags.map(tag => `<button onclick="etInsertTag('${tag}')" style="text-align:left;padding:5px 8px;font-size:11px;font-family:monospace;background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;color:#6366f1;transition:background .15s" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#f8fafc'">${tag}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function etInsertTag(tag) {
+  const body = document.getElementById('et-body');
+  const subj = document.getElementById('et-subject');
+  const active = document.activeElement;
+  const target = (active === subj) ? subj : body;
+  if (!target) { navigator.clipboard?.writeText(tag); showToast('Copied: '+tag, 'success'); return; }
+  const start = target.selectionStart, end = target.selectionEnd;
+  target.value = target.value.slice(0, start) + tag + target.value.slice(end);
+  target.selectionStart = target.selectionEnd = start + tag.length;
+  target.focus();
+}
+
+async function saveEmailTemplate() {
+  const body = {
+    subject: document.getElementById('et-subject').value,
+    body: document.getElementById('et-body').value,
+    from_name: document.getElementById('et-from-name').value.trim() || null,
+    from_email: document.getElementById('et-from-email').value.trim() || null,
+    plain_text: document.getElementById('et-plain-text').checked,
+    is_active: document.getElementById('et-active').checked,
+  };
+  await apiFetch(`/admin/api/email-templates/${_etEditId}`, { method:'PUT', body: JSON.stringify(body) });
+  showToast('Template saved', 'success');
+  const allR = await apiFetch('/admin/api/email-templates');
+  _etGroups = await allR.json();
+}
+
+async function restoreEtDefault(id) {
+  if (!confirm('Restore this template to factory defaults? Your edits will be lost.')) return;
+  await apiFetch(`/admin/api/email-templates/${id}/restore-default`, { method:'POST' });
+  showToast('Restored to default', 'success');
+  await editEmailTemplate(id);
+}
+
+/* ── Module 30: Settings ─────────────────────────────────────────────────────*/
+const SETTINGS_CATEGORIES = [
+  {id:'general', label:'General', icon:'fa-building'},
+  {id:'company', label:'Company Info', icon:'fa-id-card'},
+  {id:'localization', label:'Localization', icon:'fa-globe'},
+  {id:'email', label:'Email (SMTP)', icon:'fa-envelope'},
+  {id:'invoices', label:'Invoices', icon:'fa-file-invoice-dollar'},
+  {id:'estimates', label:'Estimates', icon:'fa-file-pen'},
+  {id:'proposals', label:'Proposals', icon:'fa-handshake'},
+  {id:'clients', label:'Clients / Portal', icon:'fa-users'},
+  {id:'tasks', label:'Tasks', icon:'fa-list-check'},
+  {id:'tickets', label:'Tickets', icon:'fa-ticket'},
+  {id:'pdf', label:'PDF', icon:'fa-file-pdf'},
+  {id:'gdpr', label:'GDPR', icon:'fa-shield-halved'},
+  {id:'misc', label:'Miscellaneous', icon:'fa-sliders'},
+];
+let _settingsCat = 'general';
+let _settingsData = {};
+
+async function pgSettings() {
+  return `<div class="pg-hdr">
+    <h1 class="pg-title"><i class="fa-solid fa-cog"></i> Settings</h1>
+    <button class="btn-pri" onclick="saveSettings()"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+  </div>
+  <div style="display:flex;gap:0;min-height:600px">
+    <div id="settings-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid #e5e7eb;padding-right:16px;margin-right:16px"></div>
+    <div id="settings-main" style="flex:1;min-width:0"></div>
+  </div>
+  <script>initSettings()<\/script>`;
+}
+
+async function initSettings() {
+  const r = await apiFetch('/admin/api/settings');
+  _settingsData = await r.json();
+  renderSettingsSidebar();
+  renderSettingsPane();
+}
+
+function renderSettingsSidebar() {
+  const el = document.getElementById('settings-sidebar');
+  if (!el) return;
+  el.innerHTML = SETTINGS_CATEGORIES.map(c => `<div onclick="setSettingsCat('${c.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_settingsCat===c.id?'#eff6ff':'none'}">
+    <i class="fa-solid ${c.icon}" style="font-size:12px;color:${_settingsCat===c.id?'#6366f1':'#9ca3af'};width:14px;text-align:center"></i>
+    <span style="font-size:13px;font-weight:${_settingsCat===c.id?'600':'400'};color:${_settingsCat===c.id?'#6366f1':'#374151'}">${c.label}</span>
+  </div>`).join('');
+}
+
+function setSettingsCat(cat) {
+  _settingsCat = cat;
+  renderSettingsSidebar();
+  renderSettingsPane();
+}
+
+function sv(key, fallback='') { return _settingsData[key] !== undefined ? _settingsData[key] : fallback; }
+
+function sfRow(label, key, type='text', placeholder='', opts=null) {
+  if (type==='toggle') {
+    const checked = sv(key,'false') === 'true';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #f9fafb">
+      <label style="font-size:13px;color:#374151;cursor:pointer" for="sf-${key}">${label}</label>
+      <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
+        <input type="checkbox" id="sf-${key}" data-key="${key}" ${checked?'checked':''} style="opacity:0;width:0;height:0">
+        <span style="position:absolute;inset:0;background:${checked?'#6366f1':'#d1d5db'};border-radius:20px;transition:.2s;cursor:pointer"></span>
+        <span style="position:absolute;height:16px;width:16px;left:${checked?'21px':'3px'};bottom:3px;background:#fff;border-radius:50%;transition:.2s;pointer-events:none"></span>
+      </label>
+    </div>`;
+  }
+  if (type==='select' && opts) {
+    return `<div class="fg" style="margin-bottom:12px">
+      <label class="lbl">${label}</label>
+      <select id="sf-${key}" data-key="${key}" class="fc">${opts.map(o=>`<option value="${o[0]}" ${sv(key)===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select>
+    </div>`;
+  }
+  if (type==='textarea') {
+    return `<div class="fg" style="margin-bottom:12px">
+      <label class="lbl">${label}</label>
+      <textarea id="sf-${key}" data-key="${key}" class="fc" rows="4" placeholder="${placeholder}">${esc(sv(key))}</textarea>
+    </div>`;
+  }
+  return `<div class="fg" style="margin-bottom:12px">
+    <label class="lbl">${label}</label>
+    <input id="sf-${key}" data-key="${key}" type="${type}" class="fc" value="${esc(sv(key))}" placeholder="${placeholder}">
+  </div>`;
+}
+
+function renderSettingsPane() {
+  const el = document.getElementById('settings-main');
+  if (!el) return;
+  const cat = _settingsCat;
+  let html = `<div class="card" style="padding:24px">`;
+
+  if (cat === 'general') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">General</div>`;
+    html += sfRow('Company Name','company_name','text','Uplinx');
+    html += sfRow('System Admin Email','admin_email','email','admin@example.com');
+    html += sfRow('Base URL / Domain','base_url','text','https://app.yourdomain.com');
+    html += sfRow('Logo URL (light)','logo_url','text','');
+    html += sfRow('Logo URL (dark)','logo_dark_url','text','');
+    html += sfRow('Favicon URL','favicon_url','text','');
+    html += sfRow('Enable RTL Mode','rtl_mode','toggle');
+    html += sfRow('Default Language','default_language','select','',[['en','English'],['es','Spanish'],['fr','French'],['ar','Arabic']]);
+  } else if (cat === 'company') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Company Info (used in PDF headers)</div>`;
+    html += sfRow('Company Address','company_address','textarea','');
+    html += sfRow('VAT / Tax Number','company_vat','text','');
+    html += sfRow('Phone','company_phone','text','');
+    html += sfRow('City','company_city','text','');
+    html += sfRow('State / Province','company_state','text','');
+    html += sfRow('Country','company_country','text','');
+    html += sfRow('Zip Code','company_zip','text','');
+    html += sfRow('Website','company_website','text','');
+  } else if (cat === 'localization') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Localization</div>`;
+    html += sfRow('Timezone','timezone','select','',Intl.supportedValuesOf?.('timeZone')?.slice(0,10).map(tz=>[tz,tz]) || [['UTC','UTC'],['America/New_York','America/New_York'],['Europe/London','Europe/London']]);
+    html += sfRow('Date Format','date_format','select','',[['Y-m-d','YYYY-MM-DD'],['d/m/Y','DD/MM/YYYY'],['m/d/Y','MM/DD/YYYY'],['d.m.Y','DD.MM.YYYY']]);
+    html += sfRow('Time Format','time_format','select','',[['24','24-hour'],['12','12-hour']]);
+    html += sfRow('Decimal Separator','decimal_separator','select','',[['.','. (dot)'],[ ',',', (comma)']]);
+    html += sfRow('Thousands Separator','thousands_separator','select','',[[ ',',', (comma)'],['.', '. (dot)'],[ '\'','Apostrophe']]);
+    html += sfRow('Week Starts On','week_start','select','',[['1','Monday'],['0','Sunday']]);
+    html += sfRow('Currency Code','default_currency','text','USD');
+  } else if (cat === 'email') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Email / SMTP</div>`;
+    html += `<div class="card" style="background:#fef3c7;border:none;padding:12px;margin-bottom:20px;font-size:12px;color:#92400e"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px"></i>SMTP passwords are stored in the database. Use environment variables for production secrets.</div>`;
+    html += sfRow('SMTP Host','smtp_host','text','smtp.gmail.com');
+    html += sfRow('SMTP Port','smtp_port','text','587');
+    html += sfRow('SMTP Username','smtp_username','text','');
+    html += sfRow('SMTP Password','smtp_password','password','');
+    html += sfRow('Encryption','smtp_encryption','select','',[['tls','TLS'],['ssl','SSL'],['none','None']]);
+    html += sfRow('From Name','email_from_name','text','');
+    html += sfRow('From Email','email_from_email','email','');
+    html += sfRow('BCC Archive','email_bcc','email','Leave blank to disable');
+    html += sfRow('Use Email Queue (recommended)','email_queue_enabled','toggle');
+    html += sfRow('Email Header HTML','email_header_html','textarea','HTML shown above every email');
+    html += sfRow('Email Footer HTML','email_footer_html','textarea','HTML shown below every email');
+  } else if (cat === 'invoices') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Invoices</div>`;
+    html += sfRow('Invoice Prefix','invoice_prefix','text','INV');
+    html += sfRow('Number Padding (digits)','invoice_number_padding','text','5');
+    html += sfRow('Payment Due (days)','invoice_due_days','text','14');
+    html += sfRow('Overdue Reminder (days after due)','invoice_overdue_reminder_days','text','3');
+    html += sfRow('Due Reminder (days before due)','invoice_due_reminder_days','text','2');
+    html += sfRow('Show Payment Info on PDF','invoice_show_payment_info','toggle');
+    html += sfRow('Show Pay Link on PDF','invoice_show_pay_link','toggle');
+    html += sfRow('Auto-cancel Overdue Reminders on Payment','invoice_cancel_overdue_on_pay','toggle');
+    html += sfRow('Predefined Terms (PDF)','invoice_predefined_terms','textarea','');
+    html += sfRow('Predefined Client Note','invoice_client_note','textarea','');
+  } else if (cat === 'estimates') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Estimates</div>`;
+    html += sfRow('Estimate Prefix','estimate_prefix','text','EST');
+    html += sfRow('Number Padding (digits)','estimate_number_padding','text','5');
+    html += sfRow('Expiry (days after creation)','estimate_expiry_days','text','30');
+    html += sfRow('Expiry Reminder (days before)','estimate_expiry_reminder_days','text','5');
+    html += sfRow('Auto-convert to Invoice on Accept','estimate_auto_convert','toggle');
+    html += sfRow('Require Identity Confirmation on Accept','estimate_require_confirmation','toggle');
+    html += sfRow('Predefined Terms','estimate_predefined_terms','textarea','');
+    html += sfRow('Predefined Client Note','estimate_client_note','textarea','');
+  } else if (cat === 'proposals') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Proposals</div>`;
+    html += sfRow('Proposal Prefix','proposal_prefix','text','PROP');
+    html += sfRow('Open For (days)','proposal_due_days','text','30');
+    html += sfRow('Expiry Reminder (days before)','proposal_expiry_reminder_days','text','5');
+    html += sfRow('Require Identity Confirmation on Accept','proposal_require_confirmation','toggle');
+    html += sfRow('Auto-convert to Invoice on Accept','proposal_auto_convert','toggle');
+  } else if (cat === 'clients') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Client Portal</div>`;
+    html += sfRow('Allow Self-Registration','client_portal_registration','toggle');
+    html += sfRow('Require Email Verification','client_portal_email_verification','toggle');
+    html += sfRow('Require Admin Approval','client_portal_admin_approval','toggle');
+    html += sfRow('Default Country','client_default_country','text','United States');
+    html += sfRow('reCAPTCHA Site Key','recaptcha_site_key','text','');
+    html += sfRow('reCAPTCHA Secret Key','recaptcha_secret_key','text','');
+    html += sfRow('Enable reCAPTCHA on Portal','recaptcha_enabled','toggle');
+    html += `<div style="font-size:13px;font-weight:600;margin:20px 0 12px;color:#374151">Visible Portal Tabs</div>`;
+    const portalTabs = ['invoices','estimates','proposals','contracts','projects','tickets','statements'];
+    const enabledTabs = (sv('portal_visible_tabs')||portalTabs.join(',')).split(',');
+    html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+      ${portalTabs.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:6px 12px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer">
+        <input type="checkbox" id="sf-ptab-${t}" ${enabledTabs.includes(t)?'checked':''} data-portal-tab="${t}"> ${t.charAt(0).toUpperCase()+t.slice(1)}
+      </label>`).join('')}
+    </div>`;
+  } else if (cat === 'tasks') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Tasks</div>`;
+    html += sfRow('Default Priority','task_default_priority','select','',[['low','Low'],['medium','Medium'],['high','High'],['urgent','Urgent']]);
+    html += sfRow('Billable by Default','task_billable_default','toggle');
+    html += sfRow('Auto-assign creator as follower','task_auto_follow','toggle');
+    html += sfRow('Task Reminder (hours before due)','task_reminder_hours','text','24');
+    html += sfRow('Hard-stop Timer After (hours, 0=off)','task_timer_hard_stop','text','0');
+  } else if (cat === 'tickets') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Tickets</div>`;
+    html += sfRow('Auto-close After (days, 0=off)','ticket_auto_close_days','text','0');
+    html += sfRow('Max Attachments per Reply','ticket_max_attachments','text','5');
+    html += sfRow('Allowed Attachment Extensions','ticket_allowed_extensions','text','.pdf,.png,.jpg,.zip,.txt');
+    html += sfRow('Show Only Own Tickets to Non-assigned Staff','ticket_restrict_to_assigned','toggle');
+    html += sfRow('Allow Clients to Change Status','ticket_client_status_change','toggle');
+    html += sfRow('Default Reply Status (on reply)','ticket_reply_status','select','',[['answered','Answered'],['in_progress','In Progress'],['open','Open'],['closed','Closed']]);
+  } else if (cat === 'pdf') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">PDF Options</div>`;
+    html += sfRow('Page Format','pdf_format','select','',[['A4','A4'],['Letter','Letter'],['Legal','Legal']]);
+    html += sfRow('Font Size (pt)','pdf_font_size','text','10');
+    html += sfRow('Table Heading Color','pdf_table_heading_color','color','');
+    html += sfRow('Show Signature on Invoice PDF','pdf_signature_invoice','toggle');
+    html += sfRow('Show Signature on Contract PDF','pdf_signature_contract','toggle');
+    html += sfRow('Show Signature on Estimate PDF','pdf_signature_estimate','toggle');
+    html += sfRow('Logo Width (px)','pdf_logo_width','text','150');
+  } else if (cat === 'gdpr') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">GDPR</div>`;
+    html += sfRow('Enable GDPR Mode','gdpr_enabled','toggle');
+    html += sfRow('Show Privacy Policy Link in Footer','gdpr_show_privacy','toggle');
+    html += sfRow('Show T&C Link in Footer','gdpr_show_tc','toggle');
+    html += sfRow('Enable Consent Tracking for Contacts','gdpr_consent_contacts','toggle');
+    html += sfRow('Enable Consent Tracking for Leads','gdpr_consent_leads','toggle');
+    html += sfRow('Contact Right-to-be-Forgotten','gdpr_rtbf_contacts','toggle');
+    html += sfRow('Lead Right-to-be-Forgotten','gdpr_rtbf_leads','toggle');
+    html += sfRow('On Forgotten: Remove Invoices','gdpr_forgotten_remove_invoices','toggle');
+    html += sfRow('On Forgotten: Remove Estimates','gdpr_forgotten_remove_estimates','toggle');
+    html += sfRow('Enable Data Portability for Contacts','gdpr_portability_contacts','toggle');
+    html += sfRow('Privacy Policy','gdpr_privacy_policy','textarea','');
+    html += sfRow('Terms & Conditions','gdpr_terms','textarea','');
+  } else if (cat === 'misc') {
+    html += `<div style="font-size:15px;font-weight:600;margin-bottom:20px">Miscellaneous</div>`;
+    html += sfRow('Table Rows Per Page','table_per_page','text','25');
+    html += sfRow('Search Results Limit','search_limit','text','20');
+    html += sfRow('Show Table Export Button','table_export_button','select','',[['off','Off'],['admin','Admins Only'],['all','All Staff']]);
+    html += sfRow('Custom JS — Admin Area','custom_js_admin','textarea','Inserted just before </body>');
+    html += sfRow('Custom JS — Client Portal','custom_js_client','textarea','Inserted just before </body>');
+    html += sfRow('Bitly Token (short links)','bitly_token','text','');
+  }
+
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+async function saveSettings() {
+  const payload = {};
+  document.querySelectorAll('[data-key]').forEach(el => {
+    const key = el.dataset.key;
+    if (!key) return;
+    if (el.type === 'checkbox') payload[key] = String(el.checked);
+    else payload[key] = el.value;
+  });
+  // Portal tabs
+  const tabChecks = document.querySelectorAll('[data-portal-tab]');
+  if (tabChecks.length > 0) {
+    const enabled = [];
+    tabChecks.forEach(cb => { if (cb.checked) enabled.push(cb.dataset.portalTab); });
+    payload['portal_visible_tabs'] = enabled.join(',');
+  }
+  await apiFetch('/admin/api/settings', { method:'PUT', body: JSON.stringify(payload) });
+  _settingsData = {..._settingsData, ...payload};
+  showToast('Settings saved', 'success');
+}
 function pgMyAccountOverview(){return pgPlaceholder('My Account – Overview')}
 function pgMyAccountBilling(){return pgPlaceholder('My Account – Billing')}
 function pgMyAccountCompany(){return pgPlaceholder('My Account – Company Details')}

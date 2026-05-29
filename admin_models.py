@@ -1053,7 +1053,13 @@ class CRMEmailTemplate(AdminBase):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    from_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    from_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    plain_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # default_body stores the factory text so Restore Default can revert to it
+    default_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    default_subject: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
