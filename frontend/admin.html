@@ -768,6 +768,7 @@ tbody tr:hover .ta{opacity:1}
       <div class="ni-child" data-p="roles" onclick="nav('roles')"><i class="fa-solid fa-user-shield"></i> Roles &amp; Permissions</div>
       <div class="ni-child" data-p="email-templates" onclick="nav('email-templates')"><i class="fa-solid fa-envelope-open-text"></i> Email Templates</div>
       <div class="ni-child" data-p="settings" onclick="nav('settings')"><i class="fa-solid fa-cog"></i> Settings</div>
+      <div class="ni-child" data-p="meta-ads-connection" onclick="nav('meta-ads-connection')"><i class="fa-solid fa-plug-circle-bolt"></i> Meta Ads Connection</div>
     </div>
   </nav>
 
@@ -1117,6 +1118,7 @@ const PAGES = {
   roles: pgRoles,
   'email-templates': pgEmailTemplates,
   settings: pgSettings,
+  'meta-ads-connection': pgMetaAdsConnection,
   // My Account
   'my-account-overview': pgMyAccountOverview,
   'my-account-billing': pgMyAccountBilling,
@@ -8922,6 +8924,120 @@ function wSubscriptions(s) {
     <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--danger)">${sub.churned||0}</div><div style="font-size:11px;color:var(--muted)">Churned</div></div>
     <div style="background:var(--bg);border-radius:var(--r);padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:var(--warning)">${sub.failed||0}</div><div style="font-size:11px;color:var(--muted)">Failed</div></div>
   </div>`;
+}
+
+// ═══════════════════════════════════════════════
+// MODULE 31 — META ADS APP CONNECTION
+// ═══════════════════════════════════════════════
+async function pgMetaAdsConnection() {
+  app.innerHTML = `<div class="page-hd"><h1><i class="fa-solid fa-plug-circle-bolt"></i> Meta Ads App Connection</h1></div>
+  <div id="mac-wrap" style="max-width:860px">
+    <div class="es"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading connection status…</p></div>
+  </div>`;
+  await loadMacStatus();
+}
+
+async function loadMacStatus() {
+  const wrap = document.getElementById('mac-wrap');
+  if (!wrap) return;
+  let st;
+  try { st = await api('/admin/api/meta-ads-connection/status'); } catch(e) { wrap.innerHTML = `<div class="alert alert-danger">Failed to load: ${esc(e.message||'')}</div>`; return; }
+
+  const check = (ok, label) => ok
+    ? `<span class="badge badge-green"><i class="fa-solid fa-check"></i> ${label}</span>`
+    : `<span class="badge badge-red"><i class="fa-solid fa-xmark"></i> ${label}</span>`;
+
+  const fmtN = n => n === null ? '<span class="badge badge-yellow">N/A</span>' : `<strong>${n}</strong>`;
+
+  wrap.innerHTML = `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><strong><i class="fa-solid fa-circle-info"></i> Connection Overview</strong></div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">SHARED DATABASE</div>
+          ${check(st.database_shared, 'Same database')}
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Both apps use the same PostgreSQL instance.</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">ACCESS VIEW</div>
+          ${check(st.view_created, 'user_app_access_view')}
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">PostgreSQL view for Meta Ads app to query permissions.</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">INTERNAL API KEY</div>
+          ${check(st.internal_key_configured, 'INTERNAL_API_KEY set')}
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Set <code>INTERNAL_API_KEY</code> env var to secure internal endpoints.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div class="card">
+      <div class="card-header"><i class="fa-brands fa-meta"></i> Meta Ads App</div>
+      <div class="card-body">
+        <table class="wt"><tbody>
+          <tr><td>Users</td><td>${fmtN(st.meta_ads_app.users)}</td></tr>
+          <tr><td>Clients</td><td>${fmtN(st.meta_ads_app.clients)}</td></tr>
+          <tr><td>User-Client Links</td><td>${fmtN(st.meta_ads_app.assignments)}</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fa-solid fa-building"></i> CRM</div>
+      <div class="card-body">
+        <table class="wt"><tbody>
+          <tr><td>Staff</td><td><strong>${st.crm.staff}</strong></td></tr>
+          <tr><td>Customers</td><td><strong>${st.crm.customers}</strong></td></tr>
+          <tr><td>App Client Access</td><td><strong>${st.crm.app_client_access}</strong></td></tr>
+        </tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><strong><i class="fa-solid fa-arrows-rotate"></i> One-Way Data Sync</strong></div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Import existing Meta Ads app data into the CRM. These operations are additive — existing CRM records are never overwritten unless you check the option below.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" id="mac-overwrite"> Overwrite existing CRM records (staff password refresh only)
+      </label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="runMacSync('users')"><i class="fa-solid fa-users"></i> Sync Users → CRM Staff</button>
+        <button class="btn btn-primary" onclick="runMacSync('clients')"><i class="fa-solid fa-building"></i> Sync Clients → CRM Customers</button>
+        <button class="btn btn-secondary" onclick="runMacSync('access')"><i class="fa-solid fa-key"></i> Sync Access Assignments</button>
+      </div>
+      <div id="mac-sync-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><strong><i class="fa-solid fa-code"></i> Internal API Endpoints</strong></div>
+    <div class="card-body" style="font-size:13px">
+      <p style="color:var(--muted);margin-bottom:10px">The Meta Ads app can call these endpoints using <code>Authorization: Bearer &lt;INTERNAL_API_KEY&gt;</code>.</p>
+      <table class="wt"><thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead><tbody>
+        <tr><td><span class="badge badge-blue">POST</span></td><td><code>/admin/api/internal/auth/verify</code></td><td>Verify username + password → user info</td></tr>
+        <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/users/me?user_id=N</code></td><td>Get user details by id</td></tr>
+        <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/clients?user_id=N</code></td><td>Get accessible clients for a user</td></tr>
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+async function runMacSync(type) {
+  const overwrite = document.getElementById('mac-overwrite')?.checked || false;
+  const res = document.getElementById('mac-sync-result');
+  if (res) res.innerHTML = `<span style="color:var(--muted)"><i class="fa-solid fa-spinner fa-spin"></i> Syncing ${type}…</span>`;
+  try {
+    const url = type === 'access' ? '/admin/api/meta-ads-connection/sync-access' : `/admin/api/meta-ads-connection/sync-${type}`;
+    const data = type === 'access' ? {} : {overwrite_existing: overwrite};
+    const r = await api(url, {method:'POST', body:JSON.stringify(data)});
+    if (res) res.innerHTML = `<div class="alert alert-success"><i class="fa-solid fa-check"></i> Done — imported: <strong>${r.imported}</strong>, skipped: <strong>${r.skipped}</strong>${r.errors?.length ? `, <span style="color:var(--danger)">${r.errors.length} error(s)</span>` : ''}</div>`;
+    await loadMacStatus();
+  } catch(e) {
+    if (res) res.innerHTML = `<div class="alert alert-danger"><i class="fa-solid fa-xmark"></i> ${esc(e.message||'Sync failed')}</div>`;
+  }
 }
 
 function wUnbilledTime(s) {

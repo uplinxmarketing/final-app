@@ -6375,6 +6375,243 @@ async def cancel_scheduled_email(sid: int, staff: StaffMember = Depends(get_curr
     return {"ok": True}
 
 
+# ── Module 31: Meta Ads App Connection ────────────────────────────────────────
+
+def _internal_key_ok(request: Request) -> bool:
+    key = os.environ.get("INTERNAL_API_KEY", "")
+    if not key:
+        return False
+    auth = request.headers.get("Authorization", "")
+    return auth == f"Bearer {key}"
+
+
+# ── Internal endpoints (consumed by the Meta Ads app) ─────────────────────────
+
+class InternalAuthReq(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/api/internal/auth/verify")
+async def internal_auth_verify(req: InternalAuthReq, request: Request, db: AsyncSession = Depends(get_db)):
+    """Verify a Meta Ads app user's credentials. Returns user info on success."""
+    if not _internal_key_ok(request):
+        raise HTTPException(401, "Unauthorized")
+    row = (await db.execute(text("SELECT id, username, email, hashed_password, role, is_active FROM users WHERE username = :u"), {"u": req.username})).fetchone()
+    if not row or not row[5]:
+        raise HTTPException(401, "Invalid credentials")
+    if not _verify_pw(req.password, row[3] or ""):
+        raise HTTPException(401, "Invalid credentials")
+    return {"id": row[0], "username": row[1], "email": row[2], "role": row[4]}
+
+
+@router.get("/api/internal/users/me")
+async def internal_users_me(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Get Meta Ads app user info by id."""
+    if not _internal_key_ok(request):
+        raise HTTPException(401, "Unauthorized")
+    row = (await db.execute(text("SELECT id, username, email, role, interface_access, is_active FROM users WHERE id = :uid"), {"uid": user_id})).fetchone()
+    if not row:
+        raise HTTPException(404, "User not found")
+    return {"id": row[0], "username": row[1], "email": row[2], "role": row[3], "interface_access": row[4], "is_active": row[5]}
+
+
+@router.get("/api/internal/clients")
+async def internal_clients(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Get clients accessible by a Meta Ads app user."""
+    if not _internal_key_ok(request):
+        raise HTTPException(401, "Unauthorized")
+    user_row = (await db.execute(text("SELECT id, role FROM users WHERE id = :uid AND is_active = TRUE"), {"uid": user_id})).fetchone()
+    if not user_row:
+        raise HTTPException(404, "User not found")
+    if user_row[1] == "admin":
+        rows = (await db.execute(text("SELECT id, name, industry, website, color_tag, is_archived FROM clients ORDER BY sort_order, name"))).fetchall()
+    else:
+        rows = (await db.execute(text(
+            "SELECT c.id, c.name, c.industry, c.website, c.color_tag, c.is_archived "
+            "FROM clients c JOIN user_client_assignments uca ON uca.client_id = c.id "
+            "WHERE uca.user_id = :uid ORDER BY c.sort_order, c.name"
+        ), {"uid": user_id})).fetchall()
+    return [{"id": r[0], "name": r[1], "industry": r[2], "website": r[3], "color_tag": r[4], "is_archived": r[5]} for r in rows]
+
+
+# ── CRM admin endpoints: connection status & data sync ────────────────────────
+
+@router.get("/api/meta-ads-connection/status")
+async def meta_ads_connection_status(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Returns counts from both the Meta Ads app tables and CRM tables."""
+    # Meta Ads app side
+    try:
+        app_users = (await db.execute(text("SELECT COUNT(*) FROM users"))).scalar() or 0
+    except Exception:
+        app_users = None
+    try:
+        app_clients = (await db.execute(text("SELECT COUNT(*) FROM clients"))).scalar() or 0
+    except Exception:
+        app_clients = None
+    try:
+        app_assignments = (await db.execute(text("SELECT COUNT(*) FROM user_client_assignments"))).scalar() or 0
+    except Exception:
+        app_assignments = None
+    # CRM side
+    crm_staff = (await db.execute(select(func.count()).select_from(StaffMember))).scalar() or 0
+    crm_customers = (await db.execute(select(func.count()).select_from(CRMCustomer))).scalar() or 0
+    crm_access = (await db.execute(select(func.count()).select_from(CRMUserAppClientAccess))).scalar() or 0
+    # Check view exists
+    try:
+        await db.execute(text("SELECT 1 FROM user_app_access_view LIMIT 1"))
+        view_ok = True
+    except Exception:
+        view_ok = False
+    internal_key_set = bool(os.environ.get("INTERNAL_API_KEY", ""))
+    return {
+        "database_shared": True,
+        "view_created": view_ok,
+        "internal_key_configured": internal_key_set,
+        "meta_ads_app": {"users": app_users, "clients": app_clients, "assignments": app_assignments},
+        "crm": {"staff": crm_staff, "customers": crm_customers, "app_client_access": crm_access},
+    }
+
+
+class SyncOptions(BaseModel):
+    overwrite_existing: bool = False
+
+
+@router.post("/api/meta-ads-connection/sync-users")
+async def meta_ads_sync_users(opts: SyncOptions, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Import users from the Meta Ads app into crm_staff. Skips existing emails."""
+    if not staff.is_admin:
+        raise HTTPException(403, "Admin only")
+    rows = (await db.execute(text("SELECT id, username, email, hashed_password, role, is_active FROM users"))).fetchall()
+    imported = 0
+    skipped = 0
+    errors = []
+    for row in rows:
+        uid, uname, email, pwd, role, active = row
+        if not email:
+            email = f"{uname}@meta-ads-import.local"
+        try:
+            existing = (await db.execute(select(StaffMember).where(StaffMember.email == email))).scalar_one_or_none()
+            if existing and not opts.overwrite_existing:
+                skipped += 1
+                continue
+            if existing and opts.overwrite_existing:
+                if pwd:
+                    existing.hashed_password = pwd
+                skipped += 1
+                continue
+            fname, lname = (uname.split(" ", 1) + [""])[:2]
+            if not lname:
+                lname = uname
+                fname = uname.split(".")[0].capitalize() if "." in uname else uname
+            new_staff = StaffMember(
+                first_name=fname, last_name=lname,
+                email=email,
+                hashed_password=pwd or _hash_pw(secrets.token_urlsafe(16)),
+                is_admin=(role == "admin"),
+            )
+            db.add(new_staff)
+            imported += 1
+        except Exception as e:
+            errors.append(f"User {uid}: {e}")
+    await db.commit()
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+@router.post("/api/meta-ads-connection/sync-clients")
+async def meta_ads_sync_clients(opts: SyncOptions, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Import clients from the Meta Ads app into crm_customers. Skips existing names."""
+    if not staff.is_admin:
+        raise HTTPException(403, "Admin only")
+    rows = (await db.execute(text("SELECT id, name, industry, website, notes, color_tag FROM clients WHERE is_archived = FALSE"))).fetchall()
+    imported = 0
+    skipped = 0
+    errors = []
+    for row in rows:
+        cid, name, industry, website, notes, color = row
+        try:
+            existing = (await db.execute(select(CRMCustomer).where(CRMCustomer.company == name))).scalar_one_or_none()
+            if existing and not opts.overwrite_existing:
+                skipped += 1
+                continue
+            if existing and opts.overwrite_existing:
+                skipped += 1
+                continue
+            new_cust = CRMCustomer(
+                company=name,
+                industry=industry or "",
+                website=website or "",
+                notes=notes or "",
+                created_by=staff.id,
+            )
+            db.add(new_cust)
+            imported += 1
+        except Exception as e:
+            errors.append(f"Client {cid}: {e}")
+    await db.commit()
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+@router.post("/api/meta-ads-connection/sync-access")
+async def meta_ads_sync_access(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Copy user_client_assignments into crm_user_app_client_access for the meta-ads-upload app."""
+    if not staff.is_admin:
+        raise HTTPException(403, "Admin only")
+    app_row = (await db.execute(select(CRMApp).where(CRMApp.key == "meta-ads-upload"))).scalar_one_or_none()
+    if not app_row:
+        raise HTTPException(404, "meta-ads-upload app record not found in CRM")
+    assignments = (await db.execute(text("SELECT user_id, client_id FROM user_client_assignments"))).fetchall()
+    imported = 0
+    skipped = 0
+    errors = []
+    for user_id_old, client_id_old in assignments:
+        try:
+            # Map old user_id → crm_staff by looking up matching email from users table
+            user_row = (await db.execute(text("SELECT username, email FROM users WHERE id = :uid"), {"uid": user_id_old})).fetchone()
+            if not user_row:
+                skipped += 1
+                continue
+            email = user_row[1] or f"{user_row[0]}@meta-ads-import.local"
+            staff_row = (await db.execute(select(StaffMember).where(StaffMember.email == email))).scalar_one_or_none()
+            if not staff_row:
+                skipped += 1
+                continue
+            # Map old client_id → crm_customer by matching name
+            client_row = (await db.execute(text("SELECT name FROM clients WHERE id = :cid"), {"cid": client_id_old})).fetchone()
+            if not client_row:
+                skipped += 1
+                continue
+            cust_row = (await db.execute(select(CRMCustomer).where(CRMCustomer.company == client_row[0]))).scalar_one_or_none()
+            if not cust_row:
+                skipped += 1
+                continue
+            # Ensure app access exists
+            uaa = (await db.execute(
+                select(CRMUserAppAccess).where(CRMUserAppAccess.staff_id == staff_row.id, CRMUserAppAccess.app_id == app_row.id)
+            )).scalar_one_or_none()
+            if not uaa:
+                uaa = CRMUserAppAccess(staff_id=staff_row.id, app_id=app_row.id, granted_by=staff.id)
+                db.add(uaa)
+                await db.flush()
+            # Check if access already exists
+            existing_acc = (await db.execute(
+                select(CRMUserAppClientAccess).where(
+                    CRMUserAppClientAccess.staff_id == staff_row.id,
+                    CRMUserAppClientAccess.app_id == app_row.id,
+                    CRMUserAppClientAccess.client_id == cust_row.id,
+                )
+            )).scalar_one_or_none()
+            if existing_acc:
+                skipped += 1
+                continue
+            db.add(CRMUserAppClientAccess(staff_id=staff_row.id, app_id=app_row.id, client_id=cust_row.id))
+            imported += 1
+        except Exception as e:
+            errors.append(f"Assignment {user_id_old}→{client_id_old}: {e}")
+    await db.commit()
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
 # ── DB initialisation ─────────────────────────────────────────────────────────
 
 async def init_admin_db(engine) -> None:
@@ -6509,6 +6746,9 @@ async def init_admin_db(engine) -> None:
         # crm_vault_entries — Module 25 additions (tables auto-created; extra safety)
         "ALTER TABLE crm_vault_entries ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP",
         "ALTER TABLE crm_vault_entries ADD COLUMN IF NOT EXISTS last_updated_by INTEGER",
+        # Module 31 — shared access view (drop-then-create for idempotency)
+        "DROP VIEW IF EXISTS user_app_access_view",
+        "CREATE VIEW user_app_access_view AS SELECT uca.staff_id AS user_id, a.key AS app_key, uca.client_id FROM crm_user_app_client_access uca JOIN crm_apps a ON a.id = uca.app_id",
     ]
     for _sql in _migrations:
         try:
