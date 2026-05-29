@@ -1182,9 +1182,10 @@ function nav(page) {
 
   const pc = document.getElementById('page-content');
   pc.innerHTML = '<div class="ls"><div class="spin"></div></div>';
-  setTimeout(() => {
+  setTimeout(async () => {
     const fn = PAGES[page];
-    pc.innerHTML = fn ? fn() : pgPlaceholder(page);
+    const result = fn ? fn() : pgPlaceholder(page);
+    pc.innerHTML = (result instanceof Promise) ? await result : result;
     const initFn = window['init_' + page.replace(/-/g,'_')];
     if (typeof initFn === 'function') initFn();
   }, 30);
@@ -1762,7 +1763,408 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 function pgNewCustomer(){nav('customers');setTimeout(()=>openCustomerModal(),100)}
 function pgProposals(){return pgPlaceholder('Proposals')}
-function pgEstimates(){return pgPlaceholder('Estimates')}
+// ── MODULE 12: ESTIMATES ──────────────────────────────────────────────────────
+let _estView = 'table'; // 'table' | 'pipeline'
+let _estStatus = 'all';
+let _estSearch = '';
+let _estItems = []; // line items for current form
+let _estEditId = null;
+let _estDebounce = null;
+
+const EST_STATUSES = ['draft','sent','open','expired','declined','accepted'];
+const EST_STATUS_COLOR = {draft:'#6b7280',sent:'#6366f1',open:'#f59e0b',expired:'#ef4444',declined:'#dc2626',accepted:'#16a34a'};
+const EST_STATUS_BG    = {draft:'#f3f4f6',sent:'#eef2ff',open:'#fffbeb',expired:'#fef2f2',declined:'#fef2f2',accepted:'#f0fdf4'};
+
+function pgEstimates() {
+  if (!hasPerm('estimates','view')) return `<div class="empty-state"><i class="fa-solid fa-lock"></i><p>No access to Estimates</p></div>`;
+  document.getElementById('page-title').textContent = 'Estimates';
+  window._estCustomers = window._estCustomers || [];
+  window._estTaxRates  = window._estTaxRates  || [];
+
+  return `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${['all',...EST_STATUSES].map(s=>`<button class="tab${_estStatus===s?' active':''}" onclick="_estStatus='${s}';loadEstimates()" style="text-transform:capitalize">${s}</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="search" placeholder="Search estimates…" value="${esc(_estSearch)}"
+        oninput="clearTimeout(_estDebounce);_estSearch=this.value;_estDebounce=setTimeout(loadEstimates,300)"
+        style="border:1.5px solid var(--border);border-radius:var(--r);padding:8px 12px;font-size:13px;width:200px">
+      <button class="btn btn-ghost" onclick="_estView=_estView==='table'?'pipeline':'table';loadEstimates()" title="Toggle view">
+        <i class="fa-solid ${_estView==='table'?'fa-columns':'fa-table-list'}"></i>
+      </button>
+      ${hasPerm('estimates','create')?`<button class="btn btn-primary" onclick="openEstimateModal()"><i class="fa-solid fa-plus"></i> New Estimate</button>`:''}
+    </div>
+  </div>
+  <div id="est-list-body">Loading…</div>
+  <div id="est-modal-wrap"></div>`;
+}
+
+async function loadEstimates() {
+  const body = document.getElementById('est-list-body');
+  if (!body) return;
+  body.innerHTML = '<div class="loading">Loading estimates…</div>';
+  // Seed reference data on first load
+  if (!(window._estCustomers||[]).length) {
+    const [custR, taxR] = await Promise.all([
+      api('/api/customers').catch(()=>[]),
+      api('/api/tax-rates').catch(()=>[]),
+    ]);
+    window._estCustomers = Array.isArray(custR) ? custR : [];
+    window._estTaxRates  = Array.isArray(taxR)  ? taxR  : [];
+  }
+  const params = new URLSearchParams();
+  if (_estStatus !== 'all') params.set('status', _estStatus);
+  if (_estSearch) params.set('q', _estSearch);
+  const data = await api('/api/estimates?' + params);
+  if (!Array.isArray(data)) { body.innerHTML = '<div class="empty-state">Failed to load</div>'; return; }
+
+  if (_estView === 'pipeline') {
+    renderEstPipeline(body, data);
+  } else {
+    renderEstTable(body, data);
+  }
+}
+
+function renderEstTable(container, data) {
+  if (!data.length) { container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-file-invoice"></i><p>No estimates found</p></div>'; return; }
+  container.innerHTML = `
+  <div class="table-wrap">
+  <table class="data-table">
+    <thead><tr>
+      <th>Number</th><th>Client</th><th>Amount</th><th>Date</th><th>Expiry</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${data.map(e => `
+      <tr>
+        <td><strong>${esc(e.formatted_number)}</strong></td>
+        <td>${esc(e.customer_name || '—')}</td>
+        <td style="font-weight:600">${e.currency} ${fmtMoney(e.total)}</td>
+        <td>${fmtDate(e.date)}</td>
+        <td style="color:${e.expiry_date && new Date(e.expiry_date)<new Date()?'#ef4444':'inherit'}">${fmtDate(e.expiry_date)}</td>
+        <td><span class="badge" style="background:${EST_STATUS_BG[e.status]};color:${EST_STATUS_COLOR[e.status]}">${e.status}</span></td>
+        <td>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="openEstimateDetail(${e.id})" title="Edit"><i class="fa-solid fa-pencil"></i></button>
+            <button class="btn btn-ghost btn-sm" onclick="openEstPublicLink(${e.id},'${e.hash}')" title="Public link"><i class="fa-solid fa-link"></i></button>
+            ${hasPerm('estimates','send')?`<button class="btn btn-ghost btn-sm" onclick="sendEstimate(${e.id})" title="Send"><i class="fa-solid fa-paper-plane"></i></button>`:''}
+            ${e.status==='accepted'&&!e.converted_to_invoice_id&&hasPerm('estimates','convert_to_invoice')?
+              `<button class="btn btn-ghost btn-sm" onclick="convertEstToInvoice(${e.id})" title="Convert to invoice"><i class="fa-solid fa-file-invoice-dollar"></i></button>`:''}
+            ${hasPerm('estimates','delete')?`<button class="btn btn-ghost btn-sm text-danger" onclick="deleteEstimate(${e.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>`:''}
+          </div>
+        </td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  </div>`;
+}
+
+function renderEstPipeline(container, data) {
+  const groups = {};
+  EST_STATUSES.forEach(s => groups[s] = []);
+  data.forEach(e => { if (groups[e.status]) groups[e.status].push(e); });
+  container.innerHTML = `
+  <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:16px">
+    ${EST_STATUSES.map(s => `
+    <div style="min-width:220px;flex:0 0 220px">
+      <div style="background:${EST_STATUS_BG[s]};color:${EST_STATUS_COLOR[s]};font-size:12px;font-weight:700;text-transform:uppercase;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between">
+        <span>${s}</span><span class="badge" style="background:${EST_STATUS_COLOR[s]};color:#fff">${groups[s].length}</span>
+      </div>
+      <div style="background:#f9fafb;border-radius:0 0 8px 8px;min-height:120px;padding:8px;display:flex;flex-direction:column;gap:8px">
+        ${groups[s].map(e => `
+        <div style="background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer" onclick="openEstimateDetail(${e.id})">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">${esc(e.formatted_number)}</div>
+          <div style="font-size:12px;color:#6b7280">${esc(e.customer_name || '—')}</div>
+          <div style="font-size:14px;font-weight:700;color:#6366f1;margin-top:6px">${e.currency} ${fmtMoney(e.total)}</div>
+        </div>`).join('')}
+        ${hasPerm('estimates','create')?`<button class="btn btn-ghost btn-sm" onclick="openEstimateModal(null,'${s}')" style="width:100%;margin-top:4px"><i class="fa-solid fa-plus"></i> Add</button>`:''}
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── Line items component ──────────────────────────────────────────────────────
+
+function renderLineItemsUI(items) {
+  _estItems = items ? items.map(li => ({...li})) : [];
+  _refreshLineItemsUI();
+}
+
+function _refreshLineItemsUI() {
+  const c = document.getElementById('li-rows');
+  if (!c) return;
+  c.innerHTML = _estItems.map((li, i) => `
+    <tr data-idx="${i}">
+      <td style="padding:6px 4px"><i class="fa-solid fa-grip-vertical" style="color:#d1d5db;cursor:grab"></i></td>
+      <td style="padding:6px 4px">
+        <input class="li-desc" value="${esc(li.description||'')}" placeholder="Description *"
+          oninput="_estItems[${i}].description=this.value"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px">
+      </td>
+      <td style="padding:6px 4px"><input type="number" value="${li.qty||1}" min="0" step="any"
+        oninput="_estItems[${i}].qty=+this.value;_recomputeEstTotals()"
+        style="width:70px;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px;text-align:right"></td>
+      <td style="padding:6px 4px"><input type="number" value="${li.rate||0}" min="0" step="any"
+        oninput="_estItems[${i}].rate=+this.value;_recomputeEstTotals()"
+        style="width:90px;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px;text-align:right"></td>
+      <td style="padding:6px 4px"><input type="number" value="${li.discount||0}" min="0" max="100" step="any"
+        oninput="_estItems[${i}].discount=+this.value;_recomputeEstTotals()"
+        style="width:60px;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px;text-align:right"></td>
+      <td style="padding:6px 4px;text-align:right;font-weight:600;min-width:80px" id="li-amt-${i}">${fmtMoney(_liAmount(li))}</td>
+      <td style="padding:6px 4px"><button type="button" onclick="_estItems.splice(${i},1);_refreshLineItemsUI();_recomputeEstTotals()"
+        style="background:none;border:none;color:#ef4444;cursor:pointer;padding:4px"><i class="fa-solid fa-times"></i></button></td>
+    </tr>`).join('');
+}
+
+function _liAmount(li) {
+  const base = (li.qty || 0) * (li.rate || 0);
+  return base * (1 - (li.discount || 0) / 100);
+}
+
+function _recomputeEstTotals() {
+  _estItems.forEach((li, i) => { li.amount = _liAmount(li); });
+  const subtotal = _estItems.reduce((s, li) => s + li.amount, 0);
+  const discType = document.getElementById('est-discount-type')?.value || 'before_tax';
+  const discVal  = parseFloat(document.getElementById('est-discount-val')?.value || 0);
+  const adj      = parseFloat(document.getElementById('est-adjustment')?.value || 0);
+  const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+  const taxable  = subtotal - (discType === 'before_tax' ? discAmt : 0);
+  // Simple flat tax rate sum
+  const taxRate  = _estItems.reduce((s, li) => {
+    const rate = (li.tax_ids || []).reduce((ts, tid) => {
+      const t = (window._estTaxRates || []).find(x => x.id === tid);
+      return ts + (t ? t.rate : 0);
+    }, 0);
+    return s + li.amount * rate / 100;
+  }, 0);
+  const total = subtotal - discAmt + taxRate + adj;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtMoney(v); };
+  set('est-sub', subtotal); set('est-tax', taxRate);
+  set('est-disc-amt', discAmt); set('est-adj-disp', adj); set('est-total', total);
+  if (document.getElementById('li-rows')) _refreshLineItemsUI();
+  // Store computed values for saving
+  window._estComputedTotals = { subtotal, tax_total: taxRate, discount_total: discAmt, adjustment: adj, total };
+}
+
+function addLineItem() {
+  _estItems.push({ description: '', qty: 1, rate: 0, discount: 0, tax_ids: [], amount: 0 });
+  _refreshLineItemsUI();
+}
+
+// ── Estimate modal (new/edit) ─────────────────────────────────────────────────
+
+async function openEstimateDetail(id) {
+  _estEditId = id;
+  const data = await api(`/api/estimates/${id}`);
+  if (data.detail) { toast(data.detail, 'error'); return; }
+  openEstimateModal(data);
+}
+
+function openEstimateModal(data, defaultStatus) {
+  _estEditId = data?.id || null;
+  renderLineItemsUI(data?.items || []);
+  const today = new Date().toISOString().slice(0,10);
+  const expiry = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+  const custOptions = (window._estCustomers || []).map(c =>
+    `<option value="${c.id}" ${data?.customer_id===c.id?'selected':''}>${esc(c.company_name)}</option>`).join('');
+  const wrap = document.getElementById('est-modal-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeEstimateModal()">
+  <div class="modal-box" style="max-width:900px;width:95vw;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>${_estEditId ? `Edit ${esc(data?.formatted_number||'Estimate')}` : 'New Estimate'}</h3>
+      <button class="modal-close" onclick="closeEstimateModal()">×</button>
+    </div>
+    <div style="padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="fg"><label>Client</label>
+        <select id="est-client" style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px;background:#fff">
+          <option value="">— Select client —</option>${custOptions}
+        </select></div>
+      <div class="fg"><label>Sale Agent</label>
+        <input id="est-agent" type="text" value="${data?.sale_agent_id||CU?.id||''}"
+          placeholder="Staff ID or name" style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Date</label>
+        <input id="est-date" type="date" value="${(data?.date||today+'T00:00:00').slice(0,10)}"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Expiry Date</label>
+        <input id="est-expiry" type="date" value="${(data?.expiry_date||expiry+'T00:00:00').slice(0,10)}"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Currency</label>
+        <input id="est-currency" value="${esc(data?.currency||'USD')}"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Status</label>
+        <select id="est-status" style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px;background:#fff">
+          ${EST_STATUSES.map(s=>`<option value="${s}" ${(data?.status||defaultStatus||'draft')===s?'selected':''}>${s}</option>`).join('')}
+        </select></div>
+    </div>
+    <!-- Line Items -->
+    <div style="padding:0 24px 16px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:12px;color:#374151">Line Items</div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;border-bottom:2px solid var(--border)">
+          <th style="padding:6px 4px;width:24px"></th>
+          <th style="padding:6px 4px;text-align:left">Description</th>
+          <th style="padding:6px 4px;text-align:right">Qty</th>
+          <th style="padding:6px 4px;text-align:right">Rate</th>
+          <th style="padding:6px 4px;text-align:right">Disc%</th>
+          <th style="padding:6px 4px;text-align:right">Amount</th>
+          <th style="padding:6px 4px;width:30px"></th>
+        </tr></thead>
+        <tbody id="li-rows"></tbody>
+      </table>
+      </div>
+      <button type="button" onclick="addLineItem()" class="btn btn-ghost" style="margin-top:10px">
+        <i class="fa-solid fa-plus"></i> Add Item
+      </button>
+    </div>
+    <!-- Totals -->
+    <div style="padding:0 24px 16px;display:flex;justify-content:flex-end">
+      <div style="min-width:280px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <label style="font-size:13px;color:#6b7280">Discount</label>
+          <select id="est-discount-type" onchange="_recomputeEstTotals()"
+            style="border:1.5px solid var(--border);border-radius:var(--r);padding:4px 8px;font-size:12px;background:#fff">
+            <option value="before_tax" ${(data?.discount_type||'before_tax')==='before_tax'?'selected':''}>Before Tax (flat)</option>
+            <option value="percent" ${data?.discount_type==='percent'?'selected':''}>Percent</option>
+          </select>
+          <input id="est-discount-val" type="number" value="${data?.discount_value||0}" min="0" step="any"
+            oninput="_recomputeEstTotals()"
+            style="width:70px;border:1.5px solid var(--border);border-radius:var(--r);padding:4px 8px;font-size:13px;text-align:right">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <label style="font-size:13px;color:#6b7280">Adjustment</label>
+          <input id="est-adjustment" type="number" value="${data?.adjustment||0}" step="any"
+            oninput="_recomputeEstTotals()"
+            style="width:100px;border:1.5px solid var(--border);border-radius:var(--r);padding:4px 8px;font-size:13px;text-align:right">
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:8px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Subtotal</span><span id="est-sub">0.00</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Tax</span><span id="est-tax">0.00</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Discount</span><span>-<span id="est-disc-amt">0.00</span></span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Adjustment</span><span id="est-adj-disp">0.00</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;padding:8px 0 0;border-top:2px solid var(--border);margin-top:4px"><span>Total</span><span style="color:#6366f1" id="est-total">0.00</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- Notes tabs -->
+    <div style="padding:0 24px 16px">
+      <div style="display:flex;gap:2px;border-bottom:2px solid var(--border);margin-bottom:12px">
+        ${['client_note','terms','admin_note'].map((t,i)=>`<button class="tab-btn" id="esttab-${t}"
+          onclick="setEstTab('${t}')" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid ${i===0?'#6366f1':'transparent'};color:${i===0?'#6366f1':'#6b7280'};font-size:13px;cursor:pointer;margin-bottom:-2px">
+          ${t==='client_note'?'Client Note':t==='terms'?'Terms':'Admin Note (private)'}
+        </button>`).join('')}
+      </div>
+      ${['client_note','terms','admin_note'].map((t,i)=>`
+      <div id="esttabpane-${t}" style="display:${i===0?'block':'none'}">
+        <textarea id="est-${t}" rows="4" placeholder="${t==='admin_note'?'Internal note — not visible to client':t}"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px;resize:vertical;box-sizing:border-box">${esc(data?.[t]||'')}</textarea>
+      </div>`).join('')}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEstimateModal()">Cancel</button>
+      ${data?.status==='accepted'&&!data?.converted_to_invoice_id&&hasPerm('estimates','convert_to_invoice')?
+        `<button class="btn btn-ghost" onclick="convertEstToInvoice(${data.id})"><i class="fa-solid fa-file-invoice-dollar"></i> Convert to Invoice</button>`:''}
+      ${hasPerm('estimates',_estEditId?'edit':'create')?`<button class="btn btn-primary" onclick="saveEstimate()">${_estEditId?'Save Changes':'Save Draft'}</button>`:''}
+    </div>
+  </div>
+  </div>`;
+  _recomputeEstTotals();
+}
+
+function setEstTab(t) {
+  ['client_note','terms','admin_note'].forEach(k => {
+    document.getElementById(`esttab-${k}`).style.borderBottomColor = k===t?'#6366f1':'transparent';
+    document.getElementById(`esttab-${k}`).style.color = k===t?'#6366f1':'#6b7280';
+    document.getElementById(`esttabpane-${k}`).style.display = k===t?'block':'none';
+  });
+}
+
+function closeEstimateModal() {
+  const w = document.getElementById('est-modal-wrap');
+  if (w) w.innerHTML = '';
+  _estEditId = null;
+  _estItems = [];
+}
+
+async function saveEstimate() {
+  const desc = _estItems.find(li => !li.description?.trim());
+  if (desc !== undefined) { toast('All line items need a description', 'error'); return; }
+  const totals = window._estComputedTotals || {};
+  const payload = {
+    customer_id: parseInt(document.getElementById('est-client').value) || null,
+    sale_agent_id: parseInt(document.getElementById('est-agent').value) || null,
+    date: document.getElementById('est-date').value,
+    expiry_date: document.getElementById('est-expiry').value,
+    currency: document.getElementById('est-currency').value.trim() || 'USD',
+    discount_type: document.getElementById('est-discount-type').value,
+    discount_value: parseFloat(document.getElementById('est-discount-val').value) || 0,
+    adjustment: parseFloat(document.getElementById('est-adjustment').value) || 0,
+    status: document.getElementById('est-status').value,
+    client_note: document.getElementById('est-client_note').value,
+    terms: document.getElementById('est-terms').value,
+    admin_note: document.getElementById('est-admin_note').value,
+    items: _estItems,
+    ...totals,
+  };
+  const method = _estEditId ? 'PUT' : 'POST';
+  const url = _estEditId ? `/api/estimates/${_estEditId}` : '/api/estimates';
+  const r = await fetch('/admin' + url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const d = await r.json();
+  if (r.ok) {
+    toast(_estEditId ? 'Estimate updated' : `Estimate ${d.formatted_number} created`, 'success');
+    closeEstimateModal();
+    loadEstimates();
+  } else {
+    toast(d.detail || 'Failed to save estimate', 'error');
+  }
+}
+
+async function deleteEstimate(id) {
+  if (!confirm('Delete this estimate? This cannot be undone.')) return;
+  const r = await fetch(`/admin/api/estimates/${id}`, { method: 'DELETE' });
+  if (r.ok) { toast('Estimate deleted', 'success'); loadEstimates(); }
+  else { const d = await r.json(); toast(d.detail || 'Failed', 'error'); }
+}
+
+async function sendEstimate(id) {
+  const r = await fetch(`/admin/api/estimates/${id}/send`, { method: 'POST' });
+  const d = await r.json();
+  if (r.ok) {
+    toast('Estimate sent!', 'success');
+    if (d.public_url) {
+      const link = d.public_url;
+      toast(`Public link: <a href="${link}" target="_blank" style="color:#6366f1">${link}</a>`, 'info');
+    }
+    loadEstimates();
+  } else {
+    toast(d.detail || 'Failed to send', 'error');
+  }
+}
+
+async function convertEstToInvoice(id) {
+  if (!confirm('Convert this estimate to an invoice?')) return;
+  const r = await fetch(`/admin/api/estimates/${id}/convert-to-invoice`, { method: 'POST' });
+  const d = await r.json();
+  if (r.ok) {
+    toast('Converted to invoice!', 'success');
+    closeEstimateModal();
+    loadEstimates();
+  } else {
+    toast(d.detail || 'Failed to convert', 'error');
+  }
+}
+
+function openEstPublicLink(id, hash) {
+  const url = `/estimate/${id}/${hash}`;
+  window.open(url, '_blank');
+}
+
+function init_estimates() { loadEstimates(); }
+
+function fmtMoney(v) { return (parseFloat(v)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtDate(v) { if(!v)return '—'; const d=new Date(v); return isNaN(d)?'—':d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+// ── END MODULE 12 ─────────────────────────────────────────────────────────────
 function pgEstimateRequests(){return pgPlaceholder('Estimate Requests')}
 function pgInvoices(){return pgPlaceholder('Invoices')}
 function pgCreditNotes(){return pgPlaceholder('Credit Notes')}
