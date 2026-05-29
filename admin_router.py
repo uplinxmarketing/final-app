@@ -46,6 +46,9 @@ from admin_models import (
     CRMGoal,
 )
 
+import logging
+logger = logging.getLogger("uplinx.admin")
+
 router = APIRouter(prefix="/admin")
 
 # ── Capability matrix ─────────────────────────────────────────────────────────

@@ -1102,6 +1102,108 @@ function showApp() {
   setInterval(loadNotifCount, 60000);
 }
 
+// ═══════════════════════════════════════════════
+// UTILITY PAGES (Media, Bulk PDF, Announcements, Activity Log, Pipe Log)
+// These were referenced in the PAGES map but never defined — a missing
+// definition here throws a ReferenceError that aborts the whole script.
+// ═══════════════════════════════════════════════
+async function pgMedia() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-regular fa-images"></i> Media / Files</h1></div>
+    <div class="card"><div class="card-body es" style="padding:48px">
+      <i class="fa-regular fa-images" style="font-size:34px;opacity:.4"></i>
+      <h3 style="margin:12px 0 4px">Files live with their records</h3>
+      <p style="max-width:420px;margin:0 auto">Attachments are stored per customer, project, invoice and task. Open any record and use its <strong>Files</strong> tab to view or upload media.</p>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+        <button class="btn-sec" onclick="nav('customers')"><i class="fa-solid fa-building"></i> Customers</button>
+        <button class="btn-sec" onclick="nav('projects')"><i class="fa-solid fa-diagram-project"></i> Projects</button>
+      </div>
+    </div></div>`;
+}
+
+async function pgBulkPdf() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-file-pdf"></i> Bulk PDF Export</h1></div>
+    <div class="card"><div class="card-body">
+      <p style="color:var(--muted);font-size:14px;margin:0 0 16px">Export invoices, estimates, or proposals as PDFs for a date range.</p>
+      <div class="filter-bar">
+        <select id="bpdf-type" class="fc" style="max-width:200px">
+          <option value="invoices">Invoices</option>
+          <option value="estimates">Estimates</option>
+          <option value="proposals">Proposals</option>
+        </select>
+        <input id="bpdf-from" type="date" class="fc" style="max-width:170px">
+        <input id="bpdf-to" type="date" class="fc" style="max-width:170px">
+        <button class="btn-pri" onclick="runBulkPdf()"><i class="fa-solid fa-download"></i> Generate</button>
+      </div>
+      <div id="bpdf-result" style="margin-top:14px"></div>
+    </div></div>`;
+}
+async function runBulkPdf() {
+  const res = document.getElementById('bpdf-result');
+  const type = document.getElementById('bpdf-type')?.value;
+  if (res) res.innerHTML = `<div class="es" style="padding:24px"><i class="fa-solid fa-circle-info"></i><p>Open the <strong>${esc(type)}</strong> module and use each record's PDF action to download. Batch export is being finalized.</p></div>`;
+}
+
+async function pgAnnouncements() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-bullhorn"></i> Announcements</h1></div>
+    <div id="ann-wrap"><div class="ls"><div class="spin"></div></div></div>`;
+}
+window.init_announcements = async function() {
+  const wrap = document.getElementById('ann-wrap');
+  if (!wrap) return;
+  try {
+    const res = await GET('/announcements');
+    const items = res.items || res || [];
+    if (!items.length) { wrap.innerHTML = `<div class="es"><i class="fa-solid fa-bullhorn"></i><h3>No announcements</h3></div>`; return; }
+    wrap.innerHTML = items.map(a => `<div class="card" style="margin-bottom:12px"><div class="card-body">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div style="font-weight:600;font-size:15px">${esc(a.title||a.subject||'Announcement')}</div>
+        <span style="font-size:12px;color:var(--muted);white-space:nowrap">${a.created_at?fmtDate(a.created_at):''}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text);margin-top:6px;line-height:1.5">${a.body||a.content||''}</div>
+    </div></div>`).join('');
+  } catch(e) { wrap.innerHTML = `<div class="es"><i class="fa-solid fa-triangle-exclamation"></i><h3>Couldn't load announcements</h3><p>${esc(e.message||'')}</p></div>`; }
+};
+
+async function pgActivityLog() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-stream"></i> Activity Log</h1></div>
+    <div class="filter-bar">
+      <select id="al-module" class="fc" style="max-width:200px" onchange="loadActivityLog()">
+        <option value="">All modules</option>
+        <option value="customers">Customers</option><option value="leads">Leads</option>
+        <option value="invoices">Invoices</option><option value="estimates">Estimates</option>
+        <option value="proposals">Proposals</option><option value="projects">Projects</option>
+        <option value="tasks">Tasks</option><option value="contracts">Contracts</option>
+      </select>
+      <select id="al-limit" class="fc" style="max-width:140px" onchange="loadActivityLog()">
+        <option value="50">Last 50</option><option value="100">Last 100</option><option value="200">Last 200</option>
+      </select>
+    </div>
+    <div id="al-wrap"><div class="ls"><div class="spin"></div></div></div>`;
+}
+
+async function pgPipeLog() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-code-branch"></i> Ticket Pipe Log</h1></div>
+    <div id="pipe-wrap"><div class="ls"><div class="spin"></div></div></div>`;
+}
+window.init_pipe_log = async function() {
+  const wrap = document.getElementById('pipe-wrap');
+  if (!wrap) return;
+  try {
+    const res = await GET('/activity?module=tickets&limit=100').catch(() => ({items:[]}));
+    const items = res.items || res || [];
+    if (!items.length) { wrap.innerHTML = `<div class="es"><i class="fa-solid fa-code-branch"></i><h3>No ticket pipe activity</h3><p>Inbound email-to-ticket events will appear here.</p></div>`; return; }
+    wrap.innerHTML = `<div class="card" style="padding:0">${buildTable(
+      ['Date','Action','Record','Description'],
+      items.map(a => `<tr>
+        <td style="white-space:nowrap;font-size:12px">${fmtDate(a.created_at)}</td>
+        <td>${esc(a.action||'')}</td>
+        <td>${a.record_name?esc(a.record_name):'—'}</td>
+        <td style="font-size:12px;color:var(--muted)">${esc(a.description||'')}</td>
+      </tr>`).join('')
+    )}</div>`;
+  } catch(e) { wrap.innerHTML = `<div class="es"><i class="fa-solid fa-triangle-exclamation"></i><h3>Couldn't load pipe log</h3><p>${esc(e.message||'')}</p></div>`; }
+};
+
 // ═══════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════
