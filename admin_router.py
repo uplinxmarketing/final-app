@@ -27,7 +27,7 @@ from admin_models import (
     CRMEstimate, CRMEstimateRequestForm, CRMEstimateRequest, CRMEstimateRequestStatus,
     CRMLineItem, CRMPayment, CRMPaymentMode,
     CRMCreditNote, CRMCreditApplication, CRMCreditRefund,
-    CRMExpense, CRMExpenseCategory,
+    CRMSubscription, CRMExpense, CRMExpenseCategory,
     CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
@@ -3772,27 +3772,214 @@ async def record_credit_refund(cnid: int, req: CreditRefundReq, staff: StaffMemb
     return {"ok": True, "remaining": cn.remaining}
 
 
-# ── Expenses ──────────────────────────────────────────────────────────────────
+# ── Module 18: Subscriptions ──────────────────────────────────────────────────
 
-@router.get("/api/expenses")
-async def list_expenses(
-    category_id: Optional[int] = None, customer_id: Optional[int] = None,
-    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+SUB_STATUSES = ["Draft", "Not Subscribed", "Active", "Past Due", "Unpaid", "Canceled", "Incomplete"]
+SUB_INTERVALS = ["day", "week", "month", "year"]
+
+
+def _sub_dict(s: CRMSubscription) -> dict:
+    return {
+        "id": s.id, "name": s.name, "description": s.description,
+        "description_in_invoice_item": s.description_in_invoice_item,
+        "customer_id": s.customer_id,
+        "customer_name": s.customer.company_name if s.customer else None,
+        "project_id": s.project_id,
+        "currency": s.currency, "amount": s.amount, "quantity": s.quantity,
+        "interval": s.interval, "interval_count": s.interval_count,
+        "trial_days": s.trial_days,
+        "ends_at": s.ends_at.isoformat() if s.ends_at else None,
+        "status": s.status,
+        "next_billing_at": s.next_billing_at.isoformat() if s.next_billing_at else None,
+        "stripe_plan_id": s.stripe_plan_id,
+        "stripe_subscription_id": s.stripe_subscription_id,
+        "hash": s.hash, "is_test_mode": s.is_test_mode,
+        "terms": s.terms,
+        "created_at": s.created_at.isoformat(),
+    }
+
+
+class SubscriptionReq(BaseModel):
+    name: str
+    description: Optional[str] = None
+    description_in_invoice_item: bool = False
+    customer_id: Optional[int] = None
+    project_id: Optional[int] = None
+    currency: str = "USD"
+    amount: float = 0.0
+    quantity: int = 1
+    interval: str = "month"
+    interval_count: int = 1
+    trial_days: Optional[int] = None
+    ends_at: Optional[str] = None
+    tax_id: Optional[int] = None
+    tax_id_2: Optional[int] = None
+    terms: Optional[str] = None
+    is_test_mode: bool = False
+    status: str = "Draft"
+
+
+@router.get("/api/subscriptions")
+async def list_subscriptions(
+    status: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ):
-    q = select(CRMExpense).options(selectinload(CRMExpense.category), selectinload(CRMExpense.customer)).order_by(desc(CRMExpense.expense_date))
-    if category_id:
-        q = q.where(CRMExpense.category_id == category_id)
+    q = (select(CRMSubscription)
+         .options(selectinload(CRMSubscription.customer))
+         .order_by(desc(CRMSubscription.created_at)))
+    if status:
+        q = q.where(CRMSubscription.status == status)
     if customer_id:
-        q = q.where(CRMExpense.customer_id == customer_id)
+        q = q.where(CRMSubscription.customer_id == customer_id)
     r = await db.execute(q)
-    return [
-        {"id": e.id, "name": e.name, "category": e.category.name if e.category else None,
-         "amount": e.amount, "currency": e.currency, "reference": e.reference,
-         "note": e.note, "expense_date": e.expense_date.isoformat(),
-         "customer_name": e.customer.company_name if e.customer else None,
-         "is_billable": e.is_billable, "is_billed": e.is_billed}
-        for e in r.scalars().all()
-    ]
+    return [_sub_dict(s) for s in r.scalars().all()]
+
+
+@router.post("/api/subscriptions")
+async def create_subscription(req: SubscriptionReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    sub = CRMSubscription(
+        name=req.name, description=req.description,
+        description_in_invoice_item=req.description_in_invoice_item,
+        customer_id=req.customer_id, project_id=req.project_id,
+        currency=req.currency, amount=req.amount, quantity=req.quantity,
+        interval=req.interval, interval_count=req.interval_count,
+        trial_days=req.trial_days,
+        ends_at=datetime.fromisoformat(req.ends_at) if req.ends_at else None,
+        tax_id=req.tax_id, tax_id_2=req.tax_id_2,
+        terms=req.terms, is_test_mode=req.is_test_mode, status=req.status,
+        created_by_user_id=staff.id,
+    )
+    db.add(sub)
+    await db.flush()
+    await _log(db, staff, "subscriptions", "created", sub.id, sub.name)
+    return {"id": sub.id, "hash": sub.hash}
+
+
+@router.get("/api/subscriptions/{sid}")
+async def get_subscription(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMSubscription).where(CRMSubscription.id == sid)
+                         .options(selectinload(CRMSubscription.customer)))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    return _sub_dict(s)
+
+
+@router.put("/api/subscriptions/{sid}")
+async def update_subscription(sid: int, req: SubscriptionReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMSubscription).where(CRMSubscription.id == sid))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    fields = req.model_dump(exclude={"ends_at"}, exclude_unset=True)
+    for k, v in fields.items():
+        if hasattr(s, k):
+            setattr(s, k, v)
+    if req.ends_at:
+        s.ends_at = datetime.fromisoformat(req.ends_at)
+    s.updated_at = _utcnow()
+    return {"ok": True}
+
+
+@router.delete("/api/subscriptions/{sid}")
+async def delete_subscription(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMSubscription).where(CRMSubscription.id == sid))
+    return {"ok": True}
+
+
+@router.post("/api/subscriptions/{sid}/send")
+async def send_subscription(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMSubscription).where(CRMSubscription.id == sid)
+                         .options(selectinload(CRMSubscription.customer)))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    from config import settings as _s
+    public_url = f"{_s.BASE_URL.rstrip('/')}/admin/subscription/{s.id}/{s.hash}"
+    if s.customer and s.customer.email:
+        html = (f"<p>Dear {s.customer.company_name},</p>"
+                f"<p>You have been invited to subscribe to <strong>{s.name}</strong>.</p>"
+                f"<p>Click the link below to view details and subscribe:</p>"
+                f"<p><a href='{public_url}'>{public_url}</a></p>")
+        await _send_email(s.customer.email, f"Subscription: {s.name}", html)
+    s.status = "Not Subscribed"
+    s.updated_at = _utcnow()
+    await _log(db, staff, "subscriptions", "sent", s.id, s.name)
+    return {"ok": True, "public_url": public_url}
+
+
+@router.post("/api/subscriptions/{sid}/cancel")
+async def cancel_subscription(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMSubscription).where(CRMSubscription.id == sid))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    s.status = "Canceled"
+    s.updated_at = _utcnow()
+    await _log(db, staff, "subscriptions", "canceled", s.id, s.name)
+    return {"ok": True}
+
+
+@router.get("/subscription/{sid}/{hash_val}", response_class=HTMLResponse)
+async def public_subscription_page(sid: int, hash_val: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMSubscription).where(CRMSubscription.id == sid)
+                         .options(selectinload(CRMSubscription.customer)))
+    s = r.scalar_one_or_none()
+    if not s or s.hash != hash_val:
+        raise HTTPException(404)
+    interval_label = f"every {s.interval_count} {s.interval}{'s' if s.interval_count > 1 else ''}"
+    status_color = {"Active": "#10b981", "Canceled": "#ef4444", "Draft": "#6b7280",
+                    "Not Subscribed": "#6366f1", "Past Due": "#f59e0b"}.get(s.status, "#6b7280")
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Subscribe: {s.name}</title>
+<style>body{{font-family:sans-serif;max-width:600px;margin:60px auto;padding:0 20px;color:#222}}
+  h1{{color:#6366f1}}.card{{background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin:24px 0}}
+  .price{{font-size:2rem;font-weight:700;color:#6366f1}}.badge{{display:inline-block;padding:4px 10px;border-radius:9999px;font-size:.8rem;font-weight:600;background:{status_color};color:#fff}}
+  .notice{{background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:20px 0}}</style>
+</head><body>
+<h1>{esc(s.name)}</h1>
+{'<p>For: '+esc(s.customer.company_name)+'</p>' if s.customer else ''}
+<p>Status: <span class="badge">{s.status}</span></p>
+<div class="card">
+  <div class="price">{s.currency} {s.amount:,.2f}</div>
+  <div style="color:#6b7280;margin-top:4px">{interval_label}{f" · {s.quantity}× quantity" if s.quantity > 1 else ""}</div>
+  {f'<div style="margin-top:8px;color:#6b7280">Trial: {s.trial_days} days free</div>' if s.trial_days else ''}
+  {f'<div style="margin-top:8px;color:#6b7280">Ends: {s.ends_at.strftime("%B %d, %Y")}</div>' if s.ends_at else ''}
+</div>
+{f'<div style="margin-bottom:20px"><p>{esc(s.description)}</p></div>' if s.description else ''}
+<div class="notice">
+  <strong>Online payment not yet configured.</strong><br>
+  To activate Stripe subscriptions, configure your Stripe API keys in Settings → Integrations.
+  Your administrator will contact you with payment details.
+</div>
+{f'<div style="margin-top:20px"><h3>Terms</h3><p>{esc(s.terms)}</p></div>' if s.terms else ''}
+</body></html>"""
+    return HTMLResponse(html)
+
+
+# ── Module 19: Expenses ────────────────────────────────────────────────────────
+
+def _expense_dict(e: CRMExpense) -> dict:
+    return {
+        "id": e.id, "name": e.name,
+        "category_id": e.category_id,
+        "category": e.category.name if e.category else None,
+        "customer_id": e.customer_id,
+        "customer_name": e.customer.company_name if e.customer else None,
+        "project_id": e.project_id,
+        "amount": e.amount, "currency": e.currency,
+        "reference": e.reference, "note": e.note,
+        "expense_date": e.expense_date.isoformat() if e.expense_date else None,
+        "payment_mode_id": e.payment_mode_id,
+        "tax_id": e.tax_id,
+        "is_billable": e.is_billable, "is_billed": e.is_billed,
+        "invoice_id": getattr(e, "invoice_id", None),
+        "is_recurring": e.is_recurring,
+        "created_at": e.created_at.isoformat(),
+    }
 
 
 class ExpenseReq(BaseModel):
@@ -3803,23 +3990,87 @@ class ExpenseReq(BaseModel):
     amount: float
     currency: str = "USD"
     tax_id: Optional[int] = None
+    tax_id_2: Optional[int] = None
     payment_mode_id: Optional[int] = None
     reference: Optional[str] = None
     note: Optional[str] = None
     expense_date: Optional[str] = None
     is_billable: bool = False
+    is_recurring: bool = False
+    recurring_config: Optional[dict] = None
+
+
+@router.get("/api/expenses")
+async def list_expenses(
+    category_id: Optional[int] = None,
+    customer_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    is_billable: Optional[bool] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMExpense)
+         .options(selectinload(CRMExpense.category), selectinload(CRMExpense.customer))
+         .order_by(desc(CRMExpense.expense_date)))
+    if category_id:
+        q = q.where(CRMExpense.category_id == category_id)
+    if customer_id:
+        q = q.where(CRMExpense.customer_id == customer_id)
+    if project_id:
+        q = q.where(CRMExpense.project_id == project_id)
+    if is_billable is not None:
+        q = q.where(CRMExpense.is_billable == is_billable)
+    if date_from:
+        q = q.where(CRMExpense.expense_date >= datetime.fromisoformat(date_from))
+    if date_to:
+        q = q.where(CRMExpense.expense_date <= datetime.fromisoformat(date_to))
+    r = await db.execute(q)
+    return [_expense_dict(e) for e in r.scalars().all()]
+
+
+@router.get("/api/expenses/{eid}")
+async def get_expense(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMExpense).where(CRMExpense.id == eid)
+                         .options(selectinload(CRMExpense.category), selectinload(CRMExpense.customer)))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    return _expense_dict(e)
 
 
 @router.post("/api/expenses")
 async def create_expense(req: ExpenseReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    data = req.model_dump(exclude={"expense_date"})
-    data["expense_date"] = datetime.fromisoformat(req.expense_date) if req.expense_date else _utcnow()
-    data["created_by"] = staff.id
-    e = CRMExpense(**data)
+    e = CRMExpense(
+        name=req.name, category_id=req.category_id, customer_id=req.customer_id,
+        project_id=req.project_id, amount=req.amount, currency=req.currency,
+        tax_id=req.tax_id, payment_mode_id=req.payment_mode_id,
+        reference=req.reference, note=req.note,
+        expense_date=datetime.fromisoformat(req.expense_date) if req.expense_date else _utcnow(),
+        is_billable=req.is_billable, is_recurring=req.is_recurring,
+        recurring_config=req.recurring_config,
+        created_by=staff.id,
+    )
     db.add(e)
     await db.flush()
-    await _log(db, staff, "expenses", "created", e.id, e.name)
+    await _log(db, staff, "expenses", "created", e.id, e.name or str(e.amount))
     return {"id": e.id}
+
+
+@router.put("/api/expenses/{eid}")
+async def update_expense(eid: int, req: ExpenseReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMExpense).where(CRMExpense.id == eid))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    fields = req.model_dump(exclude={"expense_date"}, exclude_unset=True)
+    for k, v in fields.items():
+        if hasattr(e, k):
+            setattr(e, k, v)
+    if req.expense_date:
+        e.expense_date = datetime.fromisoformat(req.expense_date)
+    return {"ok": True}
 
 
 @router.delete("/api/expenses/{eid}")
@@ -3828,18 +4079,98 @@ async def delete_expense(eid: int, staff: StaffMember = Depends(get_current_admi
     return {"ok": True}
 
 
+@router.post("/api/expenses/{eid}/bill")
+async def bill_expense(eid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Convert a billable expense into an invoice line item on a new draft invoice."""
+    r = await db.execute(select(CRMExpense).where(CRMExpense.id == eid)
+                         .options(selectinload(CRMExpense.customer)))
+    e = r.scalar_one_or_none()
+    if not e:
+        raise HTTPException(404)
+    if not e.is_billable:
+        raise HTTPException(400, "Expense is not marked billable")
+    if e.is_billed:
+        raise HTTPException(400, "Expense already billed")
+    # Create draft invoice for the customer
+    prefix = "INV"
+    inv_num_str, num_int, formatted = await _next_inv_number(db, prefix)
+    inv = CRMInvoice(
+        invoice_number=inv_num_str, number=num_int, prefix=prefix, formatted_number=formatted,
+        customer_id=e.customer_id, status="draft", currency=e.currency,
+        subtotal=e.amount, total=e.amount, date=_utcnow(),
+    )
+    db.add(inv)
+    await db.flush()
+    db.add(CRMLineItem(invoice_id=inv.id, description=e.name or "Expense",
+                       qty=1, rate=e.amount, amount=e.amount, sort_order=0))
+    e.is_billed = True
+    e.invoice_id = inv.id
+    await db.commit()
+    return {"ok": True, "invoice_id": inv.id, "formatted_number": formatted}
+
+
+@router.post("/api/expenses/bulk-bill")
+async def bulk_bill_expenses(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    """Combine multiple billable expenses for one client into one draft invoice."""
+    ids: list[int] = req.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "No expense IDs provided")
+    r = await db.execute(select(CRMExpense).where(CRMExpense.id.in_(ids))
+                         .options(selectinload(CRMExpense.customer)))
+    expenses = r.scalars().all()
+    unbillable = [e.id for e in expenses if not e.is_billable]
+    if unbillable:
+        raise HTTPException(400, f"Expenses not billable: {unbillable}")
+    already_billed = [e.id for e in expenses if e.is_billed]
+    if already_billed:
+        raise HTTPException(400, f"Already billed: {already_billed}")
+    customer_ids = {e.customer_id for e in expenses}
+    if len(customer_ids) > 1:
+        raise HTTPException(400, "All expenses must belong to the same client")
+    total = sum(e.amount for e in expenses)
+    prefix = "INV"
+    inv_num_str, num_int, formatted = await _next_inv_number(db, prefix)
+    customer_id = next(iter(customer_ids))
+    currency = expenses[0].currency if expenses else "USD"
+    inv = CRMInvoice(
+        invoice_number=inv_num_str, number=num_int, prefix=prefix, formatted_number=formatted,
+        customer_id=customer_id, status="draft", currency=currency,
+        subtotal=total, total=total, date=_utcnow(),
+    )
+    db.add(inv)
+    await db.flush()
+    for so, e in enumerate(expenses):
+        db.add(CRMLineItem(invoice_id=inv.id, description=e.name or "Expense",
+                           qty=1, rate=e.amount, amount=e.amount, sort_order=so))
+        e.is_billed = True
+        e.invoice_id = inv.id
+    await db.commit()
+    return {"ok": True, "invoice_id": inv.id, "formatted_number": formatted, "count": len(expenses)}
+
+
 @router.get("/api/expense-categories")
 async def list_expense_cats(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(CRMExpenseCategory).order_by(CRMExpenseCategory.name))
-    return [{"id": c.id, "name": c.name} for c in r.scalars().all()]
+    return [{"id": c.id, "name": c.name, "description": c.description} for c in r.scalars().all()]
 
 
 @router.post("/api/expense-categories")
 async def create_expense_cat(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
-    c = CRMExpenseCategory(name=req["name"])
+    c = CRMExpenseCategory(name=req["name"], description=req.get("description"))
     db.add(c)
     await db.flush()
     return {"id": c.id}
+
+
+@router.put("/api/expense-categories/{cid}")
+async def update_expense_cat(cid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMExpenseCategory).where(CRMExpenseCategory.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    c.name = req.get("name", c.name)
+    c.description = req.get("description", c.description)
+    return {"ok": True}
 
 
 @router.delete("/api/expense-categories/{cid}")
@@ -5019,6 +5350,11 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_payments ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER",
         # crm_line_items — Module 17 addition
         "ALTER TABLE crm_line_items ADD COLUMN IF NOT EXISTS credit_note_id INTEGER",
+        # crm_expense_categories — Module 19 addition
+        "ALTER TABLE crm_expense_categories ADD COLUMN IF NOT EXISTS description TEXT",
+        # crm_expenses — Module 19 additions
+        "ALTER TABLE crm_expenses ADD COLUMN IF NOT EXISTS tax_id_2 INTEGER",
+        "ALTER TABLE crm_expenses ADD COLUMN IF NOT EXISTS invoice_id INTEGER",
     ]
     for _sql in _migrations:
         try:

@@ -661,6 +661,7 @@ class CRMExpenseCategory(AdminBase):
     __tablename__ = "crm_expense_categories"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
@@ -675,11 +676,13 @@ class CRMExpense(AdminBase):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
     tax_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_tax_rates.id", ondelete="SET NULL"), nullable=True)
+    tax_id_2: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_tax_rates.id", ondelete="SET NULL"), nullable=True)
     payment_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_payment_modes.id", ondelete="SET NULL"), nullable=True)
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expense_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     receipt_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    invoice_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_invoices.id", ondelete="SET NULL"), nullable=True)
     is_billable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_billed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -724,6 +727,46 @@ class CRMContract(AdminBase):
     customer: Mapped[Optional[CRMCustomer]] = relationship("CRMCustomer", back_populates="contracts")
     project: Mapped[Optional["CRMProject"]] = relationship("CRMProject", back_populates="contracts", foreign_keys=[project_id])
     contract_type: Mapped[Optional[CRMContractType]] = relationship("CRMContractType")
+
+
+# ── Subscriptions ─────────────────────────────────────────────────────────────
+
+class CRMSubscription(AdminBase):
+    __tablename__ = "crm_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description_in_invoice_item: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Parties
+    customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="SET NULL"), nullable=True)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="SET NULL"), nullable=True)
+    # Billing
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    interval: Mapped[str] = mapped_column(String(20), nullable=False, default="month")  # day|week|month|year
+    interval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    trial_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Tax
+    tax_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_tax_rates.id", ondelete="SET NULL"), nullable=True)
+    tax_id_2: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_tax_rates.id", ondelete="SET NULL"), nullable=True)
+    # Stripe
+    stripe_plan_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Status: Draft | Not Subscribed | Active | Past Due | Unpaid | Canceled | Incomplete
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="Draft", index=True)
+    next_billing_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    terms: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, default=lambda: secrets.token_hex(16))
+    is_test_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    customer: Mapped[Optional["CRMCustomer"]] = relationship("CRMCustomer")
+    created_by: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by_user_id])
 
 
 # ── Projects & Tasks ─────────────────────────────────────────────────────────
