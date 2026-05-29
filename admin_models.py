@@ -1004,6 +1004,73 @@ class CRMProjectActivity(AdminBase):
     staff: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[staff_id])
 
 
+# ── Estimate Request Forms (Module 13) ───────────────────────────────────────
+
+class CRMEstimateRequestStatus(AdminBase):
+    """Configurable statuses for estimate requests (Cancelled/Processing/Completed + custom)."""
+    __tablename__ = "crm_estimate_request_statuses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[str] = mapped_column(String(20), nullable=False, default="#6366f1")
+    statusorder: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # flag: 'cancelled' | 'processing' | 'completed' | ''
+    flag: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+
+
+class CRMEstimateRequestForm(AdminBase):
+    """A public quote-request form embedded on the client's website."""
+    __tablename__ = "crm_estimate_request_forms"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    form_key: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True,
+                                           default=lambda: secrets.token_hex(16))
+    type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    # JSON array of field definitions
+    form_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    submit_btn_label: Mapped[str] = mapped_column(String(100), nullable=False, default="Submit Request")
+    submit_btn_bg_color: Mapped[str] = mapped_column(String(20), nullable=False, default="#6366f1")
+    submit_btn_text_color: Mapped[str] = mapped_column(String(20), nullable=False, default="#ffffff")
+    success_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True,
+                                                            default="Thank you! We'll be in touch shortly.")
+    redirect_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    recaptcha_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    honeypot_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # notify_type: 'assigned' | 'specific'
+    notify_type: Mapped[str] = mapped_column(String(20), nullable=False, default="assigned")
+    notify_user_ids: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    default_assignee_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    default_assignee: Mapped[Optional[StaffMember]] = relationship("StaffMember", foreign_keys=[default_assignee_id])
+    requests: Mapped[list["CRMEstimateRequest"]] = relationship("CRMEstimateRequest", back_populates="form",
+                                                                  cascade="all, delete-orphan")
+
+
+class CRMEstimateRequest(AdminBase):
+    """A submitted quote inquiry from a prospect via an estimate request form."""
+    __tablename__ = "crm_estimate_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    form_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_estimate_request_forms.id", ondelete="CASCADE"), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    submission: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    status_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_estimate_request_statuses.id", ondelete="SET NULL"), nullable=True)
+    assigned_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    last_status_change_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    date_estimated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    converted_estimate_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    form: Mapped[CRMEstimateRequestForm] = relationship("CRMEstimateRequestForm", back_populates="requests")
+    status: Mapped[Optional[CRMEstimateRequestStatus]] = relationship("CRMEstimateRequestStatus", foreign_keys=[status_id])
+    assignee: Mapped[Optional[StaffMember]] = relationship("StaffMember", foreign_keys=[assigned_user_id])
+
+
 # ── Mail Queue ────────────────────────────────────────────────────────────────
 
 class CRMMailQueue(AdminBase):

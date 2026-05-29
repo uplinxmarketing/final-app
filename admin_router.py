@@ -24,7 +24,8 @@ from admin_models import (
     StaffMember, CRMCustomer, CRMContact, CRMNote,
     CRMLead, CRMLeadSource, CRMLeadStatus, CRMProject, CRMProjectMember,
     CRMTask, CRMTaskComment, CRMTimesheet, CRMInvoice, CRMProposal,
-    CRMEstimate, CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
+    CRMEstimate, CRMEstimateRequestForm, CRMEstimateRequest, CRMEstimateRequestStatus,
+    CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
     CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
@@ -45,6 +46,9 @@ CAPABILITY_MATRIX: dict[str, dict[str, str]] = {
     "leads":          {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "convert": "Convert to Customer", "import": "Import"},
     "estimates":      {"view": "View", "view_all": "View All", "create": "Create", "edit": "Edit", "delete": "Delete",
                        "send": "Send to Client", "mark_sent": "Mark Sent", "convert_to_invoice": "Convert to Invoice"},
+    "estimate_requests": {"view": "View Requests", "edit": "Edit", "delete": "Delete",
+                          "convert_to_estimate": "Convert to Estimate",
+                          "manage_forms": "Manage Forms", "manage_statuses": "Manage Statuses"},
     "proposals":      {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client"},
     "invoices":       {"view": "View", "create": "Create", "edit": "Edit", "delete": "Delete", "send": "Send to Client", "record_payment": "Record Payment"},
     "payments":       {"view": "View", "create": "Create", "delete": "Delete"},
@@ -2410,6 +2414,441 @@ async def decline_estimate(eid: int, req: DeclineEstimateReq, db: AsyncSession =
     return {"ok": True}
 
 
+# ── Estimate Request Statuses ─────────────────────────────────────────────────
+
+@router.get("/api/estimate-request-statuses")
+async def list_er_statuses(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEstimateRequestStatus).order_by(CRMEstimateRequestStatus.statusorder))
+    return [{"id": s.id, "name": s.name, "color": s.color, "statusorder": s.statusorder, "flag": s.flag}
+            for s in r.scalars().all()]
+
+
+class ERStatusReq(BaseModel):
+    name: str
+    color: str = "#6366f1"
+    statusorder: int = 0
+    flag: str = ""
+
+
+@router.post("/api/estimate-request-statuses")
+async def create_er_status(req: ERStatusReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_statuses"):
+        raise HTTPException(403)
+    s = CRMEstimateRequestStatus(**req.model_dump())
+    db.add(s)
+    await db.commit()
+    await db.refresh(s)
+    return {"id": s.id}
+
+
+@router.put("/api/estimate-request-statuses/{sid}")
+async def update_er_status(sid: int, req: ERStatusReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_statuses"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimateRequestStatus).where(CRMEstimateRequestStatus.id == sid))
+    s = r.scalar_one_or_none()
+    if not s:
+        raise HTTPException(404)
+    for k, v in req.model_dump().items():
+        setattr(s, k, v)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/api/estimate-request-statuses/{sid}")
+async def delete_er_status(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_statuses"):
+        raise HTTPException(403)
+    await db.execute(delete(CRMEstimateRequestStatus).where(CRMEstimateRequestStatus.id == sid))
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Estimate Request Forms ────────────────────────────────────────────────────
+
+def _er_form_dict(f: CRMEstimateRequestForm, submission_count: int = 0) -> dict:
+    return {
+        "id": f.id, "form_key": f.form_key, "type": f.type, "name": f.name,
+        "language": f.language, "form_data": f.form_data or [],
+        "submit_btn_label": f.submit_btn_label,
+        "submit_btn_bg_color": f.submit_btn_bg_color,
+        "submit_btn_text_color": f.submit_btn_text_color,
+        "success_message": f.success_message, "redirect_url": f.redirect_url,
+        "recaptcha_enabled": f.recaptcha_enabled, "honeypot_enabled": f.honeypot_enabled,
+        "notify_type": f.notify_type, "notify_user_ids": f.notify_user_ids or [],
+        "default_assignee_id": f.default_assignee_id,
+        "is_active": f.is_active, "created_at": f.created_at.isoformat(),
+        "submission_count": submission_count,
+    }
+
+
+class ERFormReq(BaseModel):
+    name: str
+    type: Optional[str] = None
+    language: str = "en"
+    form_data: Optional[list] = None
+    submit_btn_label: str = "Submit Request"
+    submit_btn_bg_color: str = "#6366f1"
+    submit_btn_text_color: str = "#ffffff"
+    success_message: Optional[str] = "Thank you! We'll be in touch shortly."
+    redirect_url: Optional[str] = None
+    recaptcha_enabled: bool = False
+    honeypot_enabled: bool = True
+    notify_type: str = "assigned"
+    notify_user_ids: Optional[list] = None
+    default_assignee_id: Optional[int] = None
+    is_active: bool = True
+
+
+@router.get("/api/estimate-request-forms")
+async def list_er_forms(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_forms"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimateRequestForm).order_by(desc(CRMEstimateRequestForm.created_at)))
+    forms = r.scalars().all()
+    result = []
+    for f in forms:
+        cnt_r = await db.execute(select(func.count()).select_from(CRMEstimateRequest).where(CRMEstimateRequest.form_id == f.id))
+        cnt = cnt_r.scalar() or 0
+        result.append(_er_form_dict(f, cnt))
+    return result
+
+
+@router.post("/api/estimate-request-forms")
+async def create_er_form(req: ERFormReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_forms"):
+        raise HTTPException(403)
+    f = CRMEstimateRequestForm(**req.model_dump())
+    db.add(f)
+    await db.commit()
+    await db.refresh(f)
+    return {"id": f.id, "form_key": f.form_key}
+
+
+@router.get("/api/estimate-request-forms/{fid}")
+async def get_er_form(fid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_forms"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimateRequestForm).where(CRMEstimateRequestForm.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    return _er_form_dict(f)
+
+
+@router.put("/api/estimate-request-forms/{fid}")
+async def update_er_form(fid: int, req: ERFormReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_forms"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimateRequestForm).where(CRMEstimateRequestForm.id == fid))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404)
+    for k, v in req.model_dump(exclude_unset=True).items():
+        setattr(f, k, v)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/api/estimate-request-forms/{fid}")
+async def delete_er_form(fid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "manage_forms"):
+        raise HTTPException(403)
+    await db.execute(delete(CRMEstimateRequestForm).where(CRMEstimateRequestForm.id == fid))
+    await db.commit()
+    return {"ok": True}
+
+
+# Public form render + submit (no auth)
+@router.get("/form/{form_key}", response_class=HTMLResponse)
+async def public_er_form(form_key: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEstimateRequestForm).where(
+        CRMEstimateRequestForm.form_key == form_key,
+        CRMEstimateRequestForm.is_active == True,
+    ))
+    f = r.scalar_one_or_none()
+    if not f:
+        return HTMLResponse("<h2 style='font-family:sans-serif;text-align:center;margin-top:10vh'>Form not found or inactive.</h2>", status_code=404)
+
+    fields_html = ""
+    for field in (f.form_data or []):
+        ftype = field.get("type", "text")
+        fname = field.get("name", "")
+        flabel = field.get("label", fname)
+        freq = field.get("required", False)
+        opts = field.get("options", [])
+        req_attr = "required" if freq else ""
+        star = "<span style='color:#ef4444'>*</span>" if freq else ""
+        label_html = f"<label style='font-size:13px;font-weight:500;display:block;margin-bottom:5px'>{flabel} {star}</label>"
+        inp_style = "width:100%;box-sizing:border-box;border:1.5px solid #e5e7eb;border-radius:6px;padding:9px 12px;font-size:14px;font-family:inherit"
+
+        if ftype == "heading":
+            fields_html += f"<h3 style='font-size:16px;font-weight:700;margin:20px 0 8px'>{flabel}</h3>"
+        elif ftype == "paragraph":
+            fields_html += f"<p style='font-size:13px;color:#6b7280;margin:0 0 12px'>{flabel}</p>"
+        elif ftype == "textarea":
+            fields_html += f"<div style='margin-bottom:14px'>{label_html}<textarea name='{fname}' rows='4' {req_attr} style='{inp_style};resize:vertical'></textarea></div>"
+        elif ftype == "select":
+            opts_html = "".join(f"<option value='{o}'>{o}</option>" for o in opts)
+            fields_html += f"<div style='margin-bottom:14px'>{label_html}<select name='{fname}' {req_attr} style='{inp_style};background:#fff'><option value=''>— Select —</option>{opts_html}</select></div>"
+        elif ftype in ("checkbox", "radio"):
+            opts_html = "".join(f"<label style='display:flex;align-items:center;gap:6px;font-size:14px;margin-bottom:6px'><input type='{ftype}' name='{fname}' value='{o}'> {o}</label>" for o in opts)
+            fields_html += f"<div style='margin-bottom:14px'>{label_html}{opts_html}</div>"
+        elif ftype == "date":
+            fields_html += f"<div style='margin-bottom:14px'>{label_html}<input type='date' name='{fname}' {req_attr} style='{inp_style}'></div>"
+        else:
+            itype = "email" if ftype == "email" else "tel" if ftype == "phone" else "text"
+            fields_html += f"<div style='margin-bottom:14px'>{label_html}<input type='{itype}' name='{fname}' {req_attr} style='{inp_style}'></div>"
+
+    honeypot = '<input name="_hp_website" style="display:none" tabindex="-1" autocomplete="off">' if f.honeypot_enabled else ''
+
+    html = f"""<!DOCTYPE html>
+<html lang="{f.language}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{f.name}</title>
+<style>*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;color:#111827}}
+.card{{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:36px;max-width:620px;margin:40px auto}}</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin:0 0 6px;font-size:22px;font-weight:700">{f.name}</h2>
+  <p style="color:#6b7280;font-size:13px;margin:0 0 24px">Fill in the form below and we'll get back to you.</p>
+  <div id="success-msg" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;text-align:center;font-weight:600;color:#16a34a">{f.success_message or 'Thank you!'}</div>
+  <form id="er-form">
+    {honeypot}
+    {fields_html}
+    <button type="submit" style="background:{f.submit_btn_bg_color};color:{f.submit_btn_text_color};border:none;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:8px">
+      {f.submit_btn_label}
+    </button>
+    <div id="form-err" style="display:none;color:#ef4444;font-size:13px;margin-top:10px;text-align:center"></div>
+  </form>
+</div>
+<script>
+document.getElementById('er-form').addEventListener('submit', async function(e) {{
+  e.preventDefault();
+  const hp = this.querySelector('[name=_hp_website]');
+  if (hp && hp.value) return; // honeypot triggered
+  const data = {{}};
+  new FormData(this).forEach((v,k) => {{ if(k!=='_hp_website') data[k]=v; }});
+  const btn = this.querySelector('button[type=submit]');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {{
+    const r = await fetch('/admin/api/form/{form_key}/submit', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(data)}});
+    const d = await r.json();
+    if (r.ok) {{
+      this.style.display = 'none';
+      document.getElementById('success-msg').style.display = 'block';
+      {f"window.location='{f.redirect_url}';" if f.redirect_url else ''}
+    }} else {{
+      document.getElementById('form-err').style.display = 'block';
+      document.getElementById('form-err').textContent = d.detail || 'Submission failed. Please try again.';
+      btn.disabled = false; btn.textContent = '{f.submit_btn_label}';
+    }}
+  }} catch(err) {{
+    document.getElementById('form-err').style.display = 'block';
+    document.getElementById('form-err').textContent = 'Network error. Please try again.';
+    btn.disabled = false; btn.textContent = '{f.submit_btn_label}';
+  }}
+}});
+</script>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+@router.post("/api/form/{form_key}/submit")
+async def submit_er_form(form_key: str, request: Request, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMEstimateRequestForm).where(
+        CRMEstimateRequestForm.form_key == form_key,
+        CRMEstimateRequestForm.is_active == True,
+    ))
+    f = r.scalar_one_or_none()
+    if not f:
+        raise HTTPException(404, detail="Form not found")
+    body = await request.json()
+    # Get default "processing" status
+    stat_r = await db.execute(select(CRMEstimateRequestStatus).where(CRMEstimateRequestStatus.flag == "processing").limit(1))
+    default_status = stat_r.scalar_one_or_none()
+    email = body.get("email") or body.get("Email") or body.get("EMAIL")
+    req_obj = CRMEstimateRequest(
+        form_id=f.id,
+        email=email,
+        submission=body,
+        status_id=default_status.id if default_status else None,
+        assigned_user_id=f.default_assignee_id,
+    )
+    db.add(req_obj)
+    await db.commit()
+    await db.refresh(req_obj)
+    # Send notification email if configured
+    if f.notify_type == "assigned" and f.default_assignee_id:
+        agent_r = await db.execute(select(StaffMember).where(StaffMember.id == f.default_assignee_id))
+        agent = agent_r.scalar_one_or_none()
+        if agent and agent.email:
+            from config import settings as _s
+            await _send_email(agent.email, f"New Estimate Request — {f.name}",
+                              f"<p>A new estimate request was submitted via <strong>{f.name}</strong>.</p>"
+                              f"<p>From: {email or 'unknown'}</p>"
+                              f"<p><a href='{_s.BASE_URL}/admin#estimate-requests'>View in CRM</a></p>")
+    return {"ok": True, "id": req_obj.id}
+
+
+# ── Estimate Requests (Submissions) ──────────────────────────────────────────
+
+def _er_dict(req: CRMEstimateRequest) -> dict:
+    return {
+        "id": req.id,
+        "form_id": req.form_id,
+        "form_name": req.form.name if req.form else None,
+        "email": req.email,
+        "submission": req.submission or {},
+        "status_id": req.status_id,
+        "status_name": req.status.name if req.status else None,
+        "status_color": req.status.color if req.status else "#6b7280",
+        "status_flag": req.status.flag if req.status else "",
+        "assigned_user_id": req.assigned_user_id,
+        "assigned_name": req.assignee.full_name if req.assignee else None,
+        "last_status_change_at": req.last_status_change_at.isoformat() if req.last_status_change_at else None,
+        "date_estimated": req.date_estimated.isoformat() if req.date_estimated else None,
+        "converted_estimate_id": req.converted_estimate_id,
+        "notes": req.notes,
+        "created_at": req.created_at.isoformat(),
+    }
+
+
+@router.get("/api/estimate-requests")
+async def list_er_requests(
+    form_id: Optional[int] = None,
+    status_id: Optional[int] = None,
+    assigned_user_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _perm(staff, "estimate_requests", "view"):
+        raise HTTPException(403)
+    q = (select(CRMEstimateRequest)
+         .options(selectinload(CRMEstimateRequest.form),
+                  selectinload(CRMEstimateRequest.status),
+                  selectinload(CRMEstimateRequest.assignee))
+         .order_by(desc(CRMEstimateRequest.created_at)))
+    if form_id:
+        q = q.where(CRMEstimateRequest.form_id == form_id)
+    if status_id:
+        q = q.where(CRMEstimateRequest.status_id == status_id)
+    if assigned_user_id:
+        q = q.where(CRMEstimateRequest.assigned_user_id == assigned_user_id)
+    r = await db.execute(q)
+    return [_er_dict(req) for req in r.scalars().all()]
+
+
+@router.get("/api/estimate-requests/{rid}")
+async def get_er_request(rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "view"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMEstimateRequest).where(CRMEstimateRequest.id == rid)
+        .options(selectinload(CRMEstimateRequest.form),
+                 selectinload(CRMEstimateRequest.status),
+                 selectinload(CRMEstimateRequest.assignee))
+    )
+    req = r.scalar_one_or_none()
+    if not req:
+        raise HTTPException(404)
+    return _er_dict(req)
+
+
+class ERRequestUpdateReq(BaseModel):
+    status_id: Optional[int] = None
+    assigned_user_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@router.put("/api/estimate-requests/{rid}")
+async def update_er_request(rid: int, body: ERRequestUpdateReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "edit"):
+        raise HTTPException(403)
+    r = await db.execute(select(CRMEstimateRequest).where(CRMEstimateRequest.id == rid))
+    req = r.scalar_one_or_none()
+    if not req:
+        raise HTTPException(404)
+    data = body.model_dump(exclude_unset=True)
+    if "status_id" in data and data["status_id"] != req.status_id:
+        req.last_status_change_at = _utcnow()
+    for k, v in data.items():
+        setattr(req, k, v)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/api/estimate-requests/{rid}")
+async def delete_er_request(rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "delete"):
+        raise HTTPException(403)
+    await db.execute(delete(CRMEstimateRequest).where(CRMEstimateRequest.id == rid))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/estimate-requests/{rid}/convert-to-estimate")
+async def convert_er_to_estimate(rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _perm(staff, "estimate_requests", "convert_to_estimate"):
+        raise HTTPException(403)
+    r = await db.execute(
+        select(CRMEstimateRequest).where(CRMEstimateRequest.id == rid)
+        .options(selectinload(CRMEstimateRequest.status))
+    )
+    req = r.scalar_one_or_none()
+    if not req:
+        raise HTTPException(404)
+    if req.converted_estimate_id:
+        raise HTTPException(400, detail="Already converted to estimate")
+    # Auto-create or find customer by email
+    customer_id = None
+    if req.email:
+        cont_r = await db.execute(select(CRMContact).where(CRMContact.email == req.email).limit(1))
+        existing_contact = cont_r.scalar_one_or_none()
+        if existing_contact:
+            customer_id = existing_contact.customer_id
+        else:
+            sub = req.submission or {}
+            first = sub.get("first_name") or sub.get("name", "").split()[0] if sub.get("name") else "Guest"
+            last = " ".join(sub.get("name", "").split()[1:]) or sub.get("last_name", "")
+            company = sub.get("company") or sub.get("company_name") or (req.email.split("@")[1] if req.email else "New Client")
+            new_cust = CRMCustomer(company_name=company, is_active=True)
+            db.add(new_cust)
+            await db.flush()
+            db.add(CRMContact(customer_id=new_cust.id, first_name=first, last_name=last,
+                               email=req.email, is_primary=True))
+            customer_id = new_cust.id
+    # Generate estimate number
+    max_r = await db.execute(select(func.max(CRMEstimate.number)))
+    num = (max_r.scalar() or 0) + 1
+    formatted = f"EST-{num:06d}"
+    sub = req.submission or {}
+    est = CRMEstimate(
+        number=num, formatted_number=formatted,
+        customer_id=customer_id,
+        sale_agent_id=staff.id,
+        date=_utcnow(),
+        expiry_date=_utcnow() + timedelta(days=7),
+        status="draft",
+        admin_note=f"Converted from estimate request #{rid} (form submission)",
+        client_note=sub.get("project_description") or sub.get("description") or "",
+    )
+    db.add(est)
+    await db.flush()
+    # Mark request converted
+    req.converted_estimate_id = est.id
+    req.date_estimated = _utcnow()
+    # Mark completed status
+    comp_r = await db.execute(select(CRMEstimateRequestStatus).where(CRMEstimateRequestStatus.flag == "completed").limit(1))
+    comp_status = comp_r.scalar_one_or_none()
+    if comp_status:
+        req.status_id = comp_status.id
+        req.last_status_change_at = _utcnow()
+    await db.commit()
+    return {"ok": True, "estimate_id": est.id, "formatted_number": formatted}
+
+
 @router.get("/api/proposals")
 async def list_proposals(
     status: Optional[str] = None, customer_id: Optional[int] = None,
@@ -3748,6 +4187,16 @@ async def init_admin_db(engine) -> None:
                 ("Proposal Sent", "#8b5cf6"), ("Negotiation", "#ec4899"), ("Won", "#10b981"), ("Lost", "#ef4444"),
             ]):
                 db.add(CRMLeadStatus(name=name, color=color, sort_order=i))
+
+        # Default estimate request statuses (Module 13)
+        ers_exist = await db.execute(select(func.count()).select_from(CRMEstimateRequestStatus))
+        if (ers_exist.scalar() or 0) == 0:
+            for i, (name, color, flag) in enumerate([
+                ("Processing", "#3b82f6", "processing"),
+                ("Completed",  "#10b981", "completed"),
+                ("Cancelled",  "#ef4444", "cancelled"),
+            ]):
+                db.add(CRMEstimateRequestStatus(name=name, color=color, flag=flag, statusorder=i))
 
         # Default expense categories
         ec_exist = await db.execute(select(func.count()).select_from(CRMExpenseCategory))
