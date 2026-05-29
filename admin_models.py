@@ -335,34 +335,58 @@ class CRMInvoice(AdminBase):
     __tablename__ = "crm_invoices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Numbering
+    number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prefix: Mapped[str] = mapped_column(String(20), nullable=False, default="INV")
+    formatted_number: Mapped[str] = mapped_column(String(50), nullable=False, default="", index=True)
     invoice_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    # Parties
     customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="SET NULL"), nullable=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="SET NULL"), nullable=True)
+    sale_agent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    # Addresses
+    billing_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    shipping_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     bill_to: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     order_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")  # draft|not_sent|unpaid|partially_paid|overdue|paid
     date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Money
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
     discount_type: Mapped[str] = mapped_column(String(20), nullable=False, default="before_tax")
     discount_value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     adjustment: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     subtotal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     tax_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     amount_paid: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    allowed_payment_modes: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    # Notes
     client_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terms: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
+    # Assignment & recurrence
     assigned_to: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
     is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     recurring_config: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    subscription_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Public link
+    hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, default=lambda: secrets.token_hex(16))
+    # Reminders
+    last_overdue_reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_due_reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_overdue_reminders: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Timestamps
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     customer: Mapped[Optional[CRMCustomer]] = relationship("CRMCustomer", back_populates="invoices")
     project: Mapped[Optional["CRMProject"]] = relationship("CRMProject", back_populates="invoices")
+    sale_agent: Mapped[Optional[StaffMember]] = relationship("StaffMember", foreign_keys=[sale_agent_id])
     items: Mapped[list["CRMLineItem"]] = relationship("CRMLineItem", back_populates="invoice", cascade="all, delete-orphan",
                                                        primaryjoin="CRMLineItem.invoice_id == CRMInvoice.id")
     payments: Mapped[list["CRMPayment"]] = relationship("CRMPayment", back_populates="invoice", cascade="all, delete-orphan")
@@ -373,28 +397,60 @@ class CRMProposal(AdminBase):
     __tablename__ = "crm_proposals"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Numbering
+    number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prefix: Mapped[str] = mapped_column(String(20), nullable=False, default="PROP")
+    formatted_number: Mapped[str] = mapped_column(String(50), nullable=False, default="", index=True)
     proposal_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Parties
     customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="SET NULL"), nullable=True)
     lead_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_leads.id", ondelete="SET NULL"), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|sent|open|revised|declined|accepted
+    sale_agent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    proposal_to: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    # Addresses
+    billing_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    shipping_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", index=True)  # draft|sent|open|revised|declined|accepted
+    pipeline_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     open_till: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Money
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
     discount_type: Mapped[str] = mapped_column(String(20), nullable=False, default="before_tax")
     discount_value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     adjustment: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     subtotal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     tax_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Content & notes
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    allow_comments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     client_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terms: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
     assigned_to: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    # Public link
+    hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, default=lambda: secrets.token_hex(16))
+    # E-sign acceptance
+    acceptance_first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    acceptance_last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    acceptance_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    acceptance_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acceptance_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    signature_image: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Conversion
+    converted_to_invoice_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    converted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Timestamps
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     customer: Mapped[Optional[CRMCustomer]] = relationship("CRMCustomer", back_populates="proposals")
+    sale_agent: Mapped[Optional[StaffMember]] = relationship("StaffMember", foreign_keys=[sale_agent_id])
     items: Mapped[list["CRMLineItem"]] = relationship("CRMLineItem", back_populates="proposal", cascade="all, delete-orphan",
                                                        primaryjoin="CRMLineItem.proposal_id == CRMProposal.id")
     assignee: Mapped[Optional[StaffMember]] = relationship("StaffMember", foreign_keys=[assigned_to])
