@@ -3972,8 +3972,637 @@ async function bulkBillExpenses() {
   else { const d=await r.json(); toast(d.detail||'Failed','error'); }
 }
 // ── END MODULE 19 ─────────────────────────────────────────────────────────────
-function pgContracts(){return pgPlaceholder('Contracts')}
-function pgProjects(){return pgPlaceholder('Projects')}
+
+// ── MODULE 20: CONTRACTS ────────────────────────────────────────────────────
+
+let _contractsList=[], _contractTypes=[], _contractFilter='all';
+
+function pgContracts(){
+  return `<div class="page-header"><h1>Contracts</h1><button class="btn-primary" onclick="openContractModal()">+ New Contract</button></div>
+<div class="tab-bar" id="contract-tabs">
+  <button class="tab active" onclick="setContractFilter('all',this)">All</button>
+  <button class="tab" onclick="setContractFilter('draft',this)">Draft</button>
+  <button class="tab" onclick="setContractFilter('active',this)">Active</button>
+  <button class="tab" onclick="setContractFilter('expired',this)">Expired</button>
+  <button class="tab" onclick="setContractFilter('cancelled',this)">Cancelled</button>
+  <button class="tab" onclick="setContractFilter('trashed',this)">Trash</button>
+</div>
+<div class="card" style="overflow:auto">
+<table class="data-table"><thead><tr>
+  <th>#</th><th>Subject</th><th>Client</th><th>Type</th><th>Value</th><th>Status</th><th>Start</th><th>End</th><th>Signed</th><th>Actions</th>
+</tr></thead><tbody id="contracts-tbody"></tbody></table></div>
+<div id="contract-modal" class="modal" style="display:none"><div class="modal-box" style="max-width:720px">
+  <div class="modal-header"><h2 id="contract-modal-title">New Contract</h2><button class="modal-close" onclick="closeContractModal()">✕</button></div>
+  <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <input type="hidden" id="cm-id"/>
+    <div><label class="lbl">Subject *</label><input id="cm-subject" class="inp" placeholder="Contract subject"/></div>
+    <div id="cm-customer-wrap"><label class="lbl">Client</label><select id="cm-customer" class="inp"><option value="">— Select —</option></select></div>
+    <div><label class="lbl">Contract Type</label><select id="cm-type" class="inp"><option value="">— None —</option></select></div>
+    <div><label class="lbl">Project</label><select id="cm-project" class="inp"><option value="">— None —</option></select></div>
+    <div><label class="lbl">Value</label><input id="cm-value" class="inp" type="number" step="0.01" placeholder="0.00"/></div>
+    <div><label class="lbl">Currency</label><select id="cm-currency" class="inp"><option>USD</option><option>EUR</option><option>GBP</option></select></div>
+    <div><label class="lbl">Start Date</label><input id="cm-start" class="inp" type="date"/></div>
+    <div><label class="lbl">End Date</label><input id="cm-end" class="inp" type="date"/></div>
+    <div><label class="lbl">Status</label><select id="cm-status" class="inp"><option value="draft">Draft</option><option value="active">Active</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select></div>
+    <div style="display:flex;align-items:center;gap:8px;padding-top:20px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="cm-esign"/> Allow E-Sign</label>
+    </div>
+    <div style="grid-column:1/-1"><label class="lbl">Description</label><textarea id="cm-desc" class="inp" rows="2" placeholder="Short description…"></textarea></div>
+    <div style="grid-column:1/-1"><label class="lbl">Contract Body (HTML/Text)</label><textarea id="cm-content" class="inp" rows="6" placeholder="Full contract body…"></textarea></div>
+  </div>
+  <div class="modal-footer"><button class="btn-secondary" onclick="closeContractModal()">Cancel</button><button class="btn-primary" onclick="saveContract()">Save</button></div>
+</div></div>
+<div id="contract-renew-modal" class="modal" style="display:none"><div class="modal-box" style="max-width:480px">
+  <div class="modal-header"><h2>Renew Contract</h2><button class="modal-close" onclick="document.getElementById('contract-renew-modal').style.display='none'">✕</button></div>
+  <div class="modal-body" style="display:grid;gap:12px">
+    <input type="hidden" id="crm-renew-id"/>
+    <div><label class="lbl">New Start Date</label><input id="crm-new-start" class="inp" type="date"/></div>
+    <div><label class="lbl">New End Date</label><input id="crm-new-end" class="inp" type="date"/></div>
+    <div><label class="lbl">New Value</label><input id="crm-new-value" class="inp" type="number" step="0.01"/></div>
+  </div>
+  <div class="modal-footer"><button class="btn-secondary" onclick="document.getElementById('contract-renew-modal').style.display='none'">Cancel</button><button class="btn-primary" onclick="submitRenew()">Renew</button></div>
+</div></div>`;
+}
+
+async function init_contracts(){
+  _contractTypes = await apiFetch('/admin/api/contract-types').catch(()=>[]);
+  await loadContracts();
+}
+
+function setContractFilter(f,el){
+  _contractFilter=f;
+  document.querySelectorAll('#contract-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  loadContracts();
+}
+
+async function loadContracts(){
+  const trashed=_contractFilter==='trashed';
+  const params=new URLSearchParams({trashed});
+  if(!trashed && _contractFilter!=='all') params.set('status',_contractFilter);
+  _contractsList = await apiFetch('/admin/api/contracts?'+params).catch(()=>[]);
+  renderContractsTable();
+}
+
+function renderContractsTable(){
+  const tb=document.getElementById('contracts-tbody');
+  if(!tb) return;
+  const statusColors={draft:'#94a3b8',active:'#10b981',expired:'#f59e0b',cancelled:'#ef4444'};
+  tb.innerHTML=_contractsList.length===0?'<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">No contracts found.</td></tr>':_contractsList.map(c=>`<tr>
+    <td><strong>${c.contract_number}</strong></td>
+    <td><a href="#" onclick="viewContractDetail(${c.id});return false" style="color:#6366f1;font-weight:600">${c.subject}</a></td>
+    <td>${c.customer_name||'—'}</td>
+    <td>${c.contract_type||'—'}</td>
+    <td>${c.currency} ${c.value!=null?(+c.value).toLocaleString():'—'}</td>
+    <td><span class="badge" style="background:${statusColors[c.status]||'#94a3b8'}20;color:${statusColors[c.status]||'#94a3b8'}">${c.status}</span></td>
+    <td>${c.start_date?c.start_date.slice(0,10):'—'}</td>
+    <td>${c.end_date?c.end_date.slice(0,10):'—'}</td>
+    <td>${c.signed?'<span style="color:#10b981">✓ Signed</span>':'<span style="color:#94a3b8">—</span>'}</td>
+    <td class="action-cell">
+      <button class="btn-icon" onclick="openContractModal(${c.id})" title="Edit">✏️</button>
+      ${!c.trashed?`<button class="btn-icon" onclick="sendContract(${c.id})" title="Send">📤</button>`:''}
+      ${!c.signed&&!c.trashed?`<button class="btn-icon" onclick="markContractSigned(${c.id})" title="Mark Signed">✍️</button>`:''}
+      ${!c.trashed?`<button class="btn-icon" onclick="openRenewModal(${c.id})" title="Renew">🔄</button>`:''}
+      ${c.hash&&!c.trashed?`<button class="btn-icon" onclick="copyToClipboard(window.location.origin+'/admin/contract/${c.id}/'+${JSON.stringify(c.hash)})" title="Copy Link">🔗</button>`:''}
+      ${c.trashed?`<button class="btn-icon" onclick="restoreContract(${c.id})" title="Restore">♻️</button>`:`<button class="btn-icon" onclick="trashContract(${c.id})" title="Trash">🗑️</button>`}
+    </td>
+  </tr>`).join('');
+}
+
+async function openContractModal(id=null){
+  const m=document.getElementById('contract-modal');
+  document.getElementById('contract-modal-title').textContent=id?'Edit Contract':'New Contract';
+  document.getElementById('cm-id').value=id||'';
+  const custSel=document.getElementById('cm-customer');
+  if(custSel.options.length<=1){
+    const custs=await apiFetch('/admin/api/customers').catch(()=>[]);
+    custs.forEach(c=>{const o=new Option(c.company_name,c.id);custSel.add(o);});
+  }
+  const typeSel=document.getElementById('cm-type');
+  if(typeSel.options.length<=1){
+    _contractTypes.forEach(t=>{const o=new Option(t.name,t.id);typeSel.add(o);});
+  }
+  const projSel=document.getElementById('cm-project');
+  if(projSel.options.length<=1){
+    const projs=await apiFetch('/admin/api/projects').catch(()=>[]);
+    projs.forEach(p=>{const o=new Option(p.name,p.id);projSel.add(o);});
+  }
+  if(id){
+    const c=await apiFetch(`/admin/api/contracts/${id}`).catch(()=>null);
+    if(!c) return;
+    document.getElementById('cm-subject').value=c.subject||'';
+    document.getElementById('cm-customer').value=c.customer_id||'';
+    document.getElementById('cm-type').value=c.contract_type_id||'';
+    document.getElementById('cm-project').value=c.project_id||'';
+    document.getElementById('cm-value').value=c.value||'';
+    document.getElementById('cm-currency').value=c.currency||'USD';
+    document.getElementById('cm-start').value=c.start_date?c.start_date.slice(0,10):'';
+    document.getElementById('cm-end').value=c.end_date?c.end_date.slice(0,10):'';
+    document.getElementById('cm-status').value=c.status||'draft';
+    document.getElementById('cm-esign').checked=!!c.allow_esign;
+    document.getElementById('cm-desc').value=c.description||'';
+    document.getElementById('cm-content').value=c.content||'';
+  } else {
+    ['cm-subject','cm-value','cm-desc','cm-content'].forEach(i=>document.getElementById(i).value='');
+    ['cm-customer','cm-type','cm-project'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('cm-status').value='draft';
+    document.getElementById('cm-esign').checked=false;
+    document.getElementById('cm-currency').value='USD';
+  }
+  m.style.display='flex';
+}
+
+function closeContractModal(){document.getElementById('contract-modal').style.display='none';}
+
+async function saveContract(){
+  const id=document.getElementById('cm-id').value;
+  const body={
+    subject:document.getElementById('cm-subject').value.trim(),
+    customer_id:document.getElementById('cm-customer').value||null,
+    contract_type_id:document.getElementById('cm-type').value||null,
+    project_id:document.getElementById('cm-project').value||null,
+    value:document.getElementById('cm-value').value||null,
+    currency:document.getElementById('cm-currency').value,
+    start_date:document.getElementById('cm-start').value||null,
+    end_date:document.getElementById('cm-end').value||null,
+    status:document.getElementById('cm-status').value,
+    allow_esign:document.getElementById('cm-esign').checked,
+    description:document.getElementById('cm-desc').value,
+    content:document.getElementById('cm-content').value,
+  };
+  if(!body.subject){alert('Subject is required.');return;}
+  const url=id?`/admin/api/contracts/${id}`:'/admin/api/contracts';
+  const method=id?'PUT':'POST';
+  const r=await apiFetch(url,{method,body:JSON.stringify(body)}).catch(e=>{alert('Error: '+e.message);return null;});
+  if(!r) return;
+  closeContractModal();
+  await loadContracts();
+}
+
+async function sendContract(id){
+  if(!confirm('Mark contract as sent and set status to Active?')) return;
+  await apiFetch(`/admin/api/contracts/${id}/send`,{method:'POST'});
+  await loadContracts();
+}
+
+async function markContractSigned(id){
+  if(!confirm('Mark this contract as signed?')) return;
+  await apiFetch(`/admin/api/contracts/${id}/mark-signed`,{method:'POST'});
+  await loadContracts();
+}
+
+function openRenewModal(id){
+  document.getElementById('crm-renew-id').value=id;
+  document.getElementById('crm-new-start').value='';
+  document.getElementById('crm-new-end').value='';
+  document.getElementById('crm-new-value').value='';
+  document.getElementById('contract-renew-modal').style.display='flex';
+}
+
+async function submitRenew(){
+  const id=document.getElementById('crm-renew-id').value;
+  const body={
+    new_start:document.getElementById('crm-new-start').value||null,
+    new_end:document.getElementById('crm-new-end').value||null,
+    new_value:document.getElementById('crm-new-value').value||null,
+  };
+  await apiFetch(`/admin/api/contracts/${id}/renew`,{method:'POST',body:JSON.stringify(body)});
+  document.getElementById('contract-renew-modal').style.display='none';
+  await loadContracts();
+}
+
+async function trashContract(id){
+  if(!confirm('Move contract to trash?')) return;
+  await apiFetch(`/admin/api/contracts/${id}/trash`,{method:'POST'});
+  await loadContracts();
+}
+
+async function restoreContract(id){
+  await apiFetch(`/admin/api/contracts/${id}/restore`,{method:'POST'});
+  await loadContracts();
+}
+
+function viewContractDetail(id){
+  const c=_contractsList.find(x=>x.id===id);
+  if(!c) return;
+  alert(`Contract: ${c.contract_number}\nSubject: ${c.subject}\nStatus: ${c.status}\nValue: ${c.currency} ${c.value||0}\nSigned: ${c.signed?'Yes':'No'}`);
+}
+
+// ── MODULE 21: PROJECTS ─────────────────────────────────────────────────────
+
+let _projectsList=[], _projectFilter='all', _currentProject=null, _projectTab='overview';
+let _milestonesList=[], _discussionsList=[];
+
+function pgProjects(){
+  return `<div class="page-header"><h1>Projects</h1><button class="btn-primary" onclick="openProjectModal()">+ New Project</button></div>
+<div class="tab-bar" id="project-tabs">
+  <button class="tab active" onclick="setProjectFilter('all',this)">All</button>
+  <button class="tab" onclick="setProjectFilter('not_started',this)">Not Started</button>
+  <button class="tab" onclick="setProjectFilter('in_progress',this)">In Progress</button>
+  <button class="tab" onclick="setProjectFilter('on_hold',this)">On Hold</button>
+  <button class="tab" onclick="setProjectFilter('finished',this)">Finished</button>
+  <button class="tab" onclick="setProjectFilter('cancelled',this)">Cancelled</button>
+</div>
+<div id="projects-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px"></div>
+<div id="project-detail-wrap" style="display:none"></div>
+
+<div id="project-modal" class="modal" style="display:none"><div class="modal-box" style="max-width:680px">
+  <div class="modal-header"><h2 id="project-modal-title">New Project</h2><button class="modal-close" onclick="closeProjectModal()">✕</button></div>
+  <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <input type="hidden" id="pm-id"/>
+    <div style="grid-column:1/-1"><label class="lbl">Project Name *</label><input id="pm-name" class="inp" placeholder="Project name"/></div>
+    <div><label class="lbl">Client</label><select id="pm-customer" class="inp"><option value="">— Select —</option></select></div>
+    <div><label class="lbl">Status</label><select id="pm-status" class="inp">
+      <option value="not_started">Not Started</option>
+      <option value="in_progress" selected>In Progress</option>
+      <option value="on_hold">On Hold</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="finished">Finished</option>
+    </select></div>
+    <div><label class="lbl">Billing Type</label><select id="pm-billing" class="inp">
+      <option value="fixed_rate">Fixed Rate</option>
+      <option value="project_hours">Project Hours</option>
+      <option value="task_hours">Task Hours</option>
+    </select></div>
+    <div><label class="lbl">Total Rate ($)</label><input id="pm-rate" class="inp" type="number" step="0.01"/></div>
+    <div><label class="lbl">Rate / Hour ($)</label><input id="pm-rph" class="inp" type="number" step="0.01"/></div>
+    <div><label class="lbl">Project Cost ($)</label><input id="pm-cost" class="inp" type="number" step="0.01"/></div>
+    <div><label class="lbl">Estimated Hours</label><input id="pm-hours" class="inp" type="number" step="0.5"/></div>
+    <div><label class="lbl">Start Date</label><input id="pm-start" class="inp" type="date"/></div>
+    <div><label class="lbl">Deadline</label><input id="pm-deadline" class="inp" type="date"/></div>
+    <div style="grid-column:1/-1"><label class="lbl">Description</label><textarea id="pm-desc" class="inp" rows="3" placeholder="Project description…"></textarea></div>
+    <div style="grid-column:1/-1;display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="pm-calc-progress" checked/> Calculate progress from tasks</label></div>
+  </div>
+  <div class="modal-footer"><button class="btn-secondary" onclick="closeProjectModal()">Cancel</button><button class="btn-primary" onclick="saveProject()">Save</button></div>
+</div></div>
+
+<div id="milestone-modal" class="modal" style="display:none"><div class="modal-box" style="max-width:480px">
+  <div class="modal-header"><h2 id="ms-modal-title">Add Milestone</h2><button class="modal-close" onclick="document.getElementById('milestone-modal').style.display='none'">✕</button></div>
+  <div class="modal-body" style="display:grid;gap:12px">
+    <input type="hidden" id="ms-id"/><input type="hidden" id="ms-pid"/>
+    <div><label class="lbl">Name *</label><input id="ms-name" class="inp"/></div>
+    <div><label class="lbl">Description</label><textarea id="ms-desc" class="inp" rows="2"></textarea></div>
+    <div><label class="lbl">Start Date</label><input id="ms-start" class="inp" type="date"/></div>
+    <div><label class="lbl">Due Date</label><input id="ms-due" class="inp" type="date"/></div>
+    <div><label class="lbl">Color</label><input id="ms-color" class="inp" type="color" value="#6366f1" style="height:38px"/></div>
+  </div>
+  <div class="modal-footer"><button class="btn-secondary" onclick="document.getElementById('milestone-modal').style.display='none'">Cancel</button><button class="btn-primary" onclick="saveMilestone()">Save</button></div>
+</div></div>`;
+}
+
+async function init_projects(){
+  await loadProjects();
+}
+
+function setProjectFilter(f,el){
+  _projectFilter=f;
+  document.querySelectorAll('#project-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  renderProjectsGrid();
+}
+
+async function loadProjects(){
+  _projectsList = await apiFetch('/admin/api/projects').catch(()=>[]);
+  renderProjectsGrid();
+}
+
+const _projStatusColor={not_started:'#94a3b8',in_progress:'#6366f1',on_hold:'#f59e0b',cancelled:'#ef4444',finished:'#10b981'};
+
+function renderProjectsGrid(){
+  const grid=document.getElementById('projects-grid');
+  const detail=document.getElementById('project-detail-wrap');
+  if(!grid) return;
+  detail.style.display='none';
+  grid.style.display='grid';
+  const list=_projectFilter==='all'?_projectsList:_projectsList.filter(p=>p.status===_projectFilter);
+  if(!list.length){grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:48px;color:#94a3b8">No projects found.</div>';return;}
+  grid.innerHTML=list.map(p=>{
+    const pct=Math.min(100,Math.max(0,p.progress||0));
+    const color=_projStatusColor[p.status]||'#94a3b8';
+    const daysLeft=p.deadline?Math.ceil((new Date(p.deadline)-new Date())/86400000):null;
+    const deadlineStr=daysLeft!=null?(daysLeft<0?`<span style="color:#ef4444">${Math.abs(daysLeft)}d overdue</span>`:daysLeft===0?'<span style="color:#f59e0b">Due today</span>':`<span style="color:#64748b">${daysLeft}d left</span>`):'';
+    return `<div class="card" style="cursor:pointer;transition:box-shadow .15s" onmouseenter="this.style.boxShadow='0 4px 20px rgba(99,102,241,.18)'" onmouseleave="this.style.boxShadow=''" onclick="openProjectDetail(${p.id})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div style="font-weight:700;font-size:15px;flex:1">${p.name}</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-icon" onclick="event.stopPropagation();pinToggleProject(${p.id})" title="Pin">📌</button>
+          <button class="btn-icon" onclick="event.stopPropagation();openProjectModal(${p.id})" title="Edit">✏️</button>
+          <button class="btn-icon" onclick="event.stopPropagation();deleteProject(${p.id})" title="Delete">🗑️</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">${p.customer_name||'No client'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span class="badge" style="background:${color}20;color:${color}">${p.status.replace(/_/g,' ')}</span>
+        ${deadlineStr}
+      </div>
+      <div style="background:#e2e8f0;border-radius:999px;height:6px;margin-bottom:6px">
+        <div style="background:${color};height:6px;border-radius:999px;width:${pct}%;transition:width .4s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#64748b">
+        <span>${pct}% complete</span>
+        <span>${p.task_done||0}/${p.task_total||0} tasks</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openProjectDetail(id){
+  const p=await apiFetch(`/admin/api/projects/${id}`).catch(()=>null);
+  if(!p) return;
+  _currentProject=p;
+  _projectTab='overview';
+  const grid=document.getElementById('projects-grid');
+  const detail=document.getElementById('project-detail-wrap');
+  grid.style.display='none';
+  detail.style.display='block';
+  detail.innerHTML=renderProjectDetail(p);
+  _milestonesList=await apiFetch(`/admin/api/projects/${id}/milestones`).catch(()=>[]);
+  _discussionsList=await apiFetch(`/admin/api/projects/${id}/discussions`).catch(()=>[]);
+}
+
+function renderProjectDetail(p){
+  const color=_projStatusColor[p.status]||'#94a3b8';
+  const pct=Math.min(100,Math.max(0,p.progress||0));
+  return `<div style="margin-bottom:16px;display:flex;align-items:center;gap:12px">
+    <button class="btn-secondary" onclick="closeProjectDetail()">← Back</button>
+    <h2 style="margin:0;flex:1">${p.name}</h2>
+    <button class="btn-primary" onclick="openProjectModal(${p.id})">Edit</button>
+  </div>
+  <div class="tab-bar" id="proj-detail-tabs">
+    <button class="tab active" onclick="switchProjTab('overview',this)">Overview</button>
+    <button class="tab" onclick="switchProjTab('milestones',this)">Milestones</button>
+    <button class="tab" onclick="switchProjTab('discussions',this)">Discussions</button>
+  </div>
+  <div id="proj-tab-content">${renderProjOverview(p,color,pct)}</div>`;
+}
+
+function renderProjOverview(p,color,pct){
+  return `<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px">
+    <div>
+      <div class="card">
+        <h3 style="margin:0 0 12px">Project Details</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:14px">
+          <div><span style="color:#64748b">Client</span><div>${p.customer_name||'—'}</div></div>
+          <div><span style="color:#64748b">Status</span><div><span class="badge" style="background:${color}20;color:${color}">${p.status.replace(/_/g,' ')}</span></div></div>
+          <div><span style="color:#64748b">Billing</span><div>${p.billing_type.replace(/_/g,' ')}</div></div>
+          <div><span style="color:#64748b">Budget</span><div>$${(p.total_rate||p.project_cost||0).toLocaleString()}</div></div>
+          <div><span style="color:#64748b">Start</span><div>${p.start_date?p.start_date.slice(0,10):'—'}</div></div>
+          <div><span style="color:#64748b">Deadline</span><div>${p.deadline?p.deadline.slice(0,10):'—'}</div></div>
+          <div><span style="color:#64748b">Est. Hours</span><div>${p.estimated_hours||'—'}</div></div>
+          <div><span style="color:#64748b">Rate/hr</span><div>${p.rate_per_hour?'$'+p.rate_per_hour:'—'}</div></div>
+        </div>
+        ${p.description?`<div style="margin-top:12px;font-size:14px;color:#475569">${p.description}</div>`:''}
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin:0 0 10px">Progress</h3>
+        <div style="background:#e2e8f0;border-radius:999px;height:10px;margin-bottom:6px">
+          <div style="background:${color};height:10px;border-radius:999px;width:${pct}%"></div>
+        </div>
+        <div style="text-align:center;font-size:22px;font-weight:700;color:${color}">${pct}%</div>
+        <div style="text-align:center;font-size:12px;color:#64748b">${p.task_done||0} / ${p.task_total||0} tasks done</div>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 10px">Members</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${(p.member_ids||[]).map(id=>`<div style="width:36px;height:36px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px" title="Staff #${id}">${id}</div>`).join('')||'<span style="color:#94a3b8;font-size:13px">No members</span>'}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderProjMilestones(){
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 12px">
+    <h3 style="margin:0">Milestones</h3>
+    <button class="btn-primary" onclick="openMilestoneModal()">+ Add Milestone</button>
+  </div>
+  ${_milestonesList.length===0?'<div style="color:#94a3b8;text-align:center;padding:32px">No milestones yet.</div>':
+  _milestonesList.map(m=>`<div class="card" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
+    <div style="width:12px;height:12px;border-radius:50%;background:${m.color||'#6366f1'};flex-shrink:0"></div>
+    <div style="flex:1"><div style="font-weight:600">${m.name}</div><div style="font-size:12px;color:#64748b">${m.due_date?'Due: '+m.due_date.slice(0,10):''}</div></div>
+    <button class="btn-icon" onclick="openMilestoneModal(${m.id})">✏️</button>
+    <button class="btn-icon" onclick="deleteMilestone(${m.id})">🗑️</button>
+  </div>`).join('')}`;
+}
+
+function renderProjDiscussions(){
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 12px">
+    <h3 style="margin:0">Discussions</h3>
+    <button class="btn-primary" onclick="openDiscussionForm()">+ New Discussion</button>
+  </div>
+  <div id="disc-form-wrap" style="display:none;margin-bottom:16px">
+    <div class="card">
+      <div><label class="lbl">Subject</label><input id="disc-subject" class="inp" placeholder="Discussion subject"/></div>
+      <div style="margin-top:10px"><label class="lbl">Message</label><textarea id="disc-body" class="inp" rows="3"></textarea></div>
+      <div style="margin-top:10px;display:flex;gap:8px"><button class="btn-primary" onclick="saveDiscussion()">Post</button><button class="btn-secondary" onclick="document.getElementById('disc-form-wrap').style.display='none'">Cancel</button></div>
+    </div>
+  </div>
+  ${_discussionsList.length===0?'<div style="color:#94a3b8;text-align:center;padding:32px">No discussions yet.</div>':
+  _discussionsList.map(d=>`<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="viewDiscussion(${d.id})">
+    <div style="display:flex;justify-content:space-between">
+      <span style="font-weight:600">${d.subject}</span>
+      <span style="font-size:12px;color:#64748b">${d.comment_count} replies</span>
+    </div>
+    <div style="font-size:12px;color:#64748b;margin-top:4px">by ${d.creator_name||'Unknown'} · ${d.created_at.slice(0,10)}</div>
+  </div>`).join('')}`;
+}
+
+function switchProjTab(tab,el){
+  _projectTab=tab;
+  document.querySelectorAll('#proj-detail-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  const content=document.getElementById('proj-tab-content');
+  if(!content) return;
+  if(tab==='overview') content.innerHTML=renderProjOverview(_currentProject,_projStatusColor[_currentProject.status]||'#94a3b8',Math.min(100,Math.max(0,_currentProject.progress||0)));
+  else if(tab==='milestones') content.innerHTML=renderProjMilestones();
+  else if(tab==='discussions') content.innerHTML=renderProjDiscussions();
+}
+
+function closeProjectDetail(){
+  _currentProject=null;
+  document.getElementById('project-detail-wrap').style.display='none';
+  document.getElementById('projects-grid').style.display='grid';
+}
+
+async function openProjectModal(id=null){
+  const m=document.getElementById('project-modal');
+  document.getElementById('project-modal-title').textContent=id?'Edit Project':'New Project';
+  document.getElementById('pm-id').value=id||'';
+  const custSel=document.getElementById('pm-customer');
+  if(custSel.options.length<=1){
+    const custs=await apiFetch('/admin/api/customers').catch(()=>[]);
+    custs.forEach(c=>{const o=new Option(c.company_name,c.id);custSel.add(o);});
+  }
+  if(id){
+    const p=_projectsList.find(x=>x.id===id)||await apiFetch(`/admin/api/projects/${id}`).catch(()=>null);
+    if(!p) return;
+    document.getElementById('pm-name').value=p.name||'';
+    document.getElementById('pm-customer').value=p.customer_id||'';
+    document.getElementById('pm-status').value=p.status||'in_progress';
+    document.getElementById('pm-billing').value=p.billing_type||'fixed_rate';
+    document.getElementById('pm-rate').value=p.total_rate||'';
+    document.getElementById('pm-rph').value=p.rate_per_hour||'';
+    document.getElementById('pm-cost').value=p.project_cost||'';
+    document.getElementById('pm-hours').value=p.estimated_hours||'';
+    document.getElementById('pm-start').value=p.start_date?p.start_date.slice(0,10):'';
+    document.getElementById('pm-deadline').value=p.deadline?p.deadline.slice(0,10):'';
+    document.getElementById('pm-desc').value=p.description||'';
+    document.getElementById('pm-calc-progress').checked=p.calculate_progress_from_tasks!==false;
+  } else {
+    ['pm-name','pm-rate','pm-rph','pm-cost','pm-hours','pm-desc'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('pm-customer').value='';
+    document.getElementById('pm-status').value='in_progress';
+    document.getElementById('pm-billing').value='fixed_rate';
+    document.getElementById('pm-start').value='';
+    document.getElementById('pm-deadline').value='';
+    document.getElementById('pm-calc-progress').checked=true;
+  }
+  m.style.display='flex';
+}
+
+function closeProjectModal(){document.getElementById('project-modal').style.display='none';}
+
+async function saveProject(){
+  const id=document.getElementById('pm-id').value;
+  const body={
+    name:document.getElementById('pm-name').value.trim(),
+    customer_id:document.getElementById('pm-customer').value||null,
+    status:document.getElementById('pm-status').value,
+    billing_type:document.getElementById('pm-billing').value,
+    total_rate:document.getElementById('pm-rate').value||null,
+    rate_per_hour:document.getElementById('pm-rph').value||null,
+    project_cost:document.getElementById('pm-cost').value||null,
+    estimated_hours:document.getElementById('pm-hours').value||null,
+    start_date:document.getElementById('pm-start').value||null,
+    deadline:document.getElementById('pm-deadline').value||null,
+    description:document.getElementById('pm-desc').value,
+    calculate_progress_from_tasks:document.getElementById('pm-calc-progress').checked,
+  };
+  if(!body.name){alert('Project name is required.');return;}
+  const url=id?`/admin/api/projects/${id}`:'/admin/api/projects';
+  const method=id?'PUT':'POST';
+  const r=await apiFetch(url,{method,body:JSON.stringify(body)}).catch(e=>{alert('Error: '+e.message);return null;});
+  if(!r) return;
+  closeProjectModal();
+  await loadProjects();
+  if(_currentProject&&id&&+id===_currentProject.id){
+    await openProjectDetail(+id);
+  }
+}
+
+async function deleteProject(id){
+  if(!confirm('Delete this project?')) return;
+  await apiFetch(`/admin/api/projects/${id}`,{method:'DELETE'});
+  if(_currentProject&&_currentProject.id===id) closeProjectDetail();
+  await loadProjects();
+}
+
+async function pinToggleProject(id){
+  await apiFetch(`/admin/api/projects/${id}/pin`,{method:'POST'}).catch(()=>{});
+  showToast('Project pinned');
+}
+
+function openMilestoneModal(id=null){
+  document.getElementById('ms-modal-title').textContent=id?'Edit Milestone':'Add Milestone';
+  document.getElementById('ms-id').value=id||'';
+  document.getElementById('ms-pid').value=_currentProject?_currentProject.id:'';
+  if(id){
+    const m=_milestonesList.find(x=>x.id===id);
+    if(!m) return;
+    document.getElementById('ms-name').value=m.name||'';
+    document.getElementById('ms-desc').value=m.description||'';
+    document.getElementById('ms-start').value=m.start_date?m.start_date.slice(0,10):'';
+    document.getElementById('ms-due').value=m.due_date?m.due_date.slice(0,10):'';
+    document.getElementById('ms-color').value=m.color||'#6366f1';
+  } else {
+    ['ms-name','ms-desc'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('ms-start').value='';
+    document.getElementById('ms-due').value='';
+    document.getElementById('ms-color').value='#6366f1';
+  }
+  document.getElementById('milestone-modal').style.display='flex';
+}
+
+async function saveMilestone(){
+  const id=document.getElementById('ms-id').value;
+  const pid=document.getElementById('ms-pid').value;
+  if(!pid) return;
+  const body={
+    name:document.getElementById('ms-name').value.trim(),
+    description:document.getElementById('ms-desc').value,
+    start_date:document.getElementById('ms-start').value||null,
+    due_date:document.getElementById('ms-due').value||null,
+    color:document.getElementById('ms-color').value,
+  };
+  if(!body.name){alert('Name is required.');return;}
+  const url=id?`/admin/api/projects/${pid}/milestones/${id}`:`/admin/api/projects/${pid}/milestones`;
+  const method=id?'PUT':'POST';
+  await apiFetch(url,{method,body:JSON.stringify(body)}).catch(e=>alert(e.message));
+  document.getElementById('milestone-modal').style.display='none';
+  _milestonesList=await apiFetch(`/admin/api/projects/${pid}/milestones`).catch(()=>[]);
+  const content=document.getElementById('proj-tab-content');
+  if(content) content.innerHTML=renderProjMilestones();
+}
+
+async function deleteMilestone(mid){
+  if(!_currentProject||!confirm('Delete milestone?')) return;
+  await apiFetch(`/admin/api/projects/${_currentProject.id}/milestones/${mid}`,{method:'DELETE'});
+  _milestonesList=await apiFetch(`/admin/api/projects/${_currentProject.id}/milestones`).catch(()=>[]);
+  const content=document.getElementById('proj-tab-content');
+  if(content) content.innerHTML=renderProjMilestones();
+}
+
+function openDiscussionForm(){
+  const w=document.getElementById('disc-form-wrap');
+  if(w) w.style.display='block';
+}
+
+async function saveDiscussion(){
+  if(!_currentProject) return;
+  const subject=document.getElementById('disc-subject').value.trim();
+  const desc=document.getElementById('disc-body').value.trim();
+  if(!subject){alert('Subject is required.');return;}
+  await apiFetch(`/admin/api/projects/${_currentProject.id}/discussions`,{method:'POST',body:JSON.stringify({subject,description:desc})});
+  _discussionsList=await apiFetch(`/admin/api/projects/${_currentProject.id}/discussions`).catch(()=>[]);
+  const content=document.getElementById('proj-tab-content');
+  if(content) content.innerHTML=renderProjDiscussions();
+}
+
+async function viewDiscussion(did){
+  if(!_currentProject) return;
+  const comments=await apiFetch(`/admin/api/projects/${_currentProject.id}/discussions/${did}/comments`).catch(()=>[]);
+  const disc=_discussionsList.find(d=>d.id===did);
+  const content=document.getElementById('proj-tab-content');
+  if(!content) return;
+  content.innerHTML=`<div style="margin-bottom:12px"><button class="btn-secondary" onclick="switchProjTab('discussions')">← Back</button></div>
+  <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 8px">${disc?disc.subject:'Discussion'}</h3><p style="color:#475569;margin:0">${disc?disc.description||'':''}</p></div>
+  <h4>Comments</h4>
+  <div id="disc-comments-list">
+    ${comments.map(c=>`<div class="card" style="margin-bottom:8px"><div style="font-weight:600;font-size:13px">${c.creator_name||'Unknown'} <span style="font-weight:400;color:#94a3b8">${c.created_at.slice(0,10)}</span></div><div style="margin-top:4px">${c.content}</div></div>`).join('')||'<p style="color:#94a3b8">No comments yet.</p>'}
+  </div>
+  <div class="card" style="margin-top:16px">
+    <textarea id="disc-new-comment" class="inp" rows="3" placeholder="Add a comment…"></textarea>
+    <div style="margin-top:8px"><button class="btn-primary" onclick="postDiscComment(${did})">Post Comment</button></div>
+  </div>`;
+}
+
+async function postDiscComment(did){
+  if(!_currentProject) return;
+  const content=document.getElementById('disc-new-comment').value.trim();
+  if(!content) return;
+  await apiFetch(`/admin/api/projects/${_currentProject.id}/discussions/${did}/comments`,{method:'POST',body:JSON.stringify({content})});
+  await viewDiscussion(did);
+}
+
+function showToast(msg){
+  const t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 20px;border-radius:8px;z-index:9999;font-size:14px';
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2500);
+}
 function pgTasks(){return pgPlaceholder('Tasks')}
 function pgLeads(){return pgPlaceholder('Leads')}
 function pgTickets(){return pgPlaceholder('Tickets')}
