@@ -5,6 +5,7 @@ All routes are mounted under /admin. Auth uses a separate 'admin_session' cookie
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import base64 as _b64
 from datetime import datetime, timezone, timedelta
@@ -40,6 +41,8 @@ from admin_models import (
     CRMScheduledEmail, CRMDashboardLayout,
     CRMTicketDepartment, CRMTicketPriority, CRMTicketStatus, CRMTicketService,
     CRMTicket, CRMTicketReply, CRMPredefinedReply, CRMSpamFilter,
+    CRMKBGroup, CRMKBArticle, CRMKBArticleFeedback,
+    CRMVaultEntry, CRMVaultEntryAccess,
 )
 
 router = APIRouter(prefix="/admin")
@@ -4947,6 +4950,414 @@ async def delete_predefined_reply(prid: int, staff: StaffMember = Depends(get_cu
     return {"ok": True}
 
 
+# ── Knowledge Base ────────────────────────────────────────────────────────────
+
+def _kb_slug(text: str) -> str:
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or secrets.token_hex(6)
+
+
+def _article_dict(a: CRMKBArticle) -> dict:
+    helpful = sum(1 for f in (a.feedback or []) if f.vote == "helpful")
+    not_helpful = sum(1 for f in (a.feedback or []) if f.vote == "not_helpful")
+    return {
+        "id": a.id, "group_id": a.group_id,
+        "group_name": a.group.name if a.group else None,
+        "subject": a.subject, "slug": a.slug,
+        "description": a.description,
+        "active": a.active, "staff_only": a.staff_only,
+        "sort_order": a.sort_order,
+        "created_by": a.created_by,
+        "creator_name": a.creator.full_name if a.creator else None,
+        "created_at": a.created_at.isoformat(),
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        "helpful": helpful, "not_helpful": not_helpful,
+    }
+
+
+@router.get("/api/kb/groups")
+async def list_kb_groups(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMKBGroup).order_by(CRMKBGroup.sort_order, CRMKBGroup.name))
+    groups = r.scalars().all()
+    result = []
+    for g in groups:
+        cnt_r = await db.execute(select(func.count()).select_from(CRMKBArticle).where(CRMKBArticle.group_id == g.id))
+        result.append({
+            "id": g.id, "name": g.name, "slug": g.slug, "description": g.description,
+            "color": g.color, "active": g.active, "sort_order": g.sort_order,
+            "article_count": cnt_r.scalar() or 0,
+            "created_at": g.created_at.isoformat(),
+        })
+    return result
+
+
+@router.post("/api/kb/groups")
+async def create_kb_group(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    name = req.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "Name required")
+    slug = _kb_slug(name)
+    existing = await db.execute(select(CRMKBGroup).where(CRMKBGroup.slug == slug))
+    if existing.scalar_one_or_none():
+        slug = f"{slug}-{secrets.token_hex(3)}"
+    g = CRMKBGroup(
+        name=name, slug=slug,
+        description=req.get("description"),
+        color=req.get("color", "#6366f1"),
+        active=req.get("active", True),
+        sort_order=req.get("sort_order", 0),
+    )
+    db.add(g)
+    await db.flush()
+    return {"id": g.id, "slug": g.slug}
+
+
+@router.put("/api/kb/groups/{gid}")
+async def update_kb_group(gid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMKBGroup).where(CRMKBGroup.id == gid))
+    g = r.scalar_one_or_none()
+    if not g:
+        raise HTTPException(404)
+    for f in ("name", "description", "color", "active", "sort_order"):
+        if f in req:
+            setattr(g, f, req[f])
+    return {"ok": True}
+
+
+@router.delete("/api/kb/groups/{gid}")
+async def delete_kb_group(gid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMKBGroup).where(CRMKBGroup.id == gid))
+    return {"ok": True}
+
+
+@router.get("/api/kb/articles")
+async def list_kb_articles(
+    group_id: Optional[int] = None, active: Optional[bool] = None,
+    staff_only: Optional[bool] = None, q: Optional[str] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    query = (select(CRMKBArticle)
+             .options(selectinload(CRMKBArticle.group), selectinload(CRMKBArticle.creator),
+                      selectinload(CRMKBArticle.feedback))
+             .order_by(CRMKBArticle.group_id, CRMKBArticle.sort_order, CRMKBArticle.subject))
+    if group_id is not None:
+        query = query.where(CRMKBArticle.group_id == group_id)
+    if active is not None:
+        query = query.where(CRMKBArticle.active == active)
+    if staff_only is not None:
+        query = query.where(CRMKBArticle.staff_only == staff_only)
+    if q:
+        query = query.where(or_(
+            CRMKBArticle.subject.ilike(f"%{q}%"),
+            CRMKBArticle.description.ilike(f"%{q}%"),
+        ))
+    r = await db.execute(query)
+    return [_article_dict(a) for a in r.scalars().all()]
+
+
+@router.get("/api/kb/articles/{aid}")
+async def get_kb_article(aid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMKBArticle).where(CRMKBArticle.id == aid)
+        .options(selectinload(CRMKBArticle.group), selectinload(CRMKBArticle.creator),
+                 selectinload(CRMKBArticle.feedback))
+    )
+    a = r.scalar_one_or_none()
+    if not a:
+        raise HTTPException(404)
+    return _article_dict(a)
+
+
+@router.post("/api/kb/articles")
+async def create_kb_article(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    subject = req.get("subject", "").strip()
+    if not subject:
+        raise HTTPException(400, "Subject required")
+    slug = _kb_slug(subject)
+    existing = await db.execute(select(CRMKBArticle).where(CRMKBArticle.slug == slug))
+    if existing.scalar_one_or_none():
+        slug = f"{slug}-{secrets.token_hex(3)}"
+    a = CRMKBArticle(
+        subject=subject, slug=slug,
+        group_id=req.get("group_id"),
+        description=req.get("description"),
+        active=req.get("active", True),
+        staff_only=req.get("staff_only", False),
+        sort_order=req.get("sort_order", 0),
+        created_by=staff.id,
+        updated_at=_utcnow(),
+    )
+    db.add(a)
+    await db.flush()
+    return {"id": a.id, "slug": a.slug}
+
+
+@router.put("/api/kb/articles/{aid}")
+async def update_kb_article(aid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMKBArticle).where(CRMKBArticle.id == aid))
+    a = r.scalar_one_or_none()
+    if not a:
+        raise HTTPException(404)
+    for f in ("subject", "group_id", "description", "active", "staff_only", "sort_order"):
+        if f in req:
+            setattr(a, f, req[f])
+    a.updated_at = _utcnow()
+    return {"ok": True}
+
+
+@router.delete("/api/kb/articles/{aid}")
+async def delete_kb_article(aid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMKBArticle).where(CRMKBArticle.id == aid))
+    return {"ok": True}
+
+
+@router.post("/api/kb/articles/{aid}/feedback")
+async def submit_kb_feedback(aid: int, req: dict, request: Request, db: AsyncSession = Depends(get_db)):
+    vote = req.get("vote")
+    if vote not in ("helpful", "not_helpful"):
+        raise HTTPException(400, "vote must be helpful or not_helpful")
+    ip = request.client.host if request.client else None
+    fb = CRMKBArticleFeedback(article_id=aid, vote=vote, ip=ip)
+    db.add(fb)
+    return {"ok": True}
+
+
+# ── Customer Vault ────────────────────────────────────────────────────────────
+
+def _vault_encrypt(plaintext: str) -> str:
+    """XOR-based symmetric encryption using VAULT_KEY env var (base64 key)."""
+    key = os.environ.get("VAULT_KEY", "uplinx-vault-default-key-32chars!")
+    key_bytes = (key * 10).encode()[:32]
+    data = plaintext.encode()
+    encrypted = bytes(b ^ key_bytes[i % 32] for i, b in enumerate(data))
+    return _b64.b64encode(encrypted).decode()
+
+
+def _vault_decrypt(ciphertext: str) -> str:
+    key = os.environ.get("VAULT_KEY", "uplinx-vault-default-key-32chars!")
+    key_bytes = (key * 10).encode()[:32]
+    encrypted = _b64.b64decode(ciphertext.encode())
+    data = bytes(b ^ key_bytes[i % 32] for i, b in enumerate(encrypted))
+    return data.decode()
+
+
+def _vault_dict(v: CRMVaultEntry, reveal: bool = False) -> dict:
+    pw = None
+    if reveal and v.password_encrypted:
+        try:
+            pw = _vault_decrypt(v.password_encrypted)
+        except Exception:
+            pw = None
+    return {
+        "id": v.id, "client_id": v.client_id,
+        "server_address": v.server_address, "port": v.port,
+        "username": v.username,
+        "password": pw if reveal else ("••••••••" if v.password_encrypted else None),
+        "description": v.description,
+        "visibility": v.visibility, "share_in_projects": v.share_in_projects,
+        "created_by": v.created_by,
+        "creator_name": v.creator.full_name if v.creator else None,
+        "last_updated_at": v.last_updated_at.isoformat() if v.last_updated_at else None,
+        "last_updated_by_name": v.updater.full_name if v.updater else None,
+        "created_at": v.created_at.isoformat(),
+        "access_user_ids": [a.user_id for a in (v.access or [])],
+    }
+
+
+@router.get("/api/customers/{cid}/vault")
+async def list_vault_entries(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMVaultEntry).where(CRMVaultEntry.client_id == cid)
+        .options(selectinload(CRMVaultEntry.creator), selectinload(CRMVaultEntry.updater),
+                 selectinload(CRMVaultEntry.access))
+        .order_by(desc(CRMVaultEntry.created_at))
+    )
+    return [_vault_dict(v) for v in r.scalars().all()]
+
+
+@router.post("/api/customers/{cid}/vault")
+async def create_vault_entry(cid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    pw_plain = req.get("password")
+    v = CRMVaultEntry(
+        client_id=cid,
+        server_address=req.get("server_address"),
+        port=req.get("port"),
+        username=req.get("username"),
+        password_encrypted=_vault_encrypt(pw_plain) if pw_plain else None,
+        description=req.get("description"),
+        visibility=req.get("visibility", "team"),
+        share_in_projects=req.get("share_in_projects", False),
+        created_by=staff.id,
+    )
+    db.add(v)
+    await db.flush()
+    await _log(db, staff, "vault", "created", v.id, req.get("description") or req.get("server_address"))
+    return {"id": v.id}
+
+
+@router.put("/api/customers/{cid}/vault/{vid}")
+async def update_vault_entry(cid: int, vid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMVaultEntry).where(CRMVaultEntry.id == vid, CRMVaultEntry.client_id == cid))
+    v = r.scalar_one_or_none()
+    if not v:
+        raise HTTPException(404)
+    for f in ("server_address", "port", "username", "description", "visibility", "share_in_projects"):
+        if f in req:
+            setattr(v, f, req[f])
+    if "password" in req and req["password"]:
+        v.password_encrypted = _vault_encrypt(req["password"])
+    v.last_updated_at = _utcnow()
+    v.last_updated_by = staff.id
+    await _log(db, staff, "vault", "updated", v.id, v.description or v.server_address)
+    return {"ok": True}
+
+
+@router.delete("/api/customers/{cid}/vault/{vid}")
+async def delete_vault_entry(cid: int, vid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMVaultEntry).where(CRMVaultEntry.id == vid, CRMVaultEntry.client_id == cid))
+    v = r.scalar_one_or_none()
+    if not v:
+        raise HTTPException(404)
+    await _log(db, staff, "vault", "deleted", v.id, v.description or v.server_address)
+    await db.execute(delete(CRMVaultEntry).where(CRMVaultEntry.id == vid))
+    return {"ok": True}
+
+
+class VaultRevealReq(BaseModel):
+    password: str
+
+
+@router.post("/api/customers/{cid}/vault/{vid}/reveal")
+async def reveal_vault_entry(cid: int, vid: int, req: VaultRevealReq,
+                              staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    if not _verify_pw(req.password, staff.hashed_password or ""):
+        raise HTTPException(403, "Invalid password")
+    r = await db.execute(
+        select(CRMVaultEntry).where(CRMVaultEntry.id == vid, CRMVaultEntry.client_id == cid)
+        .options(selectinload(CRMVaultEntry.creator), selectinload(CRMVaultEntry.updater),
+                 selectinload(CRMVaultEntry.access))
+    )
+    v = r.scalar_one_or_none()
+    if not v:
+        raise HTTPException(404)
+    await _log(db, staff, "vault", "revealed", v.id, v.description or v.server_address)
+    return _vault_dict(v, reveal=True)
+
+
+# ── Calendar aggregation ───────────────────────────────────────────────────────
+
+@router.get("/api/calendar/all-events")
+async def get_all_calendar_events(
+    year: int, month: int,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all date-significant items across the CRM for the given month."""
+    from_d = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        to_d = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        to_d = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+    events = []
+
+    # Custom events
+    ev_r = await db.execute(
+        select(CRMEvent).where(CRMEvent.start_date >= from_d, CRMEvent.start_date < to_d)
+    )
+    for e in ev_r.scalars().all():
+        events.append({
+            "id": f"event-{e.id}", "source": "event", "title": e.title,
+            "start": e.start_date.isoformat(), "end": e.end_date.isoformat() if e.end_date else None,
+            "color": e.color, "description": e.description,
+        })
+
+    # Invoice due dates
+    inv_r = await db.execute(
+        select(CRMInvoice).where(CRMInvoice.due_date >= from_d, CRMInvoice.due_date < to_d,
+                                  CRMInvoice.status.notin_(["paid", "cancelled"]))
+        .options(selectinload(CRMInvoice.customer))
+    )
+    for inv in inv_r.scalars().all():
+        events.append({
+            "id": f"inv-{inv.id}", "source": "invoice", "color": "#ef4444",
+            "title": f"Invoice Due: {inv.customer.company_name if inv.customer else inv.formatted_number}",
+            "start": inv.due_date.isoformat(), "end": None,
+            "description": f"Invoice {inv.formatted_number}",
+        })
+
+    # Contract start/end dates
+    cont_r = await db.execute(
+        select(CRMContract).where(
+            or_(
+                (CRMContract.start_date >= from_d) & (CRMContract.start_date < to_d),
+                (CRMContract.end_date >= from_d) & (CRMContract.end_date < to_d),
+            ),
+            CRMContract.trashed == False,
+        ).options(selectinload(CRMContract.customer))
+    )
+    for c in cont_r.scalars().all():
+        if c.start_date and from_d <= c.start_date < to_d:
+            events.append({
+                "id": f"cont-start-{c.id}", "source": "contract", "color": "#10b981",
+                "title": f"Contract Start: {c.customer.company_name if c.customer else c.subject}",
+                "start": c.start_date.isoformat(), "end": None, "description": c.subject,
+            })
+        if c.end_date and from_d <= c.end_date < to_d:
+            events.append({
+                "id": f"cont-end-{c.id}", "source": "contract", "color": "#f59e0b",
+                "title": f"Contract End: {c.customer.company_name if c.customer else c.subject}",
+                "start": c.end_date.isoformat(), "end": None, "description": c.subject,
+            })
+
+    # Project deadlines
+    proj_r = await db.execute(
+        select(CRMProject).where(
+            CRMProject.deadline >= from_d, CRMProject.deadline < to_d,
+            CRMProject.status != "finished",
+        ).options(selectinload(CRMProject.customer))
+    )
+    for p in proj_r.scalars().all():
+        events.append({
+            "id": f"proj-{p.id}", "source": "project", "color": "#8b5cf6",
+            "title": f"Project Deadline: {p.name}",
+            "start": p.deadline.isoformat(), "end": None,
+            "description": p.customer.company_name if p.customer else None,
+        })
+
+    # Task due dates
+    task_r = await db.execute(
+        select(CRMTask).where(
+            CRMTask.due_date >= from_d, CRMTask.due_date < to_d,
+            CRMTask.is_done == False,
+        )
+    )
+    for t in task_r.scalars().all():
+        events.append({
+            "id": f"task-{t.id}", "source": "task", "color": "#6366f1",
+            "title": f"Task Due: {t.name}",
+            "start": t.due_date.isoformat(), "end": None, "description": None,
+        })
+
+    # Proposal expiry
+    prop_r = await db.execute(
+        select(CRMProposal).where(
+            CRMProposal.open_till >= from_d, CRMProposal.open_till < to_d,
+            CRMProposal.status.notin_(["accepted", "declined"]),
+        ).options(selectinload(CRMProposal.customer))
+    )
+    for p in prop_r.scalars().all():
+        events.append({
+            "id": f"prop-{p.id}", "source": "proposal", "color": "#ec4899",
+            "title": f"Proposal Expires: {p.customer.company_name if p.customer else p.formatted_number}",
+            "start": p.open_till.isoformat(), "end": None,
+            "description": f"Proposal {p.formatted_number}",
+        })
+
+    return sorted(events, key=lambda x: x["start"])
+
+
 # ── Events / Calendar ─────────────────────────────────────────────────────────
 
 class EventReq(BaseModel):
@@ -6060,6 +6471,11 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS rate_per_hour FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS project_cost FLOAT",
         "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS date_finished TIMESTAMP",
+        # crm_kb_articles — Module 24 additions (tables auto-created; extra safety)
+        "ALTER TABLE crm_kb_articles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        # crm_vault_entries — Module 25 additions (tables auto-created; extra safety)
+        "ALTER TABLE crm_vault_entries ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP",
+        "ALTER TABLE crm_vault_entries ADD COLUMN IF NOT EXISTS last_updated_by INTEGER",
     ]
     for _sql in _migrations:
         try:

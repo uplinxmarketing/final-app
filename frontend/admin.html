@@ -1493,6 +1493,7 @@ async function pgCustomerDetail() {
     {id:'projects', label:'Projects', icon:'fa-diagram-project'},
     {id:'tasks', label:'Tasks', icon:'fa-list-check'},
     {id:'files', label:'Files', icon:'fa-folder'},
+    {id:'vault', label:'Vault', icon:'fa-vault'},
     {id:'reminders', label:'Reminders', icon:'fa-bell'},
     {id:'activity', label:'Activity', icon:'fa-clock-rotate-left'},
   ].filter(t => {
@@ -1547,6 +1548,7 @@ function custTabContent(tab, c, fin) {
   if (tab === 'contacts') return custTabContacts(c);
   if (tab === 'notes') return `<div id="notes-panel-wrap"></div><script>renderNotesPanel('notes-panel-wrap','customer',${c.id})<\/script>`;
   if (tab === 'files') return `<div id="files-panel-wrap"></div><script>renderFilesPanel && renderFilesPanel('files-panel-wrap','customer',${c.id})<\/script>`;
+  if (tab === 'vault') return `<div id="vault-tab-wrap"></div><script>initVaultTab(${c.id})<\/script>`;
   if (tab === 'reminders') return `<div id="rem-panel-wrap"></div><script>renderRemindersPanel && renderRemindersPanel('rem-panel-wrap','customer',${c.id})<\/script>`;
   if (tab === 'activity') return `<div id="activity-wrap"></div><script>loadEntityActivity('activity-wrap','customer',${c.id})<\/script>`;
   return `<div class="card" style="text-align:center;padding:48px;color:#9ca3af"><i class="fa-solid fa-clock" style="font-size:28px;display:block;margin-bottom:12px"></i><p>Loading ${tab}…</p></div>`;
@@ -4938,8 +4940,658 @@ async function saveNewTicket(){
   await loadTickets();
   openTicketDetail(r.id);
 }
-function pgKnowledgeBase(){return pgPlaceholder('Knowledge Base')}
-function pgCalendar(){return pgPlaceholder('Calendar')}
+/* ── Module 24: Knowledge Base ─────────────────────────────────────────────── */
+let _kbView = 'list'; // 'list' | 'edit' | 'article'
+let _kbGroups = [];
+let _kbArticles = [];
+let _kbSelGroup = null;
+let _kbEditArticle = null;
+let _kbSelArticle = null;
+
+async function pgKnowledgeBase() {
+  _kbView = 'list';
+  _kbSelGroup = null;
+  _kbEditArticle = null;
+  return `<div class="pg-hdr"><div><h1 class="pg-title"><i class="fa-solid fa-book-open"></i> Knowledge Base</h1></div>
+    <button class="btn-pri" onclick="kbNewArticle()"><i class="fa-solid fa-plus"></i> New Article</button>
+  </div>
+  <div style="display:flex;gap:20px;align-items:flex-start">
+    <div id="kb-sidebar" style="width:220px;flex-shrink:0"></div>
+    <div id="kb-main" style="flex:1;min-width:0"></div>
+  </div>
+  <div id="kb-group-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:480px;padding:28px">
+      <h3 id="kb-group-modal-title" style="margin:0 0 20px">New Group</h3>
+      <div class="fg"><label class="lbl">NAME</label><input id="kbg-name" class="fc" placeholder="Group name"></div>
+      <div class="fg"><label class="lbl">DESCRIPTION</label><textarea id="kbg-desc" class="fc" rows="2" placeholder="Short description"></textarea></div>
+      <div class="fg"><label class="lbl">COLOR</label><input id="kbg-color" type="color" value="#6366f1" style="height:36px;width:80px;border:none;border-radius:6px;padding:2px;cursor:pointer"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('kb-group-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveKbGroup()">Save</button>
+      </div>
+    </div>
+  </div>
+  <script>initKb()<\/script>`;
+}
+
+async function initKb() {
+  await Promise.all([loadKbGroups(), loadKbArticles()]);
+  renderKbSidebar();
+  renderKbList();
+}
+
+async function loadKbGroups() {
+  const r = await apiFetch('/admin/api/kb/groups');
+  _kbGroups = await r.json();
+}
+
+async function loadKbArticles() {
+  const params = new URLSearchParams();
+  if (_kbSelGroup !== null) params.set('group_id', _kbSelGroup);
+  const r = await apiFetch('/admin/api/kb/articles?' + params);
+  _kbArticles = await r.json();
+}
+
+function renderKbSidebar() {
+  const el = document.getElementById('kb-sidebar');
+  if (!el) return;
+  el.innerHTML = `<div class="card" style="padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase">Groups</span>
+      <button class="btn-sec btn-sm" onclick="openKbGroupModal(null)"><i class="fa-solid fa-plus"></i></button>
+    </div>
+    <div onclick="kbFilterGroup(null)" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:${_kbSelGroup===null?'700':'400'};background:${_kbSelGroup===null?'#eff6ff':'none'};color:${_kbSelGroup===null?'#6366f1':'#374151'}">
+      <i class="fa-solid fa-layer-group" style="margin-right:6px;font-size:11px"></i>All Articles
+    </div>
+    ${_kbGroups.map(g => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;background:${_kbSelGroup===g.id?'#eff6ff':'none'}" onclick="kbFilterGroup(${g.id})">
+      <span style="font-size:13px;font-weight:${_kbSelGroup===g.id?'700':'400'};color:${_kbSelGroup===g.id?'#6366f1':'#374151'}">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color};margin-right:6px"></span>${esc(g.name)}
+        <span style="font-size:11px;color:#9ca3af;margin-left:4px">${g.article_count}</span>
+      </span>
+      <button class="btn-sec btn-sm" onclick="event.stopPropagation();openKbGroupModal(${g.id})" style="padding:2px 6px;font-size:10px"><i class="fa-solid fa-pen"></i></button>
+    </div>`).join('')}
+    ${_kbGroups.length === 0 ? '<div style="font-size:12px;color:#9ca3af;padding:8px 10px">No groups yet</div>' : ''}
+  </div>`;
+}
+
+function renderKbList() {
+  const el = document.getElementById('kb-main');
+  if (!el) return;
+  const group = _kbSelGroup ? _kbGroups.find(g => g.id === _kbSelGroup) : null;
+  el.innerHTML = `<div class="card" style="padding:0">
+    <div style="padding:16px 20px;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:600;font-size:15px">${group ? esc(group.name) : 'All Articles'} <span style="font-size:12px;color:#9ca3af;font-weight:400">${_kbArticles.length} articles</span></span>
+      <div style="display:flex;gap:8px">
+        ${_kbSelGroup ? `<button class="btn-sec btn-sm" onclick="deleteKbGroup(${_kbSelGroup})" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>` : ''}
+        <button class="btn-pri btn-sm" onclick="kbNewArticle()"><i class="fa-solid fa-plus"></i> Article</button>
+      </div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Subject</th><th>Group</th><th>Status</th><th>Helpful</th><th>Updated</th><th></th></tr></thead>
+      <tbody>
+        ${_kbArticles.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">No articles yet</td></tr>` :
+          _kbArticles.map(a => `<tr>
+            <td><span style="cursor:pointer;color:#6366f1;font-weight:500" onclick="kbViewArticle(${a.id})">${esc(a.subject)}</span>
+              ${a.staff_only ? '<span class="badge badge-yellow" style="font-size:10px;margin-left:6px">Staff Only</span>' : ''}
+            </td>
+            <td>${a.group_name ? `<span style="font-size:12px;color:#6b7280">${esc(a.group_name)}</span>` : '<span style="color:#9ca3af">—</span>'}</td>
+            <td><span class="badge ${a.active ? 'badge-green' : 'badge-gray'}">${a.active ? 'Active' : 'Inactive'}</span></td>
+            <td><span style="font-size:12px;color:#10b981"><i class="fa-solid fa-thumbs-up"></i> ${a.helpful}</span> <span style="font-size:12px;color:#ef4444;margin-left:6px"><i class="fa-solid fa-thumbs-down"></i> ${a.not_helpful}</span></td>
+            <td style="font-size:12px;color:#9ca3af">${a.updated_at ? new Date(a.updated_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}</td>
+            <td style="text-align:right">
+              <button class="btn-sec btn-sm" onclick="kbEditArticle(${a.id})"><i class="fa-solid fa-pen"></i></button>
+              <button class="btn-sec btn-sm" onclick="deleteKbArticle(${a.id})" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function kbFilterGroup(gid) {
+  _kbSelGroup = gid;
+  await loadKbArticles();
+  renderKbSidebar();
+  renderKbList();
+}
+
+function kbNewArticle() {
+  _kbEditArticle = null;
+  renderKbEditor(null);
+}
+
+async function kbEditArticle(id) {
+  const r = await apiFetch(`/admin/api/kb/articles/${id}`);
+  _kbEditArticle = await r.json();
+  renderKbEditor(_kbEditArticle);
+}
+
+function renderKbEditor(a) {
+  const el = document.getElementById('kb-main');
+  if (!el) return;
+  const groups = _kbGroups.map(g => `<option value="${g.id}" ${a && a.group_id === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
+  el.innerHTML = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="margin:0">${a ? 'Edit Article' : 'New Article'}</h3>
+      <button class="btn-sec" onclick="kbBackToList()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="fg" style="grid-column:1/-1"><label class="lbl">SUBJECT *</label><input id="kb-art-subject" class="fc" value="${a ? esc(a.subject) : ''}" placeholder="Article title"></div>
+      <div class="fg"><label class="lbl">GROUP</label><select id="kb-art-group" class="fc"><option value="">— No Group —</option>${groups}</select></div>
+      <div class="fg"><label class="lbl">VISIBILITY</label><select id="kb-art-staff-only" class="fc">
+        <option value="false" ${a && !a.staff_only ? 'selected' : ''}>Public (all users)</option>
+        <option value="true" ${a && a.staff_only ? 'selected' : ''}>Staff Only</option>
+      </select></div>
+      <div class="fg"><label class="lbl">STATUS</label><select id="kb-art-active" class="fc">
+        <option value="true" ${!a || a.active ? 'selected' : ''}>Active</option>
+        <option value="false" ${a && !a.active ? 'selected' : ''}>Inactive</option>
+      </select></div>
+      <div class="fg" style="grid-column:1/-1"><label class="lbl">CONTENT (HTML / Markdown)</label>
+        <textarea id="kb-art-desc" class="fc" rows="18" placeholder="Article content…" style="font-family:monospace;font-size:13px">${a ? esc(a.description || '') : ''}</textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn-sec" onclick="kbBackToList()">Cancel</button>
+      <button class="btn-pri" onclick="saveKbArticle()"><i class="fa-solid fa-floppy-disk"></i> Save Article</button>
+    </div>
+  </div>`;
+}
+
+async function kbViewArticle(id) {
+  const r = await apiFetch(`/admin/api/kb/articles/${id}`);
+  const a = await r.json();
+  const el = document.getElementById('kb-main');
+  if (!el) return;
+  el.innerHTML = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <h2 style="margin:0">${esc(a.subject)}</h2>
+        <div style="font-size:12px;color:#9ca3af;margin-top:4px">
+          ${a.group_name ? `<span style="margin-right:12px"><i class="fa-solid fa-folder" style="margin-right:4px"></i>${esc(a.group_name)}</span>` : ''}
+          ${a.creator_name ? `<span style="margin-right:12px">By ${esc(a.creator_name)}</span>` : ''}
+          <span>Updated ${a.updated_at ? new Date(a.updated_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sec" onclick="kbEditArticle(${a.id})"><i class="fa-solid fa-pen"></i> Edit</button>
+        <button class="btn-sec" onclick="kbBackToList()"><i class="fa-solid fa-arrow-left"></i> Back</button>
+      </div>
+    </div>
+    <div style="border:1px solid #f3f4f6;border-radius:8px;padding:20px;background:#fafafa;min-height:200px;line-height:1.7;font-size:14px">${a.description || '<em style="color:#9ca3af">No content</em>'}</div>
+    <div style="display:flex;gap:16px;margin-top:20px;align-items:center">
+      <span style="font-size:13px;color:#6b7280">Was this helpful?</span>
+      <span style="font-size:13px;color:#10b981"><i class="fa-solid fa-thumbs-up"></i> ${a.helpful} helpful</span>
+      <span style="font-size:13px;color:#ef4444"><i class="fa-solid fa-thumbs-down"></i> ${a.not_helpful} not helpful</span>
+    </div>
+  </div>`;
+}
+
+function kbBackToList() {
+  _kbEditArticle = null;
+  renderKbList();
+}
+
+async function saveKbArticle() {
+  const subject = document.getElementById('kb-art-subject')?.value?.trim();
+  if (!subject) { showToast('Subject is required', 'error'); return; }
+  const body = {
+    subject,
+    group_id: document.getElementById('kb-art-group')?.value ? parseInt(document.getElementById('kb-art-group').value) : null,
+    description: document.getElementById('kb-art-desc')?.value || '',
+    active: document.getElementById('kb-art-active')?.value === 'true',
+    staff_only: document.getElementById('kb-art-staff-only')?.value === 'true',
+  };
+  const url = _kbEditArticle ? `/admin/api/kb/articles/${_kbEditArticle.id}` : '/admin/api/kb/articles';
+  const method = _kbEditArticle ? 'PUT' : 'POST';
+  const r = await apiFetch(url, { method, body: JSON.stringify(body) }).catch(e => { showToast(e.message, 'error'); return null; });
+  if (!r) return;
+  showToast('Article saved', 'success');
+  _kbEditArticle = null;
+  await loadKbArticles();
+  renderKbList();
+}
+
+async function deleteKbArticle(id) {
+  if (!confirm('Delete this article?')) return;
+  await apiFetch(`/admin/api/kb/articles/${id}`, { method: 'DELETE' });
+  showToast('Article deleted', 'success');
+  await loadKbArticles();
+  renderKbList();
+}
+
+let _kbGroupEditId = null;
+function openKbGroupModal(id) {
+  _kbGroupEditId = id;
+  const g = id ? _kbGroups.find(g => g.id === id) : null;
+  document.getElementById('kb-group-modal-title').textContent = g ? 'Edit Group' : 'New Group';
+  document.getElementById('kbg-name').value = g ? g.name : '';
+  document.getElementById('kbg-desc').value = g ? (g.description || '') : '';
+  document.getElementById('kbg-color').value = g ? g.color : '#6366f1';
+  document.getElementById('kb-group-modal').style.display = 'flex';
+}
+
+async function saveKbGroup() {
+  const name = document.getElementById('kbg-name').value.trim();
+  if (!name) return;
+  const body = {
+    name,
+    description: document.getElementById('kbg-desc').value.trim() || null,
+    color: document.getElementById('kbg-color').value,
+  };
+  const url = _kbGroupEditId ? `/admin/api/kb/groups/${_kbGroupEditId}` : '/admin/api/kb/groups';
+  const method = _kbGroupEditId ? 'PUT' : 'POST';
+  await apiFetch(url, { method, body: JSON.stringify(body) });
+  document.getElementById('kb-group-modal').style.display = 'none';
+  showToast('Group saved', 'success');
+  await loadKbGroups();
+  renderKbSidebar();
+}
+
+async function deleteKbGroup(id) {
+  if (!confirm('Delete this group? Articles will become ungrouped.')) return;
+  await apiFetch(`/admin/api/kb/groups/${id}`, { method: 'DELETE' });
+  _kbSelGroup = null;
+  await Promise.all([loadKbGroups(), loadKbArticles()]);
+  renderKbSidebar();
+  renderKbList();
+}
+
+/* ── Module 26: Calendar ────────────────────────────────────────────────────── */
+let _calView = 'month'; // 'month' | 'week' | 'day'
+let _calDate = new Date();
+let _calEvents = [];
+let _calSources = {event:'Custom Events',invoice:'Invoice Due',contract:'Contract',project:'Project Deadline',task:'Task Due',proposal:'Proposal Expiry'};
+let _calSourceColors = {event:'#6366f1',invoice:'#ef4444',contract:'#10b981',project:'#8b5cf6',task:'#6366f1',proposal:'#ec4899'};
+let _calHidden = new Set();
+
+async function pgCalendar() {
+  _calDate = new Date();
+  return `<div class="pg-hdr">
+    <div><h1 class="pg-title"><i class="fa-regular fa-calendar"></i> Calendar</h1></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-sec btn-sm" onclick="calNav(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+      <span id="cal-period-label" style="font-weight:600;min-width:160px;text-align:center"></span>
+      <button class="btn-sec btn-sm" onclick="calNav(1)"><i class="fa-solid fa-chevron-right"></i></button>
+      <button class="btn-sec btn-sm" onclick="calToday()">Today</button>
+      <div style="display:flex;gap:4px;margin-left:12px">
+        <button id="cal-btn-month" class="btn-sec btn-sm" onclick="setCalView('month')">Month</button>
+        <button id="cal-btn-week" class="btn-sec btn-sm" onclick="setCalView('week')">Week</button>
+        <button id="cal-btn-day" class="btn-sec btn-sm" onclick="setCalView('day')">Day</button>
+      </div>
+      <button class="btn-pri btn-sm" onclick="openNewEventModal()"><i class="fa-solid fa-plus"></i> Event</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:16px;align-items:flex-start">
+    <div id="cal-legend" style="width:180px;flex-shrink:0"></div>
+    <div id="cal-grid" style="flex:1;min-width:0"></div>
+  </div>
+  <div id="cal-event-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:460px;padding:28px">
+      <h3 style="margin:0 0 20px">New Event</h3>
+      <div class="fg"><label class="lbl">TITLE *</label><input id="cal-ev-title" class="fc" placeholder="Event title"></div>
+      <div class="fg"><label class="lbl">DESCRIPTION</label><textarea id="cal-ev-desc" class="fc" rows="2"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg"><label class="lbl">START *</label><input id="cal-ev-start" type="datetime-local" class="fc"></div>
+        <div class="fg"><label class="lbl">END</label><input id="cal-ev-end" type="datetime-local" class="fc"></div>
+      </div>
+      <div class="fg"><label class="lbl">COLOR</label><input id="cal-ev-color" type="color" value="#6366f1" style="height:36px;width:80px;border:none;border-radius:6px;padding:2px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('cal-event-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveCalEvent()">Save Event</button>
+      </div>
+    </div>
+  </div>
+  <script>initCalendar()<\/script>`;
+}
+
+async function initCalendar() {
+  await loadCalEvents();
+  renderCalLegend();
+  renderCal();
+}
+
+async function loadCalEvents() {
+  const y = _calDate.getFullYear(), m = _calDate.getMonth() + 1;
+  const r = await apiFetch(`/admin/api/calendar/all-events?year=${y}&month=${m}`);
+  _calEvents = await r.json();
+}
+
+function renderCalLegend() {
+  const el = document.getElementById('cal-legend');
+  if (!el) return;
+  el.innerHTML = `<div class="card" style="padding:12px">
+    <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:10px">Sources</div>
+    ${Object.entries(_calSources).map(([k, label]) => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer" onclick="toggleCalSource('${k}')">
+      <div style="width:12px;height:12px;border-radius:3px;background:${_calSourceColors[k]};opacity:${_calHidden.has(k)?0.3:1}"></div>
+      <span style="font-size:12px;color:${_calHidden.has(k)?'#9ca3af':'#374151'}">${label}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+function toggleCalSource(src) {
+  if (_calHidden.has(src)) _calHidden.delete(src);
+  else _calHidden.add(src);
+  renderCalLegend();
+  renderCal();
+}
+
+function setCalView(v) {
+  _calView = v;
+  ['month','week','day'].forEach(vv => {
+    const btn = document.getElementById(`cal-btn-${vv}`);
+    if (btn) { btn.style.background = vv === v ? '#6366f1' : ''; btn.style.color = vv === v ? '#fff' : ''; }
+  });
+  renderCal();
+}
+
+function calNav(dir) {
+  if (_calView === 'month') {
+    _calDate = new Date(_calDate.getFullYear(), _calDate.getMonth() + dir, 1);
+    loadCalEvents().then(renderCal);
+  } else if (_calView === 'week') {
+    _calDate = new Date(_calDate.getTime() + dir * 7 * 86400000);
+    renderCal();
+  } else {
+    _calDate = new Date(_calDate.getTime() + dir * 86400000);
+    renderCal();
+  }
+}
+
+function calToday() {
+  _calDate = new Date();
+  if (_calView === 'month') loadCalEvents().then(() => { renderCalLegend(); renderCal(); });
+  else renderCal();
+}
+
+function renderCal() {
+  if (_calView === 'month') renderCalMonth();
+  else if (_calView === 'week') renderCalWeek();
+  else renderCalDay();
+  const lbl = document.getElementById('cal-period-label');
+  if (lbl) {
+    if (_calView === 'month') lbl.textContent = _calDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+    else if (_calView === 'week') {
+      const mon = calWeekStart(_calDate);
+      const sun = new Date(mon.getTime() + 6 * 86400000);
+      lbl.textContent = `${mon.toLocaleDateString()} – ${sun.toLocaleDateString()}`;
+    } else {
+      lbl.textContent = _calDate.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    }
+  }
+}
+
+function calWeekStart(d) {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+
+function calEventsForDate(dateStr) {
+  return _calEvents.filter(e => {
+    if (_calHidden.has(e.source)) return false;
+    return e.start.startsWith(dateStr);
+  });
+}
+
+function renderCalMonth() {
+  const el = document.getElementById('cal-grid');
+  if (!el) return;
+  const year = _calDate.getFullYear(), month = _calDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+  let html = `<div style="background:#fff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f9fafb">
+      ${days.map(d => `<div style="text-align:center;padding:10px 0;font-size:12px;font-weight:600;color:#6b7280">${d}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr)">`;
+  for (let i = 0; i < startOffset; i++) {
+    html += `<div style="padding:8px;min-height:90px;background:#fafafa;border:1px solid #f3f4f6"></div>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const evs = calEventsForDate(dateStr);
+    html += `<div style="padding:8px;min-height:90px;border:1px solid #f3f4f6;vertical-align:top;background:${isToday?'#eff6ff':'#fff'}">
+      <div style="font-size:13px;font-weight:${isToday?'700':'500'};color:${isToday?'#6366f1':'#374151'};margin-bottom:4px">${d}</div>
+      ${evs.slice(0,3).map(e => `<div style="font-size:10px;background:${e.color};color:#fff;border-radius:3px;padding:2px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}
+      ${evs.length > 3 ? `<div style="font-size:10px;color:#9ca3af">+${evs.length-3} more</div>` : ''}
+    </div>`;
+  }
+  const totalCells = startOffset + daysInMonth;
+  const trailingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let i = 0; i < trailingCells; i++) {
+    html += `<div style="padding:8px;min-height:90px;background:#fafafa;border:1px solid #f3f4f6"></div>`;
+  }
+  html += `</div></div>`;
+  el.innerHTML = html;
+}
+
+function renderCalWeek() {
+  const el = document.getElementById('cal-grid');
+  if (!el) return;
+  const mon = calWeekStart(_calDate);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon.getTime() + i * 86400000);
+    days.push(d);
+  }
+  let html = `<div style="background:#fff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr)">
+      ${days.map(d => {
+        const ds = d.toISOString().split('T')[0];
+        const isToday = ds === todayStr;
+        const evs = calEventsForDate(ds);
+        return `<div style="padding:12px;border:1px solid #f3f4f6;min-height:120px;background:${isToday?'#eff6ff':'#fff'}">
+          <div style="font-size:13px;font-weight:${isToday?'700':'500'};color:${isToday?'#6366f1':'#374151'};margin-bottom:8px">
+            ${d.toLocaleDateString('default',{weekday:'short'})} ${d.getDate()}
+          </div>
+          ${evs.map(e => `<div style="font-size:11px;background:${e.color};color:#fff;border-radius:3px;padding:3px 6px;margin-bottom:3px" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+function renderCalDay() {
+  const el = document.getElementById('cal-grid');
+  if (!el) return;
+  const ds = _calDate.toISOString().split('T')[0];
+  const evs = calEventsForDate(ds);
+  el.innerHTML = `<div class="card">
+    <div style="font-size:14px;font-weight:600;color:#374151;margin-bottom:16px">${_calDate.toLocaleDateString('default',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</div>
+    ${evs.length === 0 ? '<div style="text-align:center;color:#9ca3af;padding:32px"><i class="fa-regular fa-calendar" style="font-size:28px;display:block;margin-bottom:12px"></i>No events today</div>' :
+      evs.map(e => `<div style="display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:8px;border-left:4px solid ${e.color};background:#fafafa;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:14px;color:#111">${esc(e.title)}</div>
+          ${e.description ? `<div style="font-size:12px;color:#6b7280;margin-top:4px">${esc(e.description)}</div>` : ''}
+          <div style="font-size:11px;color:#9ca3af;margin-top:4px">${new Date(e.start).toLocaleTimeString()}</div>
+        </div>
+        <span class="badge" style="background:${e.color};color:#fff;font-size:10px">${_calSources[e.source]||e.source}</span>
+      </div>`).join('')}
+  </div>`;
+}
+
+function openNewEventModal() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const dt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  document.getElementById('cal-ev-title').value = '';
+  document.getElementById('cal-ev-desc').value = '';
+  document.getElementById('cal-ev-start').value = dt;
+  document.getElementById('cal-ev-end').value = '';
+  document.getElementById('cal-ev-color').value = '#6366f1';
+  document.getElementById('cal-event-modal').style.display = 'flex';
+}
+
+async function saveCalEvent() {
+  const title = document.getElementById('cal-ev-title').value.trim();
+  const start = document.getElementById('cal-ev-start').value;
+  if (!title || !start) { showToast('Title and start date required','error'); return; }
+  const body = {
+    title, start_date: start,
+    description: document.getElementById('cal-ev-desc').value.trim() || null,
+    end_date: document.getElementById('cal-ev-end').value || null,
+    color: document.getElementById('cal-ev-color').value,
+    is_public: true,
+  };
+  await apiFetch('/admin/api/events', { method:'POST', body: JSON.stringify(body) }).catch(e => { showToast(e.message,'error'); return null; });
+  document.getElementById('cal-event-modal').style.display = 'none';
+  showToast('Event created','success');
+  await loadCalEvents();
+  renderCal();
+}
+/* ── Module 25: Customer Vault Tab ─────────────────────────────────────────── */
+let _vaultCid = null;
+let _vaultEntries = [];
+let _vaultEditId = null;
+
+async function initVaultTab(cid) {
+  _vaultCid = cid;
+  await loadVaultEntries();
+  renderVaultTab();
+}
+
+async function loadVaultEntries() {
+  const r = await apiFetch(`/admin/api/customers/${_vaultCid}/vault`);
+  _vaultEntries = await r.json();
+}
+
+function renderVaultTab() {
+  const el = document.getElementById('vault-tab-wrap');
+  if (!el) return;
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h3 style="margin:0;font-size:15px;font-weight:600"><i class="fa-solid fa-vault" style="margin-right:8px;color:#6366f1"></i>Credential Vault</h3>
+    <button class="btn-pri btn-sm" onclick="openVaultModal(null)"><i class="fa-solid fa-plus"></i> Add Entry</button>
+  </div>
+  ${_vaultEntries.length === 0 ? `<div class="card" style="text-align:center;padding:40px;color:#9ca3af"><i class="fa-solid fa-vault" style="font-size:28px;display:block;margin-bottom:12px"></i><p>No credentials stored yet</p></div>` :
+    `<div style="display:flex;flex-direction:column;gap:12px">
+      ${_vaultEntries.map(v => `<div class="card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:14px;color:#111;margin-bottom:6px">${v.description ? esc(v.description) : (v.server_address ? esc(v.server_address) : 'Vault Entry')}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:#6b7280">
+              ${v.server_address ? `<span><i class="fa-solid fa-server" style="margin-right:4px"></i>${esc(v.server_address)}${v.port ? ':'+v.port : ''}</span>` : ''}
+              ${v.username ? `<span><i class="fa-solid fa-user" style="margin-right:4px"></i>${esc(v.username)}</span>` : ''}
+              ${v.password ? `<span><i class="fa-solid fa-key" style="margin-right:4px"></i>${esc(v.password)}</span>` : ''}
+              <span><i class="fa-solid fa-eye" style="margin-right:4px"></i>${v.visibility}</span>
+            </div>
+            <div style="font-size:11px;color:#9ca3af;margin-top:8px">
+              ${v.creator_name ? `Added by ${esc(v.creator_name)}` : ''} · ${new Date(v.created_at).toLocaleDateString()}
+              ${v.last_updated_at ? ` · Updated ${new Date(v.last_updated_at).toLocaleDateString()}` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-left:12px">
+            <button class="btn-sec btn-sm" onclick="revealVaultEntry(${v.id})" title="Reveal password"><i class="fa-solid fa-eye"></i></button>
+            <button class="btn-sec btn-sm" onclick="openVaultModal(${v.id})"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn-sec btn-sm" onclick="deleteVaultEntry(${v.id})" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+      </div>`).join('')}
+    </div>`}
+  <div id="vault-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:500px;padding:28px">
+      <h3 id="vault-modal-title" style="margin:0 0 20px">Add Credential</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg" style="grid-column:1/-1"><label class="lbl">DESCRIPTION</label><input id="vault-desc" class="fc" placeholder="e.g. Client WordPress Admin"></div>
+        <div class="fg"><label class="lbl">SERVER / URL</label><input id="vault-addr" class="fc" placeholder="example.com"></div>
+        <div class="fg"><label class="lbl">PORT</label><input id="vault-port" class="fc" type="number" placeholder="22"></div>
+        <div class="fg"><label class="lbl">USERNAME</label><input id="vault-user" class="fc" placeholder="admin"></div>
+        <div class="fg"><label class="lbl">PASSWORD</label><input id="vault-pw" class="fc" type="password" placeholder="${_vaultEditId ? '(leave blank to keep)' : 'password'}"></div>
+        <div class="fg" style="grid-column:1/-1"><label class="lbl">VISIBILITY</label><select id="vault-vis" class="fc">
+          <option value="team">All Staff</option>
+          <option value="admin_only">Admins Only</option>
+        </select></div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('vault-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveVaultEntry()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+      </div>
+    </div>
+  </div>
+  <div id="vault-reveal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1001;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:420px;padding:28px">
+      <h3 style="margin:0 0 16px"><i class="fa-solid fa-shield-halved" style="color:#6366f1;margin-right:8px"></i>Re-authenticate</h3>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">Enter your password to reveal this credential.</p>
+      <input id="vault-reveal-pw" type="password" class="fc" placeholder="Your password" style="margin-bottom:16px">
+      <div id="vault-revealed-data" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;word-break:break-all"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn-sec" onclick="document.getElementById('vault-reveal-modal').style.display='none'">Close</button>
+        <button class="btn-pri" id="vault-reveal-btn"><i class="fa-solid fa-eye"></i> Reveal</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function openVaultModal(id) {
+  _vaultEditId = id;
+  const v = id ? _vaultEntries.find(e => e.id === id) : null;
+  document.getElementById('vault-modal-title').textContent = v ? 'Edit Credential' : 'Add Credential';
+  document.getElementById('vault-desc').value = v ? (v.description || '') : '';
+  document.getElementById('vault-addr').value = v ? (v.server_address || '') : '';
+  document.getElementById('vault-port').value = v ? (v.port || '') : '';
+  document.getElementById('vault-user').value = v ? (v.username || '') : '';
+  document.getElementById('vault-pw').value = '';
+  document.getElementById('vault-pw').placeholder = v ? '(leave blank to keep current)' : 'password';
+  document.getElementById('vault-vis').value = v ? (v.visibility || 'team') : 'team';
+  document.getElementById('vault-modal').style.display = 'flex';
+}
+
+async function saveVaultEntry() {
+  const body = {
+    description: document.getElementById('vault-desc').value.trim() || null,
+    server_address: document.getElementById('vault-addr').value.trim() || null,
+    port: document.getElementById('vault-port').value ? parseInt(document.getElementById('vault-port').value) : null,
+    username: document.getElementById('vault-user').value.trim() || null,
+    visibility: document.getElementById('vault-vis').value,
+  };
+  const pw = document.getElementById('vault-pw').value;
+  if (pw) body.password = pw;
+  const url = _vaultEditId ? `/admin/api/customers/${_vaultCid}/vault/${_vaultEditId}` : `/admin/api/customers/${_vaultCid}/vault`;
+  const method = _vaultEditId ? 'PUT' : 'POST';
+  const r = await apiFetch(url, { method, body: JSON.stringify(body) }).catch(e => { showToast(e.message, 'error'); return null; });
+  if (!r) return;
+  document.getElementById('vault-modal').style.display = 'none';
+  showToast('Credential saved', 'success');
+  await loadVaultEntries();
+  renderVaultTab();
+}
+
+async function deleteVaultEntry(id) {
+  if (!confirm('Delete this credential permanently?')) return;
+  await apiFetch(`/admin/api/customers/${_vaultCid}/vault/${id}`, { method: 'DELETE' });
+  showToast('Credential deleted', 'success');
+  await loadVaultEntries();
+  renderVaultTab();
+}
+
+function revealVaultEntry(id) {
+  document.getElementById('vault-reveal-pw').value = '';
+  document.getElementById('vault-revealed-data').style.display = 'none';
+  document.getElementById('vault-revealed-data').innerHTML = '';
+  document.getElementById('vault-reveal-modal').style.display = 'flex';
+  document.getElementById('vault-reveal-btn').onclick = async () => {
+    const pw = document.getElementById('vault-reveal-pw').value;
+    if (!pw) return;
+    const r = await apiFetch(`/admin/api/customers/${_vaultCid}/vault/${id}/reveal`, {
+      method: 'POST', body: JSON.stringify({ password: pw })
+    }).catch(e => { showToast(e.message || 'Invalid password', 'error'); return null; });
+    if (!r) return;
+    const data = await r.json();
+    const el = document.getElementById('vault-revealed-data');
+    el.style.display = 'block';
+    el.innerHTML = `<div style="font-weight:600;margin-bottom:8px"><i class="fa-solid fa-shield-check" style="color:#10b981;margin-right:6px"></i>Revealed</div>
+      ${data.username ? `<div><strong>Username:</strong> ${esc(data.username)}</div>` : ''}
+      ${data.password ? `<div><strong>Password:</strong> ${esc(data.password)}</div>` : ''}
+      ${data.server_address ? `<div><strong>Server:</strong> ${esc(data.server_address)}${data.port ? ':'+data.port : ''}</div>` : ''}`;
+  };
+}
+
 function pgReminders(){return pgAllReminders()}
 function pgGoals(){return pgPlaceholder('Goals')}
 function pgMedia(){return pgPlaceholder('Media / Files')}
