@@ -2165,7 +2165,200 @@ function init_estimates() { loadEstimates(); }
 function fmtMoney(v) { return (parseFloat(v)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtDate(v) { if(!v)return '—'; const d=new Date(v); return isNaN(d)?'—':d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 // ── END MODULE 12 ─────────────────────────────────────────────────────────────
-function pgEstimateRequests(){return pgPlaceholder('Estimate Requests')}
+// ── MODULE 13: ESTIMATE REQUESTS ─────────────────────────────────────────────
+let _erView = 'table';
+let _erFormFilter = '';
+let _erStatusFilter = '';
+let _erStatuses = [];
+let _erForms = [];
+
+function pgEstimateRequests() {
+  if (!hasPerm('estimate_requests','view')) return `<div class="empty-state"><i class="fa-solid fa-lock"></i><p>No access to Estimate Requests</p></div>`;
+  document.getElementById('page-title').textContent = 'Estimate Requests';
+  return `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="er-form-filter" onchange="_erFormFilter=this.value;loadERRequests()"
+        style="border:1.5px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:13px;background:#fff">
+        <option value="">All Forms</option>
+      </select>
+      <select id="er-status-filter" onchange="_erStatusFilter=this.value;loadERRequests()"
+        style="border:1.5px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:13px;background:#fff">
+        <option value="">All Statuses</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="_erView=_erView==='table'?'kanban':'table';loadERRequests()" title="Toggle view">
+        <i class="fa-solid ${_erView==='table'?'fa-columns':'fa-table-list'}"></i>
+      </button>
+    </div>
+  </div>
+  <div id="er-list-body">Loading…</div>
+  <div id="er-detail-wrap"></div>`;
+}
+
+function init_estimate_requests() { loadERRequests(); }
+
+async function loadERRequests() {
+  const body = document.getElementById('er-list-body');
+  if (!body) return;
+  body.innerHTML = '<div class="loading">Loading…</div>';
+  const [statuses, forms, data] = await Promise.all([
+    api('/api/estimate-request-statuses').catch(()=>[]),
+    api('/api/estimate-request-forms').catch(()=>[]),
+    api('/api/estimate-requests' + (_erFormFilter?`?form_id=${_erFormFilter}`:'') + (_erStatusFilter?`${_erFormFilter?'&':'?'}status_id=${_erStatusFilter}`:'')).catch(()=>[]),
+  ]);
+  _erStatuses = Array.isArray(statuses) ? statuses : [];
+  _erForms    = Array.isArray(forms)    ? forms    : [];
+  // Populate filter dropdowns
+  const fSel = document.getElementById('er-form-filter');
+  if (fSel) {
+    fSel.innerHTML = '<option value="">All Forms</option>' + _erForms.map(f=>`<option value="${f.id}" ${_erFormFilter==f.id?'selected':''}>${esc(f.name)}</option>`).join('');
+  }
+  const sSel = document.getElementById('er-status-filter');
+  if (sSel) {
+    sSel.innerHTML = '<option value="">All Statuses</option>' + _erStatuses.map(s=>`<option value="${s.id}" ${_erStatusFilter==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+  }
+  if (!Array.isArray(data) || !data.length) {
+    body.innerHTML = '<div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No estimate requests yet</p></div>';
+    return;
+  }
+  if (_erView === 'kanban') {
+    renderERKanban(body, data);
+  } else {
+    renderERTable(body, data);
+  }
+}
+
+function renderERTable(container, data) {
+  container.innerHTML = `
+  <div class="table-wrap"><table class="data-table"><thead><tr>
+    <th>#</th><th>Email</th><th>Form</th><th>Status</th><th>Assigned</th><th>Submitted</th><th>Converted</th><th>Actions</th>
+  </tr></thead><tbody>${data.map(r=>`
+    <tr>
+      <td><strong>#${r.id}</strong></td>
+      <td>${esc(r.email||'—')}</td>
+      <td style="font-size:12px;color:#6b7280">${esc(r.form_name||'—')}</td>
+      <td><span class="badge" style="background:${r.status_color}22;color:${r.status_color}">${r.status_name||'—'}</span></td>
+      <td>${esc(r.assigned_name||'—')}</td>
+      <td style="font-size:12px;color:#6b7280">${fmtDate(r.created_at)}</td>
+      <td>${r.converted_estimate_id?`<span class="badge badge-success">EST-${String(r.converted_estimate_id).padStart(6,'0')}</span>`:'—'}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-ghost btn-sm" onclick="openERDetail(${r.id})" title="View"><i class="fa-solid fa-eye"></i></button>
+          ${!r.converted_estimate_id&&hasPerm('estimate_requests','convert_to_estimate')?
+            `<button class="btn btn-ghost btn-sm" onclick="convertERToEstimate(${r.id})" title="Convert to estimate"><i class="fa-solid fa-file-invoice"></i></button>`:''}
+          ${hasPerm('estimate_requests','delete')?`<button class="btn btn-ghost btn-sm text-danger" onclick="deleteERRequest(${r.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>`:''}
+        </div>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderERKanban(container, data) {
+  const groups = {};
+  _erStatuses.forEach(s => groups[s.id] = { status: s, items: [] });
+  groups['none'] = { status: { name: 'Unassigned', color: '#9ca3af' }, items: [] };
+  data.forEach(r => {
+    if (r.status_id && groups[r.status_id]) groups[r.status_id].items.push(r);
+    else groups['none'].items.push(r);
+  });
+  container.innerHTML = `
+  <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:16px">
+    ${Object.values(groups).filter(g=>g.items.length||g.status.flag).map(g=>`
+    <div style="min-width:220px;flex:0 0 220px">
+      <div style="background:${g.status.color}22;color:${g.status.color};font-size:12px;font-weight:700;text-transform:uppercase;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between">
+        <span>${esc(g.status.name)}</span><span>${g.items.length}</span>
+      </div>
+      <div style="background:#f9fafb;border-radius:0 0 8px 8px;min-height:80px;padding:8px;display:flex;flex-direction:column;gap:8px">
+        ${g.items.map(r=>`
+        <div style="background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer" onclick="openERDetail(${r.id})">
+          <div style="font-weight:600;font-size:13px">${esc(r.email||'#'+r.id)}</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px">${esc(r.form_name||'')}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px">${fmtDate(r.created_at)}</div>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function openERDetail(id) {
+  const data = await api(`/api/estimate-requests/${id}`);
+  if (data.detail) { toast(data.detail, 'error'); return; }
+  const wrap = document.getElementById('er-detail-wrap');
+  if (!wrap) return;
+  const sub = data.submission || {};
+  const subRows = Object.entries(sub).map(([k,v])=>
+    `<tr><td style="padding:6px 10px;font-size:13px;font-weight:500;color:#6b7280;white-space:nowrap">${esc(k)}</td><td style="padding:6px 10px;font-size:13px">${esc(String(v))}</td></tr>`).join('');
+  wrap.innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeERDetail()">
+  <div class="modal-box" style="max-width:680px;width:95vw;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>Request #${data.id} — ${esc(data.email||'Unknown')}</h3>
+      <button class="modal-close" onclick="closeERDetail()">×</button>
+    </div>
+    <div style="padding:20px 24px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+        <div class="fg"><label>Status</label>
+          <select id="er-det-status" onchange="updateERField(${id},'status_id',+this.value||null)"
+            style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:13px;background:#fff">
+            <option value="">— None —</option>
+            ${_erStatuses.map(s=>`<option value="${s.id}" ${data.status_id==s.id?'selected':''}>${esc(s.name)}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label>Assigned To</label>
+          <input id="er-det-assigned" value="${esc(data.assigned_name||'')}" placeholder="Staff name"
+            style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:13px" readonly></div>
+      </div>
+      <div class="fg" style="margin-bottom:16px"><label>Notes</label>
+        <textarea id="er-det-notes" rows="3" onblur="updateERField(${id},'notes',this.value)"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:13px;resize:vertical;box-sizing:border-box">${esc(data.notes||'')}</textarea>
+      </div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:10px;color:#374151">Submitted Answers</div>
+      <table style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:8px;overflow:hidden">
+        ${subRows || '<tr><td colspan=2 style="padding:12px;color:#9ca3af;font-size:13px">No answers</td></tr>'}
+      </table>
+      ${data.converted_estimate_id?`<div style="margin-top:16px;padding:12px;background:#f0fdf4;border-radius:8px;font-size:13px;color:#16a34a"><i class="fa-solid fa-check-circle"></i> Converted to estimate EST-${String(data.converted_estimate_id).padStart(6,'0')}</div>`:''}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeERDetail()">Close</button>
+      ${!data.converted_estimate_id&&hasPerm('estimate_requests','convert_to_estimate')?
+        `<button class="btn btn-primary" onclick="convertERToEstimate(${id})"><i class="fa-solid fa-file-invoice"></i> Convert to Estimate</button>`:''}
+    </div>
+  </div></div>`;
+}
+
+function closeERDetail() {
+  const w = document.getElementById('er-detail-wrap');
+  if (w) w.innerHTML = '';
+}
+
+async function updateERField(id, field, value) {
+  const body = {};
+  body[field] = value;
+  const r = await fetch(`/admin/api/estimate-requests/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if (!r.ok) { const d = await r.json(); toast(d.detail||'Failed', 'error'); }
+  else loadERRequests();
+}
+
+async function convertERToEstimate(id) {
+  if (!confirm('Convert this request to an estimate? A draft estimate will be created with the client info pre-filled.')) return;
+  const r = await fetch(`/admin/api/estimate-requests/${id}/convert-to-estimate`, { method:'POST' });
+  const d = await r.json();
+  if (r.ok) {
+    toast(`Converted → ${d.formatted_number}`, 'success');
+    closeERDetail();
+    loadERRequests();
+  } else {
+    toast(d.detail||'Failed', 'error');
+  }
+}
+
+async function deleteERRequest(id) {
+  if (!confirm('Delete this estimate request?')) return;
+  const r = await fetch(`/admin/api/estimate-requests/${id}`, { method:'DELETE' });
+  if (r.ok) { toast('Deleted', 'success'); loadERRequests(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+// ── END MODULE 13 REQUESTS ────────────────────────────────────────────────────
 function pgInvoices(){return pgPlaceholder('Invoices')}
 function pgCreditNotes(){return pgPlaceholder('Credit Notes')}
 function pgPayments(){return pgPlaceholder('Payments')}
@@ -2208,7 +2401,241 @@ function pgPaymentModes(){return pgPlaceholder('Payment Modes')}
 function pgContractTypes(){return pgPlaceholder('Contract Types')}
 function pgTicketPriorities(){return pgPlaceholder('Ticket Priorities')}
 function pgTicketStatuses(){return pgPlaceholder('Ticket Statuses')}
-function pgEstimateRequestForms(){return pgPlaceholder('Estimate Request Forms')}
+// ── MODULE 13: ESTIMATE REQUEST FORMS ────────────────────────────────────────
+const ER_FIELD_TYPES = [
+  {v:'text',l:'Text'},{v:'email',l:'Email'},{v:'phone',l:'Phone'},{v:'textarea',l:'Paragraph'},
+  {v:'select',l:'Dropdown'},{v:'radio',l:'Radio'},{v:'checkbox',l:'Checkboxes'},
+  {v:'date',l:'Date'},{v:'heading',l:'Heading'},{v:'paragraph',l:'Paragraph Text'},
+];
+let _erfFields = [];
+let _erfEditId = null;
+
+function pgEstimateRequestForms() {
+  if (!hasPerm('estimate_requests','manage_forms')) return `<div class="empty-state"><i class="fa-solid fa-lock"></i><p>No access to Form Management</p></div>`;
+  document.getElementById('page-title').textContent = 'Request Forms';
+  return `
+  <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+    <button class="btn btn-primary" onclick="openERFormBuilder()"><i class="fa-solid fa-plus"></i> New Form</button>
+  </div>
+  <div id="erf-list-body">Loading…</div>
+  <div id="erf-builder-wrap"></div>
+  <div id="erf-embed-wrap"></div>`;
+}
+
+function init_estimate_request_forms() { loadERForms(); }
+
+async function loadERForms() {
+  const body = document.getElementById('erf-list-body');
+  if (!body) return;
+  const data = await api('/api/estimate-request-forms').catch(()=>[]);
+  if (!Array.isArray(data)||!data.length) {
+    body.innerHTML = '<div class="empty-state"><i class="fa-solid fa-wpforms"></i><p>No forms yet. Create your first form!</p></div>';
+    return;
+  }
+  body.innerHTML = `
+  <div class="table-wrap"><table class="data-table"><thead><tr>
+    <th>Name</th><th>Type</th><th>Submissions</th><th>Status</th><th>Actions</th>
+  </tr></thead><tbody>${data.map(f=>`
+  <tr>
+    <td><strong>${esc(f.name)}</strong></td>
+    <td style="font-size:12px;color:#6b7280">${esc(f.type||'—')}</td>
+    <td>${f.submission_count}</td>
+    <td><span class="badge ${f.is_active?'badge-success':'badge-muted'}">${f.is_active?'Active':'Inactive'}</span></td>
+    <td>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-ghost btn-sm" onclick="openERFormBuilder(${f.id})" title="Edit"><i class="fa-solid fa-pencil"></i></button>
+        <button class="btn btn-ghost btn-sm" onclick="showEREmbed('${f.form_key}')" title="Embed code"><i class="fa-solid fa-code"></i></button>
+        <a href="/form/${f.form_key}" target="_blank" class="btn btn-ghost btn-sm" title="Preview"><i class="fa-solid fa-eye"></i></a>
+        <button class="btn btn-ghost btn-sm text-danger" onclick="deleteERForm(${f.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    </td>
+  </tr>`).join('')}</tbody></table></div>`;
+}
+
+async function openERFormBuilder(id) {
+  _erfEditId = id || null;
+  let formData = null;
+  if (id) {
+    formData = await api(`/api/estimate-request-forms/${id}`);
+    if (formData.detail) { toast(formData.detail,'error'); return; }
+    _erfFields = JSON.parse(JSON.stringify(formData.form_data || []));
+  } else {
+    _erfFields = [
+      { type:'text',  name:'name',  label:'Full Name', required:true, options:[] },
+      { type:'email', name:'email', label:'Email Address', required:true, options:[] },
+      { type:'phone', name:'phone', label:'Phone Number', required:false, options:[] },
+      { type:'textarea', name:'project_description', label:'Project Description', required:false, options:[] },
+    ];
+  }
+  const wrap = document.getElementById('erf-builder-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeERFormBuilder()">
+  <div class="modal-box" style="max-width:860px;width:96vw;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>${id?'Edit Form':'New Request Form'}</h3>
+      <button class="modal-close" onclick="closeERFormBuilder()">×</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:20px 24px">
+      <div class="fg"><label>Form Name *</label>
+        <input id="erf-name" value="${esc(formData?.name||'')}" placeholder="e.g. Get a Quote"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Form Type (slug)</label>
+        <input id="erf-type" value="${esc(formData?.type||'')}" placeholder="e.g. meta-ads-quote"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Submit Button Label</label>
+        <input id="erf-btn-label" value="${esc(formData?.submit_btn_label||'Submit Request')}"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg"><label>Button Color</label>
+        <input id="erf-btn-color" type="color" value="${formData?.submit_btn_bg_color||'#6366f1'}"
+          style="height:42px;width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:4px;cursor:pointer"></div>
+      <div class="fg" style="grid-column:1/-1"><label>Success Message</label>
+        <textarea id="erf-success" rows="2"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px;resize:vertical;box-sizing:border-box">${esc(formData?.success_message||"Thank you! We'll be in touch shortly.")}</textarea>
+      </div>
+      <div class="fg"><label>Redirect URL (leave blank for success message)</label>
+        <input id="erf-redirect" value="${esc(formData?.redirect_url||'')}" placeholder="https://yoursite.com/thank-you"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 10px;font-size:13px"></div>
+      <div class="fg" style="display:flex;align-items:center;gap:12px;padding-top:22px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="erf-active" ${formData?.is_active!==false?'checked':''}> Active
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="erf-honeypot" ${formData?.honeypot_enabled!==false?'checked':''}> Honeypot spam protection
+        </label>
+      </div>
+    </div>
+    <!-- Field Builder -->
+    <div style="padding:0 24px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-weight:600;font-size:14px;color:#374151">Form Fields</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="erf-add-type" style="border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:12px;background:#fff">
+            ${ER_FIELD_TYPES.map(t=>`<option value="${t.v}">${t.l}</option>`).join('')}
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="addERField()"><i class="fa-solid fa-plus"></i> Add Field</button>
+        </div>
+      </div>
+      <div id="erf-fields-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeERFormBuilder()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveERForm()">${id?'Save Changes':'Create Form'}</button>
+    </div>
+  </div></div>`;
+  renderERFields();
+}
+
+function renderERFields() {
+  const c = document.getElementById('erf-fields-list');
+  if (!c) return;
+  if (!_erfFields.length) {
+    c.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px">No fields yet. Add fields above.</div>';
+    return;
+  }
+  c.innerHTML = _erfFields.map((f,i) => {
+    const hasOpts = ['select','radio','checkbox'].includes(f.type);
+    return `
+    <div style="background:#f9fafb;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <i class="fa-solid fa-grip-vertical" style="color:#d1d5db;cursor:grab"></i>
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;min-width:70px">${f.type}</span>
+        <input value="${esc(f.label||'')}" placeholder="Label" oninput="_erfFields[${i}].label=this.value"
+          style="flex:1;min-width:120px;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px">
+        <input value="${esc(f.name||'')}" placeholder="Field name (key)" oninput="_erfFields[${i}].name=this.value"
+          style="flex:1;min-width:100px;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:13px">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer">
+          <input type="checkbox" ${f.required?'checked':''} onchange="_erfFields[${i}].required=this.checked"> Required
+        </label>
+        <button onclick="_erfFields.splice(${i},1);renderERFields()" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:4px"><i class="fa-solid fa-times"></i></button>
+      </div>
+      ${hasOpts?`<div style="margin-top:8px;padding-left:20px">
+        <input value="${esc((f.options||[]).join(', '))}" placeholder="Options (comma-separated)"
+          oninput="_erfFields[${i}].options=this.value.split(',').map(s=>s.trim()).filter(Boolean)"
+          style="width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:6px 8px;font-size:12px">
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function addERField() {
+  const type = document.getElementById('erf-add-type')?.value || 'text';
+  const label = ER_FIELD_TYPES.find(t=>t.v===type)?.l || type;
+  _erfFields.push({ type, name: type + '_' + Date.now().toString(36), label, required: false, options: [] });
+  renderERFields();
+}
+
+function closeERFormBuilder() {
+  const w = document.getElementById('erf-builder-wrap');
+  if (w) w.innerHTML = '';
+  _erfEditId = null; _erfFields = [];
+}
+
+async function saveERForm() {
+  const name = document.getElementById('erf-name')?.value.trim();
+  if (!name) { toast('Form name is required', 'error'); return; }
+  const payload = {
+    name,
+    type: document.getElementById('erf-type')?.value.trim() || null,
+    form_data: _erfFields,
+    submit_btn_label: document.getElementById('erf-btn-label')?.value || 'Submit Request',
+    submit_btn_bg_color: document.getElementById('erf-btn-color')?.value || '#6366f1',
+    submit_btn_text_color: '#ffffff',
+    success_message: document.getElementById('erf-success')?.value || '',
+    redirect_url: document.getElementById('erf-redirect')?.value.trim() || null,
+    is_active: document.getElementById('erf-active')?.checked ?? true,
+    honeypot_enabled: document.getElementById('erf-honeypot')?.checked ?? true,
+  };
+  const method = _erfEditId ? 'PUT' : 'POST';
+  const url = _erfEditId ? `/api/estimate-request-forms/${_erfEditId}` : '/api/estimate-request-forms';
+  const r = await fetch('/admin' + url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const d = await r.json();
+  if (r.ok) {
+    toast(_erfEditId ? 'Form updated' : 'Form created', 'success');
+    closeERFormBuilder();
+    loadERForms();
+  } else {
+    toast(d.detail || 'Failed to save form', 'error');
+  }
+}
+
+async function deleteERForm(id) {
+  if (!confirm('Delete this form? All its submissions will also be deleted.')) return;
+  const r = await fetch(`/admin/api/estimate-request-forms/${id}`, { method:'DELETE' });
+  if (r.ok) { toast('Form deleted', 'success'); loadERForms(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+function showEREmbed(formKey) {
+  const base = window.location.origin;
+  const publicUrl = `${base}/form/${formKey}`;
+  const iframeCode = `<iframe src="${publicUrl}" width="100%" height="600" frameborder="0" style="border:none"></iframe>`;
+  const wrap = document.getElementById('erf-embed-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeEREmbed()">
+  <div class="modal-box" style="max-width:580px;width:92vw">
+    <div class="modal-header"><h3>Embed Code</h3><button class="modal-close" onclick="closeEREmbed()">×</button></div>
+    <div style="padding:24px">
+      <p style="font-size:13px;color:#6b7280;margin:0 0 12px">Paste this on your website to embed the form:</p>
+      <textarea readonly rows="4" onclick="this.select()"
+        style="width:100%;box-sizing:border-box;border:1.5px solid var(--border);border-radius:var(--r);padding:10px;font-family:monospace;font-size:12px;resize:none;background:#f9fafb">${esc(iframeCode)}</textarea>
+      <p style="font-size:13px;color:#6b7280;margin:12px 0 6px">Or share the direct link:</p>
+      <div style="display:flex;gap:8px">
+        <input readonly value="${publicUrl}" onclick="this.select()"
+          style="flex:1;border:1.5px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:13px;background:#f9fafb">
+        <a href="${publicUrl}" target="_blank" class="btn btn-ghost btn-sm"><i class="fa-solid fa-external-link"></i></a>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeEREmbed()">Close</button></div>
+  </div></div>`;
+}
+
+function closeEREmbed() {
+  const w = document.getElementById('erf-embed-wrap');
+  if (w) w.innerHTML = '';
+}
+// ── END MODULE 13 FORMS ───────────────────────────────────────────────────────
 function pgGdpr(){return pgPlaceholder('GDPR')}
 async function pgRoles(){
   const [rolesR, matR] = await Promise.all([apiGet('/api/roles'), apiGet('/api/roles/capabilities')]);
