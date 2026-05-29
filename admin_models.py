@@ -1553,3 +1553,93 @@ class CRMSpamFilter(AdminBase):
     pattern: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+# ── Knowledge Base ────────────────────────────────────────────────────────────
+
+class CRMKBGroup(AdminBase):
+    __tablename__ = "crm_kb_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    color: Mapped[str] = mapped_column(String(20), nullable=False, default="#6366f1")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    articles: Mapped[list["CRMKBArticle"]] = relationship("CRMKBArticle", back_populates="group",
+                                                           cascade="all, delete-orphan")
+
+
+class CRMKBArticle(AdminBase):
+    __tablename__ = "crm_kb_articles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_kb_groups.id", ondelete="SET NULL"), nullable=True)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    slug: Mapped[str] = mapped_column(String(500), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    staff_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    group: Mapped[Optional[CRMKBGroup]] = relationship("CRMKBGroup", back_populates="articles")
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+    feedback: Mapped[list["CRMKBArticleFeedback"]] = relationship("CRMKBArticleFeedback", back_populates="article",
+                                                                   cascade="all, delete-orphan")
+
+
+class CRMKBArticleFeedback(AdminBase):
+    __tablename__ = "crm_kb_article_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    article_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_kb_articles.id", ondelete="CASCADE"), nullable=False)
+    vote: Mapped[str] = mapped_column(String(20), nullable=False)  # "helpful" | "not_helpful"
+    ip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    article: Mapped[CRMKBArticle] = relationship("CRMKBArticle", back_populates="feedback")
+
+
+# ── Customer Vault ────────────────────────────────────────────────────────────
+
+class CRMVaultEntry(AdminBase):
+    __tablename__ = "crm_vault_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    client_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    server_address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    password_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # "team" = all staff, "admin_only" = admins only, "specific_staff" = see access table
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="team")
+    share_in_projects: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    last_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_updated_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    client: Mapped["CRMCustomer"] = relationship("CRMCustomer", foreign_keys=[client_id])
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+    updater: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[last_updated_by])
+    access: Mapped[list["CRMVaultEntryAccess"]] = relationship("CRMVaultEntryAccess", back_populates="vault_entry",
+                                                               cascade="all, delete-orphan")
+
+
+class CRMVaultEntryAccess(AdminBase):
+    __tablename__ = "crm_vault_entry_access"
+    __table_args__ = (UniqueConstraint("vault_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vault_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_vault_entries.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+
+    vault_entry: Mapped[CRMVaultEntry] = relationship("CRMVaultEntry", back_populates="access")
+    user: Mapped["StaffMember"] = relationship("StaffMember", foreign_keys=[user_id])
