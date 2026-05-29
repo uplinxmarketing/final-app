@@ -9063,8 +9063,23 @@ function pgMetaAdsConnection() {
   </div>`;
 }
 
-// nav() auto-invokes init_<page> after rendering
-window.init_meta_ads_connection = function() { loadMacStatus(); };
+// nav() auto-invokes init_<page> after rendering.
+// Every module that returns a <script> tag instead of registering here was silently broken
+// because browsers do NOT execute scripts injected via innerHTML.
+window.init_knowledge_base      = () => initKb();
+window.init_calendar            = () => initCalendar();
+window.init_goals               = () => loadGoals();
+window.init_report_sales        = () => runSalesReport();
+window.init_report_leads        = () => runLeadsReport();
+window.init_report_leads_staff  = () => runLeadsStaffReport();
+window.init_report_expenses     = () => runExpensesReport();
+window.init_report_expenses_detailed = () => runExpensesReport();
+window.init_report_expenses_income   = () => runExpIncReport();
+window.init_report_kb           = () => loadKbReport && loadKbReport();
+window.init_staff               = () => initStaffList();
+window.init_email_templates     = () => initEmailTemplates();
+window.init_settings            = () => initSettings();
+window.init_meta_ads_connection = () => loadMacStatus();
 
 async function loadMacStatus() {
   const wrap = document.getElementById('mac-wrap');
