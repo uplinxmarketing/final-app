@@ -202,6 +202,12 @@ tbody tr:hover .ta{opacity:1}
 
 /* Status badge */
 .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-green{background:#d1fae5;color:#065f46}
+.badge-gray{background:#f3f4f6;color:#4b5563}
+.badge-yellow{background:#fef3c7;color:#92400e}
+.badge-blue{background:#dbeafe;color:#1d4ed8}
+.badge-red{background:#fee2e2;color:#991b1b}
+.badge-purple{background:#ede9fe;color:#6d28d9}
 .bs{background:#f3f4f6;color:#4b5563}
 .bi{background:#dbeafe;color:#1d4ed8}
 .bsu{background:#dcfce7;color:#15803d}
@@ -1087,6 +1093,7 @@ const PAGES = {
   'report-kb': pgReportKb,
   // Setup — Customers
   staff: pgStaff,
+  'staff-detail': pgStaffDetail,
   'customer-groups': pgCustomerGroups,
   'custom-fields-customers': pgCustomFieldsCustomers,
   'tags-customers': pgTagsCustomers,
@@ -5593,20 +5600,844 @@ function revealVaultEntry(id) {
 }
 
 function pgReminders(){return pgAllReminders()}
-function pgGoals(){return pgPlaceholder('Goals')}
-function pgMedia(){return pgPlaceholder('Media / Files')}
-function pgBulkPdf(){return pgPlaceholder('Bulk PDF Export')}
-function pgAnnouncements(){return pgPlaceholder('Announcements')}
-function pgActivityLog(){return pgGlobalActivityLog()}
-function pgPipeLog(){return pgPlaceholder('Ticket Pipe Log')}
-function pgReportSales(){return pgPlaceholder('Sales Report')}
-function pgReportLeads(){return pgPlaceholder('Leads Report')}
-function pgReportLeadsStaff(){return pgPlaceholder('Leads by Staff Report')}
-function pgReportExpenses(){return pgPlaceholder('Expenses Report')}
-function pgReportExpensesDetailed(){return pgPlaceholder('Expenses Detailed Report')}
-function pgReportExpensesIncome(){return pgPlaceholder('Expenses vs Income Report')}
-function pgReportKb(){return pgPlaceholder('KB Articles Report')}
-function pgStaff(){return pgPlaceholder('Staff')}
+/* ── Module 27A: Goals ───────────────────────────────────────────────────────*/
+const GOAL_TYPE_LABELS = {
+  invoiced_amount:'Total Invoiced Amount', paid_revenue:'Total Paid Revenue',
+  leads_converted:'Leads Converted', new_clients:'New Clients',
+  hours_logged:'Hours Logged', projects_completed:'Projects Completed'
+};
+let _goals = [];
+let _goalEditId = null;
+let _goalStaffList = [];
+
+async function pgGoals() {
+  return `<div class="pg-hdr">
+    <div><h1 class="pg-title"><i class="fa-solid fa-trophy"></i> Goals</h1></div>
+    <button class="btn-pri" onclick="openGoalModal(null)"><i class="fa-solid fa-plus"></i> New Goal</button>
+  </div>
+  <div id="goals-wrap"></div>
+  <div id="goal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:520px;padding:28px;max-height:90vh;overflow-y:auto">
+      <h3 id="goal-modal-title" style="margin:0 0 20px">New Goal</h3>
+      <div class="fg"><label class="lbl">SUBJECT *</label><input id="goal-subject" class="fc" placeholder="e.g. Q1 Revenue Target"></div>
+      <div class="fg"><label class="lbl">GOAL TYPE</label><select id="goal-type" class="fc">
+        ${Object.entries(GOAL_TYPE_LABELS).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label class="lbl">TARGET VALUE</label><input id="goal-target" class="fc" type="number" min="0" step="any" placeholder="0"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg"><label class="lbl">START DATE</label><input id="goal-start" type="date" class="fc"></div>
+        <div class="fg"><label class="lbl">END DATE</label><input id="goal-end" type="date" class="fc"></div>
+      </div>
+      <div class="fg"><label class="lbl">APPLIES TO</label><select id="goal-all-staff" class="fc" onchange="toggleGoalStaffPicker()">
+        <option value="true">All Staff</option>
+        <option value="false">Specific Staff</option>
+      </select></div>
+      <div id="goal-staff-picker" style="display:none" class="fg">
+        <label class="lbl">SELECT STAFF</label>
+        <div id="goal-staff-options" style="display:flex;flex-wrap:wrap;gap:8px;max-height:120px;overflow-y:auto"></div>
+      </div>
+      <div class="fg"><label class="lbl">STATUS</label><select id="goal-status" class="fc">
+        <option value="active">Active</option>
+        <option value="achieved">Achieved</option>
+        <option value="failed">Failed</option>
+      </select></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('goal-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveGoal()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+      </div>
+    </div>
+  </div>
+  <script>loadGoals()<\/script>`;
+}
+
+async function loadGoals() {
+  const [goalsR, staffR] = await Promise.all([
+    apiFetch('/admin/api/goals'), apiFetch('/admin/api/staff')
+  ]);
+  _goals = await goalsR.json();
+  _goalStaffList = await staffR.json();
+  renderGoals();
+}
+
+function goalStatusBadge(status) {
+  const map = {active:'badge-blue',achieved:'badge-green',failed:'badge-red'};
+  return `<span class="badge ${map[status]||'badge-gray'}">${status}</span>`;
+}
+
+function renderGoals() {
+  const el = document.getElementById('goals-wrap');
+  if (!el) return;
+  if (_goals.length === 0) {
+    el.innerHTML = `<div class="card" style="text-align:center;padding:48px;color:#9ca3af"><i class="fa-solid fa-trophy" style="font-size:28px;display:block;margin-bottom:12px"></i><p>No goals yet. Create your first goal to start tracking targets.</p></div>`;
+    return;
+  }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
+    ${_goals.map(g => {
+      const pct = Math.min(100, g.percent);
+      const barColor = g.status==='achieved' ? '#10b981' : g.status==='failed' ? '#ef4444' : pct>=75 ? '#f59e0b' : '#6366f1';
+      const typeLabel = GOAL_TYPE_LABELS[g.goal_type] || g.goal_type;
+      const isAmt = ['invoiced_amount','paid_revenue'].includes(g.goal_type);
+      const fmt = v => isAmt ? '$'+v.toLocaleString('en',{maximumFractionDigits:0}) : v.toLocaleString('en',{maximumFractionDigits:1})+(g.goal_type==='hours_logged'?' hrs':'');
+      return `<div class="card" style="padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:15px;color:#111;margin-bottom:4px">${esc(g.subject)}</div>
+            <div style="font-size:12px;color:#9ca3af">${typeLabel}</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${goalStatusBadge(g.status)}
+            <button class="btn-sec btn-sm" onclick="openGoalModal(${g.id})"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn-sec btn-sm" onclick="deleteGoal(${g.id})" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-bottom:4px">
+            <span>${fmt(g.achieved_value)} achieved</span>
+            <span>${fmt(g.target_value)} target</span>
+          </div>
+          <div style="background:#f3f4f6;border-radius:9999px;height:8px;overflow:hidden">
+            <div style="height:8px;border-radius:9999px;background:${barColor};width:${pct}%;transition:width .4s"></div>
+          </div>
+          <div style="font-size:11px;color:#9ca3af;text-align:right;margin-top:3px">${g.percent}%</div>
+        </div>
+        ${g.start_date || g.end_date ? `<div style="font-size:11px;color:#9ca3af">${g.start_date?new Date(g.start_date).toLocaleDateString():''} → ${g.end_date?new Date(g.end_date).toLocaleDateString():'∞'}</div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function toggleGoalStaffPicker() {
+  const isAll = document.getElementById('goal-all-staff')?.value === 'true';
+  const picker = document.getElementById('goal-staff-picker');
+  if (picker) picker.style.display = isAll ? 'none' : 'block';
+  if (!isAll) renderGoalStaffOptions([]);
+}
+
+function renderGoalStaffOptions(selectedIds) {
+  const el = document.getElementById('goal-staff-options');
+  if (!el) return;
+  el.innerHTML = _goalStaffList.map(s => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;background:${selectedIds.includes(s.id)?'#eff6ff':'#fff'}">
+    <input type="checkbox" value="${s.id}" ${selectedIds.includes(s.id)?'checked':''} onchange=""> ${esc(s.full_name)}
+  </label>`).join('');
+}
+
+function openGoalModal(id) {
+  _goalEditId = id;
+  const g = id ? _goals.find(g => g.id === id) : null;
+  document.getElementById('goal-modal-title').textContent = g ? 'Edit Goal' : 'New Goal';
+  document.getElementById('goal-subject').value = g ? g.subject : '';
+  document.getElementById('goal-type').value = g ? g.goal_type : 'paid_revenue';
+  document.getElementById('goal-target').value = g ? g.target_value : '';
+  document.getElementById('goal-start').value = g && g.start_date ? g.start_date.split('T')[0] : '';
+  document.getElementById('goal-end').value = g && g.end_date ? g.end_date.split('T')[0] : '';
+  document.getElementById('goal-all-staff').value = g ? String(g.all_staff) : 'true';
+  document.getElementById('goal-status').value = g ? g.status : 'active';
+  toggleGoalStaffPicker();
+  if (g && !g.all_staff) renderGoalStaffOptions(g.assigned_user_ids || []);
+  document.getElementById('goal-modal').style.display = 'flex';
+}
+
+async function saveGoal() {
+  const subject = document.getElementById('goal-subject').value.trim();
+  if (!subject) { showToast('Subject required','error'); return; }
+  const allStaff = document.getElementById('goal-all-staff').value === 'true';
+  const uids = [];
+  if (!allStaff) {
+    document.querySelectorAll('#goal-staff-options input[type=checkbox]:checked').forEach(cb => uids.push(parseInt(cb.value)));
+  }
+  const body = {
+    subject, goal_type: document.getElementById('goal-type').value,
+    target_value: parseFloat(document.getElementById('goal-target').value) || 0,
+    start_date: document.getElementById('goal-start').value || null,
+    end_date: document.getElementById('goal-end').value || null,
+    all_staff: allStaff, assigned_user_ids: uids,
+    status: document.getElementById('goal-status').value,
+  };
+  const url = _goalEditId ? `/admin/api/goals/${_goalEditId}` : '/admin/api/goals';
+  const method = _goalEditId ? 'PUT' : 'POST';
+  await apiFetch(url, { method, body: JSON.stringify(body) }).catch(e => { showToast(e.message,'error'); return null; });
+  document.getElementById('goal-modal').style.display = 'none';
+  showToast('Goal saved','success');
+  await loadGoals();
+}
+
+async function deleteGoal(id) {
+  if (!confirm('Delete this goal?')) return;
+  await apiFetch(`/admin/api/goals/${id}`, { method:'DELETE' });
+  showToast('Goal deleted','success');
+  await loadGoals();
+}
+
+/* ── Module 27B: Reports ─────────────────────────────────────────────────────*/
+
+function _rptDateBar(fromId, toId, onSearch) {
+  const now = new Date();
+  const y = now.getFullYear();
+  return `<div class="card" style="padding:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:20px">
+    <div class="fg" style="margin:0"><label class="lbl">FROM</label><input id="${fromId}" type="date" class="fc" value="${y}-01-01"></div>
+    <div class="fg" style="margin:0"><label class="lbl">TO</label><input id="${toId}" type="date" class="fc" value="${now.toISOString().split('T')[0]}"></div>
+    <button class="btn-pri" onclick="${onSearch}()"><i class="fa-solid fa-magnifying-glass"></i> Run</button>
+  </div>`;
+}
+
+function _rptMonthLabel(yr, mo) {
+  return new Date(yr, mo-1, 1).toLocaleString('default',{month:'short',year:'2-digit'});
+}
+
+function _rptBarChart(data, labelKey, valueKey, color='#6366f1') {
+  if (!data.length) return '<div style="color:#9ca3af;text-align:center;padding:24px">No data</div>';
+  const max = Math.max(...data.map(d => d[valueKey]), 1);
+  return `<div style="display:flex;align-items:flex-end;gap:4px;height:160px;overflow-x:auto">
+    ${data.map(d => {
+      const h = Math.round(d[valueKey] / max * 140);
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:40px">
+        <div style="font-size:10px;color:#9ca3af;white-space:nowrap">${typeof d[valueKey]==='number'&&d[valueKey]>=1000?(d[valueKey]/1000).toFixed(1)+'k':Math.round(d[valueKey])}</div>
+        <div style="background:${color};border-radius:4px 4px 0 0;width:32px;height:${h}px"></div>
+        <div style="font-size:10px;color:#6b7280;text-align:center;white-space:nowrap">${d[labelKey]}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function pgReportSales() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-chart-line"></i> Sales Report</h1></div>
+    ${_rptDateBar('rpt-s-from','rpt-s-to','runSalesReport')}
+    <div id="rpt-sales-body"></div>
+    <script>runSalesReport()<\/script>`;
+}
+
+async function runSalesReport() {
+  const from = document.getElementById('rpt-s-from')?.value;
+  const to = document.getElementById('rpt-s-to')?.value;
+  const el = document.getElementById('rpt-sales-body');
+  if (!el) return;
+  el.innerHTML = `<div style="color:#9ca3af;text-align:center;padding:40px"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i></div>`;
+  const r = await apiFetch(`/admin/api/reports/sales?from_date=${from}&to_date=${to}`);
+  const d = await r.json();
+  const monthlyData = d.monthly.map(m => ({...m, label:_rptMonthLabel(m.year,m.month), value:m.total}));
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+    ${[['Total Invoiced','$'+d.total_invoiced.toLocaleString('en',{maximumFractionDigits:0}),'#6366f1','fa-file-invoice'],
+       ['Total Paid','$'+d.total_paid.toLocaleString('en',{maximumFractionDigits:0}),'#10b981','fa-check-circle'],
+       ['Outstanding','$'+d.outstanding.toLocaleString('en',{maximumFractionDigits:0}),'#ef4444','fa-exclamation-circle']].map(([l,v,c,ic])=>`
+      <div class="card" style="padding:20px;text-align:center">
+        <i class="fa-solid ${ic}" style="font-size:24px;color:${c};margin-bottom:8px;display:block"></i>
+        <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:12px;color:#9ca3af;margin-top:4px">${l}</div>
+      </div>`).join('')}
+  </div>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:16px">Revenue by Month</div>
+      ${_rptBarChart(monthlyData,'label','total','#6366f1')}
+    </div>
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:12px">Top Clients by Revenue</div>
+      <table class="tbl"><thead><tr><th>Client</th><th style="text-align:right">Revenue</th></tr></thead><tbody>
+        ${d.top_clients.map(c => `<tr><td style="font-size:13px">${esc(c.name)}</td><td style="text-align:right;font-size:13px;font-weight:600">$${c.total.toLocaleString('en',{maximumFractionDigits:0})}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+async function pgReportLeads() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-funnel-dollar"></i> Leads Report</h1></div>
+    ${_rptDateBar('rpt-l-from','rpt-l-to','runLeadsReport')}
+    <div id="rpt-leads-body"></div>
+    <script>runLeadsReport()<\/script>`;
+}
+
+async function runLeadsReport() {
+  const from = document.getElementById('rpt-l-from')?.value;
+  const to = document.getElementById('rpt-l-to')?.value;
+  const el = document.getElementById('rpt-leads-body');
+  if (!el) return;
+  el.innerHTML = `<div style="color:#9ca3af;text-align:center;padding:40px"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i></div>`;
+  const r = await apiFetch(`/admin/api/reports/leads?from_date=${from}&to_date=${to}`);
+  const d = await r.json();
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+    ${[['Total Leads',d.total,'#6366f1','fa-users'],['Converted',d.converted,'#10b981','fa-user-check'],['Conversion Rate',d.conversion_rate+'%','#f59e0b','fa-percent']].map(([l,v,c,ic])=>`
+      <div class="card" style="padding:20px;text-align:center">
+        <i class="fa-solid ${ic}" style="font-size:24px;color:${c};margin-bottom:8px;display:block"></i>
+        <div style="font-size:28px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:12px;color:#9ca3af;margin-top:4px">${l}</div>
+      </div>`).join('')}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">By Source</div>
+      ${_rptBarChart(d.by_source.map(s=>({...s,value:s.count,label:s.source})),'label','value','#6366f1')}
+    </div>
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">By Status</div>
+      ${d.by_status.length===0?'<div style="color:#9ca3af;text-align:center;padding:24px">No data</div>':
+        d.by_status.map(s => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${s.color||'#6366f1'}"></div>
+          <div style="flex:1;font-size:13px">${esc(s.status)}</div>
+          <div style="font-weight:600;font-size:13px">${s.count}</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+async function pgReportLeadsStaff() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-user-tie"></i> Leads by Staff</h1></div>
+    ${_rptDateBar('rpt-ls-from','rpt-ls-to','runLeadsStaffReport')}
+    <div id="rpt-leads-staff-body"></div>
+    <script>runLeadsStaffReport()<\/script>`;
+}
+
+async function runLeadsStaffReport() {
+  const from = document.getElementById('rpt-ls-from')?.value;
+  const to = document.getElementById('rpt-ls-to')?.value;
+  const el = document.getElementById('rpt-leads-staff-body');
+  if (!el) return;
+  el.innerHTML = `<div style="color:#9ca3af;text-align:center;padding:40px"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i></div>`;
+  const r = await apiFetch(`/admin/api/reports/leads-staff?from_date=${from}&to_date=${to}`);
+  const rows = await r.json();
+  el.innerHTML = `<div class="card" style="padding:0">
+    <table class="tbl">
+      <thead><tr><th>Staff Member</th><th>Assigned</th><th>Converted</th><th>Lost</th><th>Rate</th><th>Performance</th></tr></thead>
+      <tbody>
+        ${rows.length===0 ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">No data for this period</td></tr>` :
+          rows.map(s => `<tr>
+            <td style="font-weight:500">${esc(s.full_name)}</td>
+            <td>${s.assigned}</td>
+            <td><span style="color:#10b981;font-weight:600">${s.converted}</span></td>
+            <td><span style="color:#ef4444">${s.lost}</span></td>
+            <td><span class="badge ${s.rate>=50?'badge-green':s.rate>=25?'badge-yellow':'badge-red'}">${s.rate}%</span></td>
+            <td style="min-width:120px">
+              <div style="background:#f3f4f6;border-radius:9999px;height:6px">
+                <div style="background:#10b981;height:6px;border-radius:9999px;width:${s.rate}%"></div>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function pgReportExpenses() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-receipt"></i> Expenses Report</h1></div>
+    ${_rptDateBar('rpt-e-from','rpt-e-to','runExpensesReport')}
+    <div id="rpt-expenses-body"></div>
+    <script>runExpensesReport()<\/script>`;
+}
+
+async function runExpensesReport() {
+  const from = document.getElementById('rpt-e-from')?.value;
+  const to = document.getElementById('rpt-e-to')?.value;
+  const el = document.getElementById('rpt-expenses-body');
+  if (!el) return;
+  el.innerHTML = `<div style="color:#9ca3af;text-align:center;padding:40px"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i></div>`;
+  const r = await apiFetch(`/admin/api/reports/expenses?from_date=${from}&to_date=${to}`);
+  const d = await r.json();
+  const monthlyData = d.monthly.map(m => ({...m, label:_rptMonthLabel(m.year,m.month), value:m.total}));
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card" style="padding:20px;text-align:center">
+      <i class="fa-solid fa-receipt" style="font-size:24px;color:#ef4444;margin-bottom:8px;display:block"></i>
+      <div style="font-size:24px;font-weight:700;color:#ef4444">$${d.total.toLocaleString('en',{maximumFractionDigits:0})}</div>
+      <div style="font-size:12px;color:#9ca3af;margin-top:4px">Total Expenses</div>
+    </div>
+    <div class="card" style="padding:20px;text-align:center">
+      <i class="fa-solid fa-file-invoice" style="font-size:24px;color:#f59e0b;margin-bottom:8px;display:block"></i>
+      <div style="font-size:24px;font-weight:700;color:#f59e0b">$${d.billable.toLocaleString('en',{maximumFractionDigits:0})}</div>
+      <div style="font-size:12px;color:#9ca3af;margin-top:4px">Billable Expenses</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:16px">Expenses by Month</div>
+      ${_rptBarChart(monthlyData,'label','value','#ef4444')}
+    </div>
+    <div class="card" style="padding:20px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">By Category</div>
+      ${d.by_category.map(c => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f9fafb;font-size:13px">
+        <span style="color:#374151">${esc(c.category||'Uncategorised')}</span>
+        <span style="font-weight:600;color:#ef4444">$${c.total.toLocaleString('en',{maximumFractionDigits:0})}</span>
+      </div>`).join('') || '<div style="color:#9ca3af;text-align:center;padding:20px">No data</div>'}
+    </div>
+  </div>`;
+}
+
+async function pgReportExpensesDetailed() {
+  return pgReportExpenses();
+}
+
+async function pgReportExpensesIncome() {
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-scale-balanced"></i> Expenses vs Income</h1></div>
+    ${_rptDateBar('rpt-ei-from','rpt-ei-to','runExpIncReport')}
+    <div id="rpt-ei-body"></div>
+    <script>runExpIncReport()<\/script>`;
+}
+
+async function runExpIncReport() {
+  const from = document.getElementById('rpt-ei-from')?.value;
+  const to = document.getElementById('rpt-ei-to')?.value;
+  const el = document.getElementById('rpt-ei-body');
+  if (!el) return;
+  el.innerHTML = `<div style="color:#9ca3af;text-align:center;padding:40px"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i></div>`;
+  const r = await apiFetch(`/admin/api/reports/expenses-income?from_date=${from}&to_date=${to}`);
+  const d = await r.json();
+  const rows = d.rows;
+  const totalInc = rows.reduce((s,r)=>s+r.income,0);
+  const totalExp = rows.reduce((s,r)=>s+r.expenses,0);
+  const totalProfit = totalInc - totalExp;
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+    ${[['Total Income','$'+totalInc.toLocaleString('en',{maximumFractionDigits:0}),'#10b981','fa-arrow-trend-up'],
+       ['Total Expenses','$'+totalExp.toLocaleString('en',{maximumFractionDigits:0}),'#ef4444','fa-arrow-trend-down'],
+       ['Net Profit','$'+totalProfit.toLocaleString('en',{maximumFractionDigits:0}),totalProfit>=0?'#10b981':'#ef4444','fa-scale-balanced']].map(([l,v,c,ic])=>`
+      <div class="card" style="padding:20px;text-align:center">
+        <i class="fa-solid ${ic}" style="font-size:24px;color:${c};margin-bottom:8px;display:block"></i>
+        <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:12px;color:#9ca3af;margin-top:4px">${l}</div>
+      </div>`).join('')}
+  </div>
+  <div class="card" style="padding:20px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:16px">Monthly Breakdown</div>
+    ${rows.length===0 ? '<div style="color:#9ca3af;text-align:center;padding:32px">No data for this period</div>' : `
+    <table class="tbl">
+      <thead><tr><th>Month</th><th style="text-align:right">Income</th><th style="text-align:right">Expenses</th><th style="text-align:right">Net Profit</th></tr></thead>
+      <tbody>${rows.map(row => {
+        const profit = row.income - row.expenses;
+        return `<tr>
+          <td style="font-weight:500">${_rptMonthLabel(row.year,row.month)}</td>
+          <td style="text-align:right;color:#10b981;font-weight:600">$${row.income.toLocaleString('en',{maximumFractionDigits:0})}</td>
+          <td style="text-align:right;color:#ef4444">$${row.expenses.toLocaleString('en',{maximumFractionDigits:0})}</td>
+          <td style="text-align:right;font-weight:700;color:${profit>=0?'#10b981':'#ef4444'}">$${profit.toLocaleString('en',{maximumFractionDigits:0})}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`}
+  </div>`;
+}
+
+async function pgReportKb() {
+  const r = await apiFetch('/admin/api/reports/kb');
+  const articles = await r.json();
+  return `<div class="pg-hdr"><h1 class="pg-title"><i class="fa-solid fa-book-open"></i> Knowledge Base Report</h1></div>
+    <div class="card" style="padding:0">
+      <table class="tbl">
+        <thead><tr><th>Article</th><th>Group</th><th>Status</th><th style="text-align:right">Helpful</th><th style="text-align:right">Not Helpful</th><th style="text-align:right">Score</th></tr></thead>
+        <tbody>
+          ${articles.length===0 ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">No articles yet</td></tr>` :
+            articles.map(a => `<tr>
+              <td style="font-weight:500;max-width:300px">${esc(a.subject)}</td>
+              <td style="font-size:12px;color:#6b7280">${a.group_name ? esc(a.group_name) : '—'}</td>
+              <td><span class="badge ${a.active?'badge-green':'badge-gray'}">${a.active?'Active':'Inactive'}</span>${a.staff_only?'<span class="badge badge-yellow" style="margin-left:4px;font-size:10px">Staff</span>':''}</td>
+              <td style="text-align:right;color:#10b981;font-weight:600"><i class="fa-solid fa-thumbs-up"></i> ${a.helpful}</td>
+              <td style="text-align:right;color:#ef4444"><i class="fa-solid fa-thumbs-down"></i> ${a.not_helpful}</td>
+              <td style="text-align:right">
+                ${a.score !== null ? `<span class="badge ${a.score>=70?'badge-green':a.score>=40?'badge-yellow':'badge-red'}">${a.score}%</span>` : '<span style="color:#9ca3af">—</span>'}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+/* ── Module 28: Staff Management ─────────────────────────────────────────────*/
+let _staffList = [];
+let _staffRoles = [];
+let _staffDetailId = null;
+let _staffDetailTab = 'profile';
+let _staffDetail = null;
+let _staffDetailApps = [];
+
+async function pgStaff() {
+  return `<div class="pg-hdr">
+    <div><h1 class="pg-title"><i class="fa-solid fa-users"></i> Staff Members</h1></div>
+    ${hasPerm('staff','create') ? `<button class="btn-pri" onclick="openStaffModal(null)"><i class="fa-solid fa-plus"></i> New Staff Member</button>` : ''}
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+    <input id="staff-search" class="fc" placeholder="Search name or email…" style="max-width:260px" oninput="filterStaff()">
+    <select id="staff-filter-role" class="fc" style="max-width:180px" onchange="filterStaff()"><option value="">All Roles</option></select>
+    <select id="staff-filter-active" class="fc" style="max-width:160px" onchange="filterStaff()">
+      <option value="">All Statuses</option>
+      <option value="true">Active</option>
+      <option value="false">Inactive</option>
+    </select>
+  </div>
+  <div class="card" style="padding:0">
+    <table class="tbl" id="staff-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last Login</th><th>Status</th><th></th></tr></thead>
+      <tbody id="staff-tbody"><tr><td colspan="6" style="text-align:center;padding:32px;color:#9ca3af"><i class="fa-solid fa-spinner fa-spin"></i></td></tr></tbody>
+    </table>
+  </div>
+  <div id="staff-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:540px;padding:28px;max-height:90vh;overflow-y:auto">
+      <h3 id="staff-modal-title" style="margin:0 0 20px">New Staff Member</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg"><label class="lbl">FIRST NAME *</label><input id="smod-fname" class="fc" placeholder="First"></div>
+        <div class="fg"><label class="lbl">LAST NAME *</label><input id="smod-lname" class="fc" placeholder="Last"></div>
+        <div class="fg" style="grid-column:1/-1"><label class="lbl">EMAIL *</label><input id="smod-email" class="fc" type="email" placeholder="email@example.com"></div>
+        <div class="fg"><label class="lbl">PASSWORD</label><input id="smod-pw" class="fc" type="password" placeholder="New password"></div>
+        <div class="fg"><label class="lbl">PHONE</label><input id="smod-phone" class="fc" placeholder="+1…"></div>
+        <div class="fg"><label class="lbl">ROLE</label><select id="smod-role" class="fc"><option value="">— No Role —</option></select></div>
+        <div class="fg"><label class="lbl">HOURLY RATE ($)</label><input id="smod-rate" class="fc" type="number" min="0" step="0.01" placeholder="0.00"></div>
+        <div class="fg"><label class="lbl">STATUS</label><select id="smod-active" class="fc">
+          <option value="true">Active</option><option value="false">Inactive</option>
+        </select></div>
+        <div class="fg" style="grid-column:1/-1;display:flex;gap:12px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="smod-admin"> Administrator (bypasses all permissions)
+          </label>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('staff-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveStaffMember()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+      </div>
+    </div>
+  </div>
+  <script>initStaffList()<\/script>`;
+}
+
+let _staffEditId = null;
+let _allStaffCache = [];
+let _staffRolesCache = [];
+
+async function initStaffList() {
+  const [sR, rR] = await Promise.all([apiFetch('/admin/api/staff'), apiFetch('/admin/api/roles')]);
+  _allStaffCache = await sR.json();
+  _staffRolesCache = await rR.json();
+  const roleSelect = document.getElementById('staff-filter-role');
+  if (roleSelect) {
+    _staffRolesCache.forEach(r => {
+      const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.name;
+      roleSelect.appendChild(opt);
+    });
+  }
+  const smodRole = document.getElementById('smod-role');
+  if (smodRole) {
+    _staffRolesCache.forEach(r => {
+      const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.name;
+      smodRole.appendChild(opt);
+    });
+  }
+  filterStaff();
+}
+
+function filterStaff() {
+  const q = (document.getElementById('staff-search')?.value || '').toLowerCase();
+  const role = document.getElementById('staff-filter-role')?.value;
+  const active = document.getElementById('staff-filter-active')?.value;
+  let list = _allStaffCache;
+  if (q) list = list.filter(s => s.full_name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q));
+  if (role) list = list.filter(s => String(s.role_id) === role);
+  if (active !== '') list = list.filter(s => String(s.is_active) === active);
+  renderStaffTable(list);
+}
+
+function renderStaffTable(list) {
+  const el = document.getElementById('staff-tbody');
+  if (!el) return;
+  if (list.length === 0) {
+    el.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:#9ca3af">No staff members found</td></tr>`;
+    return;
+  }
+  el.innerHTML = list.map(s => `<tr>
+    <td>
+      <span style="cursor:pointer;font-weight:600;color:#111" onclick="openStaffDetail(${s.id})">${esc(s.full_name)}</span>
+      ${s.is_admin ? '<span class="badge badge-yellow" style="margin-left:6px;font-size:10px">Admin</span>' : ''}
+    </td>
+    <td style="font-size:13px;color:#6b7280">${esc(s.email)}</td>
+    <td style="font-size:12px">${s.role_name ? esc(s.role_name) : '<span style="color:#9ca3af">—</span>'}</td>
+    <td style="font-size:12px;color:#9ca3af">${s.last_login ? new Date(s.last_login).toLocaleDateString() : 'Never'}</td>
+    <td><span class="badge ${s.is_active ? 'badge-green' : 'badge-gray'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
+    <td style="text-align:right">
+      <button class="btn-sec btn-sm" onclick="openStaffDetail(${s.id})"><i class="fa-solid fa-eye"></i></button>
+      <button class="btn-sec btn-sm" onclick="openStaffModal(${s.id})"><i class="fa-solid fa-pen"></i></button>
+      ${hasPerm('staff','delete') ? `<button class="btn-sec btn-sm" onclick="deleteStaffMember(${s.id})" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>` : ''}
+    </td>
+  </tr>`).join('');
+}
+
+function openStaffModal(id) {
+  _staffEditId = id;
+  const s = id ? _allStaffCache.find(s => s.id === id) : null;
+  document.getElementById('staff-modal-title').textContent = s ? 'Edit Staff Member' : 'New Staff Member';
+  document.getElementById('smod-fname').value = s ? s.first_name : '';
+  document.getElementById('smod-lname').value = s ? s.last_name : '';
+  document.getElementById('smod-email').value = s ? s.email : '';
+  document.getElementById('smod-pw').value = '';
+  document.getElementById('smod-phone').value = s ? (s.phone || '') : '';
+  document.getElementById('smod-role').value = s ? (s.role_id || '') : '';
+  document.getElementById('smod-rate').value = '';
+  document.getElementById('smod-active').value = s ? String(s.is_active) : 'true';
+  document.getElementById('smod-admin').checked = s ? s.is_admin : false;
+  document.getElementById('staff-modal').style.display = 'flex';
+}
+
+async function saveStaffMember() {
+  const fname = document.getElementById('smod-fname').value.trim();
+  const lname = document.getElementById('smod-lname').value.trim();
+  const email = document.getElementById('smod-email').value.trim();
+  if (!fname || !lname || !email) { showToast('First name, last name and email required','error'); return; }
+  const body = {
+    first_name: fname, last_name: lname, email,
+    phone: document.getElementById('smod-phone').value.trim() || null,
+    role_id: document.getElementById('smod-role').value ? parseInt(document.getElementById('smod-role').value) : null,
+    is_active: document.getElementById('smod-active').value === 'true',
+    is_admin: document.getElementById('smod-admin').checked,
+  };
+  const pw = document.getElementById('smod-pw').value;
+  if (pw) body.password = pw;
+  else if (!_staffEditId) { showToast('Password required for new staff','error'); return; }
+  const url = _staffEditId ? `/admin/api/staff/${_staffEditId}` : '/admin/api/staff';
+  const method = _staffEditId ? 'PUT' : 'POST';
+  const r = await apiFetch(url, { method, body: JSON.stringify(body) }).catch(e => { showToast(e.message,'error'); return null; });
+  if (!r) return;
+  document.getElementById('staff-modal').style.display = 'none';
+  showToast('Saved','success');
+  const newList = await apiFetch('/admin/api/staff');
+  _allStaffCache = await newList.json();
+  filterStaff();
+}
+
+async function deleteStaffMember(id) {
+  if (!confirm('Delete this staff member? This cannot be undone.')) return;
+  await apiFetch(`/admin/api/staff/${id}`, { method:'DELETE' });
+  showToast('Deleted','success');
+  _allStaffCache = _allStaffCache.filter(s => s.id !== id);
+  filterStaff();
+}
+
+function openStaffDetail(id) {
+  _staffDetailId = id;
+  _staffDetailTab = 'profile';
+  nav('staff-detail');
+}
+
+async function pgStaffDetail() {
+  if (!_staffDetailId) return pgStaff();
+  const [sR, rR, appR] = await Promise.all([
+    apiFetch(`/admin/api/staff/${_staffDetailId}`),
+    apiFetch('/admin/api/roles'),
+    apiFetch(`/admin/api/staff/${_staffDetailId}/app-access`),
+  ]);
+  _staffDetail = await sR.json();
+  _staffRolesCache = await rR.json();
+  _staffDetailApps = await appR.json();
+  const s = _staffDetail;
+  const tabs = [
+    {id:'profile',label:'Profile',icon:'fa-user'},
+    {id:'permissions',label:'Permissions',icon:'fa-shield-halved'},
+    {id:'apps',label:'App Access',icon:'fa-grid'},
+    {id:'timesheets',label:'Timesheets',icon:'fa-clock'},
+    {id:'projects',label:'Projects',icon:'fa-diagram-project'},
+    {id:'notes',label:'Notes',icon:'fa-note-sticky'},
+  ];
+  return `<div class="pg-hdr" style="flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn-sec" onclick="nav('staff')"><i class="fa-solid fa-arrow-left"></i></button>
+      <div>
+        <h1 style="margin:0;font-size:22px;font-weight:700">${esc(s.full_name)}</h1>
+        <div style="font-size:13px;color:#9ca3af">${esc(s.email)} · <span class="badge ${s.is_active?'badge-green':'badge-gray'}">${s.is_active?'Active':'Inactive'}</span>${s.is_admin?'<span class="badge badge-yellow" style="margin-left:6px">Admin</span>':''}</div>
+      </div>
+    </div>
+    <button class="btn-sec btn-sm" onclick="openStaffModal(${s.id})"><i class="fa-solid fa-pen"></i> Edit</button>
+  </div>
+  <div class="tab-bar" style="display:flex;gap:0;border-bottom:2px solid #f3f4f6;margin-bottom:20px;overflow-x:auto">
+    ${tabs.map(t=>`<button class="tab-btn${_staffDetailTab===t.id?' active':''}" onclick="setStaffTab('${t.id}')" style="padding:10px 16px;font-size:13px;font-weight:500;background:none;border:none;border-bottom:2px solid ${_staffDetailTab===t.id?'#6366f1':'transparent'};color:${_staffDetailTab===t.id?'#6366f1':'#6b7280'};cursor:pointer;white-space:nowrap;margin-bottom:-2px">
+      <i class="fa-solid ${t.icon}" style="margin-right:6px;font-size:11px"></i>${t.label}
+    </button>`).join('')}
+  </div>
+  <div id="staff-tab-content">${renderStaffTabContent(_staffDetailTab)}</div>`;
+}
+
+function setStaffTab(tab) {
+  _staffDetailTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const act = btn.getAttribute('onclick')?.includes(`'${tab}'`);
+    btn.style.borderBottomColor = act ? '#6366f1' : 'transparent';
+    btn.style.color = act ? '#6366f1' : '#6b7280';
+  });
+  document.getElementById('staff-tab-content').innerHTML = renderStaffTabContent(tab);
+  document.getElementById('staff-tab-content').querySelectorAll('script').forEach(s => {
+    const sc = document.createElement('script'); sc.textContent = s.textContent; document.body.appendChild(sc);
+  });
+}
+
+function renderStaffTabContent(tab) {
+  const s = _staffDetail;
+  if (!s) return '';
+  if (tab === 'profile') return renderStaffProfile(s);
+  if (tab === 'permissions') return renderStaffPermissions(s);
+  if (tab === 'apps') return renderStaffApps();
+  if (tab === 'timesheets') return `<div id="staff-ts-wrap"></div><script>loadStaffTimesheets(${s.id})<\/script>`;
+  if (tab === 'projects') return `<div id="staff-proj-wrap"></div><script>loadStaffProjects(${s.id})<\/script>`;
+  if (tab === 'notes') return `<div id="notes-panel-wrap"></div><script>renderNotesPanel('notes-panel-wrap','staff',${s.id})<\/script>`;
+  return '';
+}
+
+function renderStaffProfile(s) {
+  const fields = [
+    ['Email', s.email], ['Phone', s.phone], ['Role', s.role_name],
+    ['Last Login', s.last_login ? new Date(s.last_login).toLocaleString() : 'Never'],
+    ['Last IP', s.last_ip], ['Language', s.language], ['Timezone', s.timezone],
+    ['Created', new Date(s.created_at).toLocaleDateString()],
+  ].filter(([,v]) => v);
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="card">
+      <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">Profile</div>
+      ${fields.map(([l,v]) => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f9fafb;font-size:13px">
+        <span style="color:#9ca3af">${l}</span><span style="color:#111;font-weight:500">${esc(String(v))}</span>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">Email Signature</div>
+      ${s.email_signature ? `<div style="border:1px solid #f3f4f6;border-radius:8px;padding:12px;font-size:13px;line-height:1.6">${s.email_signature}</div>` : '<div style="color:#9ca3af;font-size:13px">No signature set</div>'}
+    </div>
+  </div>`;
+}
+
+function renderStaffPermissions(s) {
+  if (s.is_admin) return `<div class="card" style="text-align:center;padding:40px"><i class="fa-solid fa-crown" style="font-size:28px;color:#f59e0b;display:block;margin-bottom:12px"></i><p style="color:#6b7280">This staff member is an Administrator and has full access to all features.</p></div>`;
+  const perms = s.permissions || {};
+  const overrides = s.permission_overrides || {};
+  return `<div class="card">
+    <div style="font-size:13px;color:#6b7280;margin-bottom:16px">Showing effective permissions (role + overrides). You can set per-capability overrides below.</div>
+    ${Object.entries(perms).map(([mod, caps]) => `<div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${mod}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${Object.entries(caps).map(([cap, val]) => {
+          const ov = (overrides[mod] || {})[cap];
+          const effective = ov !== undefined ? ov : val;
+          return `<span title="${mod}.${cap}" style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;background:${effective?'#d1fae5':'#fee2e2'};color:${effective?'#065f46':'#991b1b'};cursor:pointer;border:2px solid ${ov!==undefined?'#6366f1':'transparent'}" onclick="toggleStaffPerm(${s.id},'${mod}','${cap}',${!effective})">${cap}</span>`;
+        }).join('')}
+      </div>
+    </div>`).join('')}
+    <div style="margin-top:16px;font-size:12px;color:#9ca3af"><span style="border:2px solid #6366f1;border-radius:4px;padding:1px 6px">highlighted</span> = override set · click any badge to toggle</div>
+  </div>`;
+}
+
+async function toggleStaffPerm(staffId, mod, cap, newVal) {
+  const r = await apiFetch(`/admin/api/staff/${staffId}`);
+  const s = await r.json();
+  const overrides = s.permission_overrides || {};
+  if (!overrides[mod]) overrides[mod] = {};
+  overrides[mod][cap] = newVal;
+  await apiFetch(`/admin/api/staff/${staffId}`, { method:'PUT', body: JSON.stringify({ permission_overrides: overrides }) });
+  const newS = await (await apiFetch(`/admin/api/staff/${staffId}`)).json();
+  _staffDetail = newS;
+  document.getElementById('staff-tab-content').innerHTML = renderStaffPermissions(newS);
+  showToast('Permission updated','success');
+}
+
+function renderStaffApps() {
+  const apps = _staffDetailApps;
+  if (apps.length === 0) return `<div class="card" style="text-align:center;padding:40px;color:#9ca3af">No apps configured</div>`;
+  return `<div style="display:flex;flex-direction:column;gap:12px">
+    ${apps.map(a => `<div class="card" style="padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <i class="fa-solid ${a.icon||'fa-grid-2'}" style="font-size:20px;color:#6366f1;width:32px;text-align:center"></i>
+          <div>
+            <div style="font-weight:600;font-size:14px">${esc(a.name)}</div>
+            <div style="font-size:12px;color:#9ca3af">${a.client_ids.length} clients granted</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="badge ${a.has_access?'badge-green':'badge-gray'}">${a.has_access?'Access Granted':'No Access'}</span>
+          <button class="btn-sec btn-sm" onclick="toggleAppAccess(${a.app_id},${!a.has_access})">${a.has_access?'Revoke':'Grant'}</button>
+          ${a.has_access ? `<button class="btn-sec btn-sm" onclick="manageAppClients(${a.app_id},'${esc(a.name)}')"><i class="fa-solid fa-users"></i> Clients</button>` : ''}
+        </div>
+      </div>
+      ${a.has_access && a.client_ids.length > 0 ? `<div style="margin-top:12px;font-size:12px;color:#6b7280">Clients: ${a.client_ids.join(', ')}</div>` : ''}
+    </div>`).join('')}
+  </div>
+  <div id="app-clients-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:540px;padding:28px;max-height:90vh;overflow-y:auto">
+      <h3 id="app-clients-title" style="margin:0 0 16px">Client Access</h3>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">Select which clients this staff member can manage in this app.</p>
+      <div id="app-clients-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn-sec" onclick="document.getElementById('app-clients-modal').style.display='none'">Cancel</button>
+        <button class="btn-pri" onclick="saveAppClients()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _appClientsAppId = null;
+async function manageAppClients(appId, appName) {
+  _appClientsAppId = appId;
+  const app = _staffDetailApps.find(a => a.app_id === appId);
+  document.getElementById('app-clients-title').textContent = `Client Access — ${appName}`;
+  const custR = await apiFetch('/admin/api/customers?limit=200');
+  const custs = await custR.json();
+  const selected = app ? app.client_ids : [];
+  document.getElementById('app-clients-list').innerHTML = custs.map(c => `<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer">
+    <input type="checkbox" value="${c.id}" ${selected.includes(c.id)?'checked':''}>
+    <span style="font-size:13px">${esc(c.company_name)}</span>
+  </label>`).join('');
+  document.getElementById('app-clients-modal').style.display = 'flex';
+}
+
+async function saveAppClients() {
+  const ids = [];
+  document.querySelectorAll('#app-clients-list input[type=checkbox]:checked').forEach(cb => ids.push(parseInt(cb.value)));
+  await apiFetch(`/admin/api/staff/${_staffDetailId}/app-access`, {
+    method: 'PUT', body: JSON.stringify({ app_id: _appClientsAppId, grant: true, client_ids: ids })
+  });
+  document.getElementById('app-clients-modal').style.display = 'none';
+  showToast('Client access updated','success');
+  const newApps = await apiFetch(`/admin/api/staff/${_staffDetailId}/app-access`);
+  _staffDetailApps = await newApps.json();
+  document.getElementById('staff-tab-content').innerHTML = renderStaffApps();
+}
+
+async function toggleAppAccess(appId, grant) {
+  await apiFetch(`/admin/api/staff/${_staffDetailId}/app-access`, {
+    method: 'PUT', body: JSON.stringify({ app_id: appId, grant, client_ids: grant ? [] : undefined })
+  });
+  showToast(grant ? 'Access granted' : 'Access revoked','success');
+  const newApps = await apiFetch(`/admin/api/staff/${_staffDetailId}/app-access`);
+  _staffDetailApps = await newApps.json();
+  document.getElementById('staff-tab-content').innerHTML = renderStaffApps();
+}
+
+async function loadStaffTimesheets(staffId) {
+  const r = await apiFetch(`/admin/api/timesheets?staff_id=${staffId}&limit=50`);
+  const rows = await r.json();
+  const el = document.getElementById('staff-ts-wrap');
+  if (!el) return;
+  el.innerHTML = `<div class="card" style="padding:0">
+    <table class="tbl">
+      <thead><tr><th>Project</th><th>Task</th><th>Start</th><th>Duration</th><th>Note</th></tr></thead>
+      <tbody>${rows.length===0?`<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:32px">No timesheets</td></tr>`:
+        rows.map(t=>`<tr>
+          <td style="font-size:13px">${t.project_name||'—'}</td>
+          <td style="font-size:13px">${t.task_name||'—'}</td>
+          <td style="font-size:12px;color:#9ca3af">${t.start_time?new Date(t.start_time).toLocaleDateString():''}</td>
+          <td style="font-size:13px;font-weight:600">${t.duration?t.duration.toFixed(1)+'h':'—'}</td>
+          <td style="font-size:12px;color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.note||'')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function loadStaffProjects(staffId) {
+  const r = await apiFetch(`/admin/api/projects`);
+  const all = await r.json();
+  const projs = all.filter(p => p.members && p.members.some && p.members.some(m => m.staff_id === staffId || m.id === staffId));
+
+  const el = document.getElementById('staff-proj-wrap');
+  if (!el) return;
+  el.innerHTML = `<div class="card" style="padding:0">
+    <table class="tbl">
+      <thead><tr><th>Project</th><th>Client</th><th>Status</th><th>Deadline</th></tr></thead>
+      <tbody>${projs.length===0?`<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:32px">No projects</td></tr>`:
+        projs.map(p=>`<tr>
+          <td style="font-weight:500;cursor:pointer;color:#6366f1" onclick="openProjectDetail(${p.id})">${esc(p.name)}</td>
+          <td style="font-size:12px;color:#6b7280">${esc(p.customer_name||'—')}</td>
+          <td><span class="badge badge-${p.status==='in_progress'?'blue':p.status==='finished'?'green':'gray'}">${p.status}</span></td>
+          <td style="font-size:12px;color:#9ca3af">${p.deadline?new Date(p.deadline).toLocaleDateString():'—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
 function pgCustomerGroups(){return pgPlaceholder('Customer Groups')}
 function pgCustomFieldsCustomers(){return pgCustomFields('customers')}
 function pgTagsCustomers(){return pgTagManager()}
