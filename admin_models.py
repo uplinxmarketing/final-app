@@ -517,13 +517,14 @@ class CRMEstimate(AdminBase):
 
 
 class CRMLineItem(AdminBase):
-    """A line item on an invoice, proposal, or estimate."""
+    """A line item on an invoice, proposal, estimate, or credit note."""
     __tablename__ = "crm_line_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     invoice_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_invoices.id", ondelete="CASCADE"), nullable=True)
     proposal_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_proposals.id", ondelete="CASCADE"), nullable=True)
     estimate_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_estimates.id", ondelete="CASCADE"), nullable=True)
+    credit_note_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_credit_notes.id", ondelete="CASCADE"), nullable=True)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     long_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     qty: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
@@ -539,12 +540,20 @@ class CRMLineItem(AdminBase):
                                                             foreign_keys=[proposal_id])
     estimate: Mapped[Optional["CRMEstimate"]] = relationship("CRMEstimate", back_populates="items",
                                                               foreign_keys=[estimate_id])
+    credit_note: Mapped[Optional["CRMCreditNote"]] = relationship("CRMCreditNote", back_populates="items",
+                                                                   foreign_keys=[credit_note_id])
 
 
 class CRMPaymentMode(AdminBase):
     __tablename__ = "crm_payment_modes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_on_pdf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    selected_by_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    invoices_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expenses_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
@@ -556,12 +565,94 @@ class CRMPayment(AdminBase):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     payment_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_payment_modes.id", ondelete="SET NULL"), nullable=True)
+    payment_method: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     transaction_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     invoice: Mapped[CRMInvoice] = relationship("CRMInvoice", back_populates="payments")
     payment_mode: Mapped[Optional[CRMPaymentMode]] = relationship("CRMPaymentMode")
+    created_by: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by_user_id])
+
+
+class CRMCreditNote(AdminBase):
+    __tablename__ = "crm_credit_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prefix: Mapped[str] = mapped_column(String(20), nullable=False, default="CN")
+    formatted_number: Mapped[str] = mapped_column(String(50), nullable=False, default="", index=True)
+    reference_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_customers.id", ondelete="SET NULL"), nullable=True)
+    assigned_to: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    # Status: Open | Closed | Void
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Open", index=True)
+    date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
+    # Money
+    discount_type: Mapped[str] = mapped_column(String(20), nullable=False, default="before_tax")
+    discount_value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    adjustment: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    subtotal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    tax_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    remaining: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Addresses
+    billing_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    shipping_address: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    # Notes
+    client_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    terms: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Public link
+    hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, default=lambda: secrets.token_hex(16))
+    # Timestamps
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    customer: Mapped[Optional["CRMCustomer"]] = relationship("CRMCustomer")
+    assignee: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[assigned_to])
+    items: Mapped[list["CRMLineItem"]] = relationship(
+        "CRMLineItem", back_populates="credit_note", cascade="all, delete-orphan",
+        primaryjoin="CRMLineItem.credit_note_id == CRMCreditNote.id")
+    applications: Mapped[list["CRMCreditApplication"]] = relationship(
+        "CRMCreditApplication", back_populates="credit_note", cascade="all, delete-orphan")
+    refunds: Mapped[list["CRMCreditRefund"]] = relationship(
+        "CRMCreditRefund", back_populates="credit_note", cascade="all, delete-orphan")
+
+
+class CRMCreditApplication(AdminBase):
+    __tablename__ = "crm_credit_applications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    credit_note_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_credit_notes.id", ondelete="CASCADE"), nullable=False)
+    invoice_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_invoices.id", ondelete="CASCADE"), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    applied_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+
+    credit_note: Mapped[CRMCreditNote] = relationship("CRMCreditNote", back_populates="applications")
+    invoice: Mapped[CRMInvoice] = relationship("CRMInvoice")
+    applied_by: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[applied_by_user_id])
+
+
+class CRMCreditRefund(AdminBase):
+    __tablename__ = "crm_credit_refunds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    credit_note_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_credit_notes.id", ondelete="CASCADE"), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    refunded_on: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    payment_mode_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_payment_modes.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recorded_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+
+    credit_note: Mapped[CRMCreditNote] = relationship("CRMCreditNote", back_populates="refunds")
+    payment_mode: Mapped[Optional[CRMPaymentMode]] = relationship("CRMPaymentMode")
+    recorded_by: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[recorded_by_user_id])
 
 
 # ── Expenses ─────────────────────────────────────────────────────────────────

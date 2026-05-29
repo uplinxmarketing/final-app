@@ -25,7 +25,9 @@ from admin_models import (
     CRMLead, CRMLeadSource, CRMLeadStatus, CRMProject, CRMProjectMember,
     CRMTask, CRMTaskComment, CRMTimesheet, CRMInvoice, CRMProposal,
     CRMEstimate, CRMEstimateRequestForm, CRMEstimateRequest, CRMEstimateRequestStatus,
-    CRMLineItem, CRMPayment, CRMPaymentMode, CRMExpense, CRMExpenseCategory,
+    CRMLineItem, CRMPayment, CRMPaymentMode,
+    CRMCreditNote, CRMCreditApplication, CRMCreditRefund,
+    CRMExpense, CRMExpenseCategory,
     CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
@@ -3341,6 +3343,435 @@ async function doDecline(){{
     return HTMLResponse(html)
 
 
+# ── Payment Modes Setup ───────────────────────────────────────────────────────
+
+class PaymentModeReq(BaseModel):
+    name: str
+    description: Optional[str] = None
+    active: bool = True
+    show_on_pdf: bool = False
+    selected_by_default: bool = False
+    invoices_only: bool = False
+    expenses_only: bool = False
+
+
+def _pm_dict(pm: CRMPaymentMode) -> dict:
+    return {
+        "id": pm.id, "name": pm.name, "description": pm.description,
+        "active": pm.active, "show_on_pdf": pm.show_on_pdf,
+        "selected_by_default": pm.selected_by_default,
+        "invoices_only": pm.invoices_only, "expenses_only": pm.expenses_only,
+    }
+
+
+@router.get("/api/payment-modes")
+async def list_payment_modes(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPaymentMode).order_by(CRMPaymentMode.name))
+    return [_pm_dict(pm) for pm in r.scalars().all()]
+
+
+@router.post("/api/payment-modes")
+async def create_payment_mode(req: PaymentModeReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    pm = CRMPaymentMode(**req.model_dump())
+    db.add(pm)
+    await db.flush()
+    return {"id": pm.id, "name": pm.name}
+
+
+@router.put("/api/payment-modes/{pmid}")
+async def update_payment_mode(pmid: int, req: PaymentModeReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPaymentMode).where(CRMPaymentMode.id == pmid))
+    pm = r.scalar_one_or_none()
+    if not pm:
+        raise HTTPException(404)
+    for k, v in req.model_dump().items():
+        setattr(pm, k, v)
+    return {"ok": True}
+
+
+@router.delete("/api/payment-modes/{pmid}")
+async def delete_payment_mode(pmid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMPaymentMode).where(CRMPaymentMode.id == pmid))
+    return {"ok": True}
+
+
+# ── Module 16: Payments ────────────────────────────────────────────────────────
+
+def _payment_dict(p: CRMPayment) -> dict:
+    return {
+        "id": p.id, "invoice_id": p.invoice_id,
+        "invoice_number": p.invoice.invoice_number if p.invoice else None,
+        "customer_id": p.invoice.customer_id if p.invoice else None,
+        "customer_name": p.invoice.customer.company_name if p.invoice and p.invoice.customer else None,
+        "amount": p.amount,
+        "date": p.date.isoformat() if p.date else None,
+        "payment_mode_id": p.payment_mode_id,
+        "payment_mode_name": p.payment_mode.name if p.payment_mode else None,
+        "payment_method": p.payment_method,
+        "transaction_id": p.transaction_id,
+        "note": p.note,
+        "created_at": p.created_at.isoformat(),
+    }
+
+
+@router.get("/api/payments")
+async def list_payments(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    payment_mode_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMPayment)
+         .options(selectinload(CRMPayment.invoice).selectinload(CRMInvoice.customer),
+                  selectinload(CRMPayment.payment_mode))
+         .order_by(desc(CRMPayment.date)))
+    if date_from:
+        q = q.where(CRMPayment.date >= datetime.fromisoformat(date_from))
+    if date_to:
+        q = q.where(CRMPayment.date <= datetime.fromisoformat(date_to))
+    if payment_mode_id:
+        q = q.where(CRMPayment.payment_mode_id == payment_mode_id)
+    if customer_id:
+        q = q.join(CRMInvoice, CRMPayment.invoice_id == CRMInvoice.id).where(CRMInvoice.customer_id == customer_id)
+    r = await db.execute(q)
+    return [_payment_dict(p) for p in r.scalars().all()]
+
+
+@router.get("/api/payments/{pay_id}")
+async def get_payment(pay_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPayment).where(CRMPayment.id == pay_id)
+                         .options(selectinload(CRMPayment.invoice).selectinload(CRMInvoice.customer),
+                                  selectinload(CRMPayment.payment_mode)))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    return _payment_dict(p)
+
+
+class EditPaymentReq(BaseModel):
+    amount: Optional[float] = None
+    date: Optional[str] = None
+    payment_mode_id: Optional[int] = None
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+@router.put("/api/payments/{pay_id}")
+async def update_payment(pay_id: int, req: EditPaymentReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPayment).where(CRMPayment.id == pay_id)
+                         .options(selectinload(CRMPayment.invoice)))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    old_amount = p.amount
+    fields = req.model_dump(exclude={"date"}, exclude_unset=True)
+    for k, v in fields.items():
+        setattr(p, k, v)
+    if req.date:
+        p.date = datetime.fromisoformat(req.date)
+    # Recalculate invoice amount_paid
+    if req.amount is not None and p.invoice:
+        inv = p.invoice
+        inv.amount_paid = inv.amount_paid - old_amount + req.amount
+        if inv.amount_paid >= inv.total:
+            inv.status = "paid"
+        elif inv.amount_paid > 0:
+            inv.status = "partially_paid"
+        else:
+            inv.status = "unpaid"
+    return {"ok": True}
+
+
+@router.delete("/api/payments/{pay_id}")
+async def delete_payment(pay_id: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPayment).where(CRMPayment.id == pay_id)
+                         .options(selectinload(CRMPayment.invoice)))
+    p = r.scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    if p.invoice:
+        p.invoice.amount_paid = max(0, p.invoice.amount_paid - p.amount)
+        if p.invoice.amount_paid == 0:
+            p.invoice.status = "unpaid"
+        elif p.invoice.amount_paid < p.invoice.total:
+            p.invoice.status = "partially_paid"
+    await db.execute(delete(CRMPayment).where(CRMPayment.id == pay_id))
+    return {"ok": True}
+
+
+class BatchPaymentReq(BaseModel):
+    invoice_ids: list[int]
+    amount: float
+    date: Optional[str] = None
+    payment_mode_id: Optional[int] = None
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+@router.post("/api/payments/batch")
+async def batch_payment(req: BatchPaymentReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    remaining = req.amount
+    paid_date = datetime.fromisoformat(req.date) if req.date else _utcnow()
+    results = []
+    for inv_id in req.invoice_ids:
+        if remaining <= 0:
+            break
+        r = await db.execute(select(CRMInvoice).where(CRMInvoice.id == inv_id))
+        inv = r.scalar_one_or_none()
+        if not inv:
+            continue
+        amount_due = inv.total - inv.amount_paid
+        if amount_due <= 0:
+            continue
+        apply = min(remaining, amount_due)
+        p = CRMPayment(invoice_id=inv_id, amount=apply, date=paid_date,
+                       payment_mode_id=req.payment_mode_id, payment_method=req.payment_method,
+                       transaction_id=req.transaction_id, note=req.note,
+                       created_by_user_id=staff.id)
+        db.add(p)
+        inv.amount_paid += apply
+        if inv.amount_paid >= inv.total:
+            inv.status = "paid"
+        else:
+            inv.status = "partially_paid"
+        remaining -= apply
+        results.append({"invoice_id": inv_id, "applied": apply})
+    await db.commit()
+    return {"ok": True, "applied": results, "unallocated": max(0, remaining)}
+
+
+# ── Module 17: Credit Notes ───────────────────────────────────────────────────
+
+def _cn_dict(cn: CRMCreditNote, include_items: bool = False) -> dict:
+    d: dict = {
+        "id": cn.id, "formatted_number": cn.formatted_number,
+        "number": cn.number, "prefix": cn.prefix,
+        "reference_no": cn.reference_no,
+        "customer_id": cn.customer_id,
+        "customer_name": cn.customer.company_name if cn.customer else None,
+        "status": cn.status,
+        "date": cn.date.isoformat() if cn.date else None,
+        "currency": cn.currency,
+        "subtotal": cn.subtotal, "tax_total": cn.tax_total,
+        "discount_total": cn.discount_total, "adjustment": cn.adjustment,
+        "total": cn.total, "remaining": cn.remaining,
+        "admin_note": cn.admin_note,
+        "sent_at": cn.sent_at.isoformat() if cn.sent_at else None,
+        "created_at": cn.created_at.isoformat(),
+    }
+    if include_items:
+        d["items"] = [{"id": i.id, "description": i.description, "long_description": i.long_description,
+                        "qty": i.qty, "rate": i.rate, "discount": i.discount,
+                        "tax_ids": i.tax_ids or [], "amount": i.amount} for i in cn.items]
+        d["client_note"] = cn.client_note
+        d["terms"] = cn.terms
+        d["billing_address"] = cn.billing_address
+        d["shipping_address"] = cn.shipping_address
+        d["applications"] = [{"id": a.id, "invoice_id": a.invoice_id,
+                               "invoice_number": a.invoice.invoice_number if a.invoice else None,
+                               "amount": a.amount, "applied_at": a.applied_at.isoformat()} for a in cn.applications]
+        d["refunds"] = [{"id": rf.id, "amount": rf.amount,
+                          "refunded_on": rf.refunded_on.isoformat(),
+                          "payment_mode_id": rf.payment_mode_id,
+                          "note": rf.note} for rf in cn.refunds]
+    return d
+
+
+async def _next_cn_number(db: AsyncSession, prefix: str = "CN") -> tuple[str, int]:
+    r = await db.execute(select(func.count()).select_from(CRMCreditNote))
+    n = (r.scalar() or 0) + 1
+    return f"{prefix}-{n:04d}", n
+
+
+class CreditNoteReq(BaseModel):
+    customer_id: Optional[int] = None
+    prefix: str = "CN"
+    reference_no: Optional[str] = None
+    status: str = "Open"
+    date: Optional[str] = None
+    currency: str = "USD"
+    discount_type: str = "before_tax"
+    discount_value: float = 0.0
+    adjustment: float = 0.0
+    client_note: Optional[str] = None
+    terms: Optional[str] = None
+    admin_note: Optional[str] = None
+    assigned_to: Optional[int] = None
+    billing_address: Optional[dict] = None
+    shipping_address: Optional[dict] = None
+    items: Optional[list] = None
+
+
+@router.get("/api/credit-notes")
+async def list_credit_notes(
+    status: Optional[str] = None, customer_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMCreditNote)
+         .options(selectinload(CRMCreditNote.customer))
+         .order_by(desc(CRMCreditNote.created_at)))
+    if status:
+        q = q.where(CRMCreditNote.status == status)
+    if customer_id:
+        q = q.where(CRMCreditNote.customer_id == customer_id)
+    r = await db.execute(q)
+    return [_cn_dict(cn) for cn in r.scalars().all()]
+
+
+@router.post("/api/credit-notes")
+async def create_credit_note(req: CreditNoteReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    prefix = (req.prefix or "CN").upper()
+    formatted, num = await _next_cn_number(db, prefix)
+    items = req.items or []
+    subtotal = sum(it.get("qty", 1) * it.get("rate", 0) for it in items)
+    disc_total = (subtotal * req.discount_value / 100) if req.discount_type == "percentage" else req.discount_value
+    total = round(subtotal - disc_total + req.adjustment, 4)
+    cn = CRMCreditNote(
+        formatted_number=formatted, number=num, prefix=prefix,
+        reference_no=req.reference_no, customer_id=req.customer_id,
+        assigned_to=req.assigned_to, status=req.status,
+        date=datetime.fromisoformat(req.date) if req.date else _utcnow(),
+        currency=req.currency, discount_type=req.discount_type,
+        discount_value=req.discount_value, discount_total=round(disc_total, 4),
+        adjustment=req.adjustment, subtotal=round(subtotal, 4), total=total, remaining=total,
+        billing_address=req.billing_address, shipping_address=req.shipping_address,
+        client_note=req.client_note, terms=req.terms, admin_note=req.admin_note,
+    )
+    db.add(cn)
+    await db.flush()
+    for so, it in enumerate(items):
+        amt = round(it.get("qty", 1) * it.get("rate", 0) * (1 - it.get("discount", 0) / 100), 4)
+        db.add(CRMLineItem(credit_note_id=cn.id, description=it.get("description", ""),
+                           long_description=it.get("long_description"),
+                           qty=it.get("qty", 1), rate=it.get("rate", 0),
+                           discount=it.get("discount", 0), tax_ids=it.get("tax_ids", []),
+                           amount=amt, sort_order=so))
+    await _log(db, staff, "credit_notes", "created", cn.id, formatted)
+    return {"id": cn.id, "formatted_number": formatted}
+
+
+@router.get("/api/credit-notes/{cnid}")
+async def get_credit_note(cnid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMCreditNote).where(CRMCreditNote.id == cnid)
+                         .options(selectinload(CRMCreditNote.customer),
+                                  selectinload(CRMCreditNote.items),
+                                  selectinload(CRMCreditNote.applications).selectinload(CRMCreditApplication.invoice),
+                                  selectinload(CRMCreditNote.refunds)))
+    cn = r.scalar_one_or_none()
+    if not cn:
+        raise HTTPException(404)
+    return _cn_dict(cn, include_items=True)
+
+
+@router.put("/api/credit-notes/{cnid}")
+async def update_credit_note(cnid: int, req: CreditNoteReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMCreditNote).where(CRMCreditNote.id == cnid))
+    cn = r.scalar_one_or_none()
+    if not cn:
+        raise HTTPException(404)
+    fields = req.model_dump(exclude={"items", "date", "prefix"}, exclude_unset=True)
+    for k, v in fields.items():
+        if hasattr(cn, k):
+            setattr(cn, k, v)
+    if req.date:
+        cn.date = datetime.fromisoformat(req.date)
+    if req.items is not None:
+        items = req.items
+        subtotal = sum(it.get("qty", 1) * it.get("rate", 0) for it in items)
+        disc_total = (subtotal * req.discount_value / 100) if req.discount_type == "percentage" else req.discount_value
+        total = round(subtotal - disc_total + req.adjustment, 4)
+        cn.subtotal = round(subtotal, 4)
+        cn.discount_total = round(disc_total, 4)
+        cn.total = total
+        cn.remaining = total - sum(a.amount for a in []) - sum(rf.amount for rf in [])
+        await db.execute(delete(CRMLineItem).where(CRMLineItem.credit_note_id == cnid))
+        for so, it in enumerate(items):
+            amt = round(it.get("qty", 1) * it.get("rate", 0) * (1 - it.get("discount", 0) / 100), 4)
+            db.add(CRMLineItem(credit_note_id=cnid, description=it.get("description", ""),
+                               long_description=it.get("long_description"),
+                               qty=it.get("qty", 1), rate=it.get("rate", 0),
+                               discount=it.get("discount", 0), tax_ids=it.get("tax_ids", []),
+                               amount=amt, sort_order=so))
+    cn.updated_at = _utcnow()
+    return {"ok": True}
+
+
+@router.delete("/api/credit-notes/{cnid}")
+async def delete_credit_note(cnid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMCreditNote).where(CRMCreditNote.id == cnid))
+    return {"ok": True}
+
+
+class ApplyCreditReq(BaseModel):
+    invoice_id: int
+    amount: float
+
+
+@router.post("/api/credit-notes/{cnid}/apply")
+async def apply_credit_note(cnid: int, req: ApplyCreditReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMCreditNote).where(CRMCreditNote.id == cnid))
+    cn = r.scalar_one_or_none()
+    if not cn:
+        raise HTTPException(404)
+    if cn.remaining <= 0:
+        raise HTTPException(400, "No remaining credit")
+    ir = await db.execute(select(CRMInvoice).where(CRMInvoice.id == req.invoice_id))
+    inv = ir.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    amount_due = inv.total - inv.amount_paid
+    apply = min(req.amount, cn.remaining, amount_due)
+    if apply <= 0:
+        raise HTTPException(400, "Nothing to apply")
+    # Create application record
+    app = CRMCreditApplication(credit_note_id=cnid, invoice_id=req.invoice_id,
+                               amount=apply, applied_by_user_id=staff.id)
+    db.add(app)
+    # Reduce invoice
+    inv.amount_paid += apply
+    if inv.amount_paid >= inv.total:
+        inv.status = "paid"
+    elif inv.amount_paid > 0:
+        inv.status = "partially_paid"
+    # Reduce credit note
+    cn.remaining -= apply
+    if cn.remaining <= 0:
+        cn.status = "Closed"
+    await db.commit()
+    return {"ok": True, "applied": apply, "remaining": cn.remaining}
+
+
+class CreditRefundReq(BaseModel):
+    amount: float
+    refunded_on: Optional[str] = None
+    payment_mode_id: Optional[int] = None
+    note: Optional[str] = None
+
+
+@router.post("/api/credit-notes/{cnid}/refund")
+async def record_credit_refund(cnid: int, req: CreditRefundReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMCreditNote).where(CRMCreditNote.id == cnid))
+    cn = r.scalar_one_or_none()
+    if not cn:
+        raise HTTPException(404)
+    if req.amount > cn.remaining:
+        raise HTTPException(400, "Refund exceeds remaining credit")
+    rf = CRMCreditRefund(credit_note_id=cnid, amount=req.amount,
+                         refunded_on=datetime.fromisoformat(req.refunded_on) if req.refunded_on else _utcnow(),
+                         payment_mode_id=req.payment_mode_id, note=req.note,
+                         recorded_by_user_id=staff.id)
+    db.add(rf)
+    cn.remaining -= req.amount
+    if cn.remaining <= 0:
+        cn.status = "Closed"
+    await db.commit()
+    return {"ok": True, "remaining": cn.remaining}
+
+
 # ── Expenses ──────────────────────────────────────────────────────────────────
 
 @router.get("/api/expenses")
@@ -4576,6 +5007,18 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS converted_to_invoice_id INTEGER",
         "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS converted_at TIMESTAMP",
         "ALTER TABLE crm_proposals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        # crm_payment_modes — Module 16 additions
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true",
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS show_on_pdf BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS selected_by_default BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS invoices_only BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE crm_payment_modes ADD COLUMN IF NOT EXISTS expenses_only BOOLEAN NOT NULL DEFAULT false",
+        # crm_payments — Module 16 additions
+        "ALTER TABLE crm_payments ADD COLUMN IF NOT EXISTS payment_method VARCHAR(255)",
+        "ALTER TABLE crm_payments ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER",
+        # crm_line_items — Module 17 addition
+        "ALTER TABLE crm_line_items ADD COLUMN IF NOT EXISTS credit_note_id INTEGER",
     ]
     for _sql in _migrations:
         try:
