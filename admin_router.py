@@ -14,7 +14,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc, delete, update, extract, or_
+from sqlalchemy import select, func, desc, delete, update, extract, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -3142,20 +3142,22 @@ async def init_admin_db(engine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(AdminBase.metadata.create_all)
 
-    # ── Schema migrations: ADD COLUMN IF NOT EXISTS for columns added post-initial-deploy ──
+    # ── Schema migrations: each runs in its own connection so one failure can't abort others ──
+    # Uses CURRENT_TIMESTAMP (valid in both PostgreSQL and SQLite).
+    # TIMESTAMPTZ / JSONB / BOOLEAN are ignored by SQLite (stored as text) — that's fine.
     _migrations = [
         # crm_roles
         "ALTER TABLE crm_roles ADD COLUMN IF NOT EXISTS description TEXT",
         # crm_staff — Module 03 additions
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_ip VARCHAR(45)",
-        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_password_change_at TIMESTAMPTZ",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_password_change_at TIMESTAMP",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(128)",
-        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ",
-        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMP",
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
         # crm_customers — Module 08 additions
         "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_address TEXT",
         "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS billing_city VARCHAR(100)",
@@ -3167,20 +3169,21 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_state VARCHAR(100)",
         "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_zip VARCHAR(20)",
         "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS shipping_country VARCHAR(100)",
-        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS converted_from_lead_id INTEGER REFERENCES crm_leads(id) ON DELETE SET NULL",
-        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES crm_staff(id) ON DELETE SET NULL",
-        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS converted_from_lead_id INTEGER",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS created_by INTEGER",
+        "ALTER TABLE crm_customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
         # crm_contacts — Module 08 additions
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS can_login BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS hashed_password TEXT",
-        "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS email_opt_ins JSONB",
+        "ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS email_opt_ins TEXT",
     ]
-    async with engine.begin() as conn:
-        for sql in _migrations:
-            try:
-                await conn.execute(text(sql))
-            except Exception:
-                pass  # column already exists or unsupported (SQLite < 3.37)
+    for _sql in _migrations:
+        try:
+            async with engine.begin() as _conn:
+                await _conn.execute(text(_sql))
+        except Exception as _me:
+            # Column already exists or DB doesn't support IF NOT EXISTS — safe to ignore
+            logger.debug("Migration skipped (%s): %s", type(_me).__name__, _sql)
 
     # Seed from a short session
     from sqlalchemy.ext.asyncio import AsyncSession as _AS, async_sessionmaker as _asm
