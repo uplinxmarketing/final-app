@@ -2983,8 +2983,562 @@ async function submitPayment() {
   else { const d = await r.json(); toast(d.detail||'Failed','error'); }
 }
 // ── END MODULE 15 ─────────────────────────────────────────────────────────────
-function pgCreditNotes(){return pgPlaceholder('Credit Notes')}
-function pgPayments(){return pgPlaceholder('Payments')}
+
+// ── MODULE 16: PAYMENTS ───────────────────────────────────────────────────────
+let _payListDateFrom = '';
+let _payListDateTo = '';
+let _payListCustomer = '';
+let _payListMode = '';
+
+function pgPayments() {
+  return `<div class="page-header">
+    <h2 style="margin:0"><i class="fa-solid fa-money-bill-wave"></i> Payments</h2>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end">
+    <div><label class="field-label">From</label>
+      <input type="date" id="pay-list-from" class="field-input" style="width:150px" value="${_payListDateFrom}"
+        onchange="_payListDateFrom=this.value;loadPaymentsList()"></div>
+    <div><label class="field-label">To</label>
+      <input type="date" id="pay-list-to" class="field-input" style="width:150px" value="${_payListDateTo}"
+        onchange="_payListDateTo=this.value;loadPaymentsList()"></div>
+    <div><label class="field-label">Mode</label>
+      <select id="pay-list-mode" class="field-input" style="width:160px" onchange="_payListMode=this.value;loadPaymentsList()">
+        <option value="">All modes</option>
+      </select></div>
+    <button class="btn-ghost" onclick="_payListDateFrom='';_payListDateTo='';_payListCustomer='';_payListMode='';init_payments()">Reset</button>
+  </div>
+  <div id="pay-list-container"></div>
+
+  <div id="pay-edit-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePayEditModal()">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header"><h3>Edit Payment</h3><button onclick="closePayEditModal()" class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px"><label class="field-label">Amount *</label>
+          <input id="paye-amount" type="number" step="0.01" class="field-input"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Date</label>
+          <input id="paye-date" type="date" class="field-input"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Payment Mode</label>
+          <select id="paye-mode" class="field-input"><option value="">— None —</option></select></div>
+        <div style="margin-bottom:12px"><label class="field-label">Method / Last 4</label>
+          <input id="paye-method" class="field-input" placeholder="e.g. Visa ••••4242"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Transaction ID</label>
+          <input id="paye-tx" class="field-input"></div>
+        <div><label class="field-label">Note</label>
+          <textarea id="paye-note" class="field-input" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closePayEditModal()">Cancel</button>
+        <button class="btn-primary" onclick="savePaymentEdit()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _payEditId = null;
+
+async function init_payments() {
+  const pmr = await fetch('/admin/api/payment-modes');
+  const modes = pmr.ok ? await pmr.json() : [];
+  const sel = document.getElementById('pay-list-mode');
+  if (sel) {
+    sel.innerHTML = '<option value="">All modes</option>' + modes.map(m=>`<option value="${m.id}"${_payListMode==m.id?' selected':''}>${esc(m.name)}</option>`).join('');
+  }
+  const pme = document.getElementById('paye-mode');
+  if (pme) {
+    pme.innerHTML = '<option value="">— None —</option>' + modes.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  }
+  await loadPaymentsList();
+}
+
+async function loadPaymentsList() {
+  const wrap = document.getElementById('pay-list-container');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+  const p = new URLSearchParams();
+  if (_payListDateFrom) p.set('date_from', _payListDateFrom);
+  if (_payListDateTo) p.set('date_to', _payListDateTo);
+  if (_payListMode) p.set('payment_mode_id', _payListMode);
+  const r = await fetch('/admin/api/payments?' + p);
+  if (!r.ok) { wrap.innerHTML = '<p style="color:red">Failed to load</p>'; return; }
+  const rows = await r.json();
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-money-bill-wave"></i><p>No payments found</p></div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>#</th><th>Invoice</th><th>Client</th><th>Mode</th><th>Amount</th><th>Date</th><th>Ref / TX</th><th>Actions</th></tr></thead>
+    <tbody>${rows.map((p,i)=>`<tr>
+      <td>${i+1}</td>
+      <td><code>${esc(p.invoice_number||'—')}</code></td>
+      <td>${esc(p.customer_name||'—')}</td>
+      <td>${esc(p.payment_mode_name||'—')}</td>
+      <td style="font-weight:600">${fmtMoney(p.amount)}</td>
+      <td>${fmtDate(p.date)}</td>
+      <td style="font-size:.8rem;color:#6b7280">${esc(p.transaction_id||p.payment_method||'—')}</td>
+      <td>
+        <button class="btn-icon" title="Edit" onclick="openPayEditModal(${p.id},${JSON.stringify(p).replace(/"/g,'&quot;')})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-icon danger" title="Delete" onclick="deletePaymentRecord(${p.id})"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>
+  <p style="margin-top:8px;font-size:.88rem;color:#6b7280">Total: <strong>${fmtMoney(rows.reduce((s,p)=>s+p.amount,0))}</strong> across ${rows.length} payment${rows.length!==1?'s':''}</p>`;
+}
+
+function openPayEditModal(id, data) {
+  _payEditId = id;
+  document.getElementById('paye-amount').value = data.amount || '';
+  document.getElementById('paye-date').value = data.date ? data.date.slice(0,10) : '';
+  document.getElementById('paye-mode').value = data.payment_mode_id || '';
+  document.getElementById('paye-method').value = data.payment_method || '';
+  document.getElementById('paye-tx').value = data.transaction_id || '';
+  document.getElementById('paye-note').value = data.note || '';
+  document.getElementById('pay-edit-modal').style.display = 'flex';
+}
+
+function closePayEditModal() { document.getElementById('pay-edit-modal').style.display = 'none'; }
+
+async function savePaymentEdit() {
+  const payload = {
+    amount: +(document.getElementById('paye-amount').value || 0),
+    date: document.getElementById('paye-date').value || null,
+    payment_mode_id: +document.getElementById('paye-mode').value || null,
+    payment_method: document.getElementById('paye-method').value || null,
+    transaction_id: document.getElementById('paye-tx').value || null,
+    note: document.getElementById('paye-note').value || null,
+  };
+  const r = await fetch(`/admin/api/payments/${_payEditId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  if (r.ok) { closePayEditModal(); toast('Payment updated','success'); loadPaymentsList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function deletePaymentRecord(id) {
+  if (!confirm('Delete this payment? This will reduce the invoice paid amount.')) return;
+  const r = await fetch(`/admin/api/payments/${id}`, {method:'DELETE'});
+  if (r.ok) { toast('Deleted','success'); loadPaymentsList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+// ── END MODULE 16 ─────────────────────────────────────────────────────────────
+
+// ── MODULE 16b: PAYMENT MODES SETUP ──────────────────────────────────────────
+function pgPaymentModes() {
+  return `<div class="page-header">
+    <h2 style="margin:0"><i class="fa-solid fa-credit-card"></i> Payment Modes</h2>
+    <button class="btn-primary" onclick="openPMModal(null)"><i class="fa-solid fa-plus"></i> New Mode</button>
+  </div>
+  <div id="pm-list"></div>
+  <div id="pm-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePMModal()">
+    <div class="modal-box" style="max-width:460px">
+      <div class="modal-header"><h3 id="pm-modal-title">New Payment Mode</h3><button onclick="closePMModal()" class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px"><label class="field-label">Name *</label>
+          <input id="pm-name" class="field-input" placeholder="e.g. Bank Transfer"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Description</label>
+          <input id="pm-desc" class="field-input"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="pm-active" checked> Active</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="pm-default"> Default</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="pm-pdf"> Show on PDF</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="pm-inv-only"> Invoices only</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="pm-exp-only"> Expenses only</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closePMModal()">Cancel</button>
+        <button class="btn-primary" onclick="savePM()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _pmEditId = null;
+
+async function init_payment_modes() {
+  await loadPMList();
+}
+
+async function loadPMList() {
+  const wrap = document.getElementById('pm-list');
+  if (!wrap) return;
+  const r = await fetch('/admin/api/payment-modes');
+  if (!r.ok) { wrap.innerHTML = '<p style="color:red">Failed</p>'; return; }
+  const rows = await r.json();
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-credit-card"></i><p>No payment modes yet</p></div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Name</th><th>Description</th><th>Active</th><th>Default</th><th>PDF</th><th>Scope</th><th>Actions</th></tr></thead>
+    <tbody>${rows.map(m=>`<tr>
+      <td><strong>${esc(m.name)}</strong></td>
+      <td style="color:#6b7280">${esc(m.description||'')}</td>
+      <td>${m.active?'<span style="color:#10b981">✓</span>':'<span style="color:#ef4444">✗</span>'}</td>
+      <td>${m.selected_by_default?'<span style="color:#10b981">✓</span>':''}</td>
+      <td>${m.show_on_pdf?'<span style="color:#10b981">✓</span>':''}</td>
+      <td style="font-size:.8rem">${m.invoices_only?'Invoices':m.expenses_only?'Expenses':'Both'}</td>
+      <td>
+        <button class="btn-icon" onclick="openPMModal(${m.id},${JSON.stringify(m).replace(/"/g,'&quot;')})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-icon danger" onclick="deletePM(${m.id})"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function openPMModal(id, data) {
+  _pmEditId = id;
+  document.getElementById('pm-modal-title').textContent = id ? 'Edit Payment Mode' : 'New Payment Mode';
+  document.getElementById('pm-name').value = data?.name || '';
+  document.getElementById('pm-desc').value = data?.description || '';
+  document.getElementById('pm-active').checked = data?.active !== false;
+  document.getElementById('pm-default').checked = !!data?.selected_by_default;
+  document.getElementById('pm-pdf').checked = !!data?.show_on_pdf;
+  document.getElementById('pm-inv-only').checked = !!data?.invoices_only;
+  document.getElementById('pm-exp-only').checked = !!data?.expenses_only;
+  document.getElementById('pm-modal').style.display = 'flex';
+}
+
+function closePMModal() { document.getElementById('pm-modal').style.display = 'none'; }
+
+async function savePM() {
+  const name = document.getElementById('pm-name').value.trim();
+  if (!name) { toast('Name is required','error'); return; }
+  const payload = {
+    name,
+    description: document.getElementById('pm-desc').value || null,
+    active: document.getElementById('pm-active').checked,
+    selected_by_default: document.getElementById('pm-default').checked,
+    show_on_pdf: document.getElementById('pm-pdf').checked,
+    invoices_only: document.getElementById('pm-inv-only').checked,
+    expenses_only: document.getElementById('pm-exp-only').checked,
+  };
+  const url = _pmEditId ? `/admin/api/payment-modes/${_pmEditId}` : '/admin/api/payment-modes';
+  const method = _pmEditId ? 'PUT' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  if (r.ok) { closePMModal(); toast(_pmEditId?'Updated':'Created','success'); loadPMList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function deletePM(id) {
+  if (!confirm('Delete this payment mode?')) return;
+  const r = await fetch(`/admin/api/payment-modes/${id}`, {method:'DELETE'});
+  if (r.ok) { toast('Deleted','success'); loadPMList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+// ── END MODULE 16b ────────────────────────────────────────────────────────────
+
+// ── MODULE 17: CREDIT NOTES ───────────────────────────────────────────────────
+let _cnStatus = 'all';
+let _cnItems = [];
+let _cnEditId = null;
+
+const CN_STATUS_COLOR = {Open:'#3b82f6', Closed:'#10b981', Void:'#6b7280'};
+
+function pgCreditNotes() {
+  return `<div class="page-header">
+    <h2 style="margin:0"><i class="fa-solid fa-file-invoice"></i> Credit Notes</h2>
+    <button class="btn-primary" onclick="openCNModal(null)"><i class="fa-solid fa-plus"></i> New Credit Note</button>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+    ${['all','Open','Closed','Void'].map(s=>`<button class="tab-pill${_cnStatus===s?' active':''}" onclick="_cnStatus='${s}';loadCNList()">${s==='all'?'All':s}</button>`).join('')}
+  </div>
+  <div id="cn-list"></div>
+
+  <div id="cn-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeCNModal()">
+    <div class="modal-box" style="max-width:860px;width:95vw">
+      <div class="modal-header"><h3 id="cn-modal-title">New Credit Note</h3><button onclick="closeCNModal()" class="modal-close">✕</button></div>
+      <div class="modal-body" style="overflow-y:auto;max-height:80vh">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div><label class="field-label">Customer</label>
+            <select id="cn-customer" class="field-input"><option value="">— None —</option></select></div>
+          <div><label class="field-label">Reference #</label>
+            <input id="cn-ref" class="field-input" placeholder="e.g. INV-0012"></div>
+          <div><label class="field-label">Date</label>
+            <input id="cn-date" type="date" class="field-input"></div>
+          <div><label class="field-label">Currency</label>
+            <select id="cn-currency" class="field-input">
+              <option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option>
+            </select></div>
+          <div><label class="field-label">Status</label>
+            <select id="cn-status" class="field-input">
+              <option>Open</option><option>Closed</option><option>Void</option>
+            </select></div>
+        </div>
+        <h4 style="margin:16px 0 8px">Line Items</h4>
+        <div id="cn-items-wrap"></div>
+        <div style="text-align:right;margin-top:8px">
+          <button class="btn-ghost" onclick="addCNItem()"><i class="fa-solid fa-plus"></i> Add Item</button>
+        </div>
+        <div id="cn-totals" style="max-width:340px;margin:12px 0 0 auto;font-size:.9rem"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+          <div><label class="field-label">Discount Type</label>
+            <select id="cn-disc-type" class="field-input" onchange="recomputeCNTotals()">
+              <option value="before_tax">Fixed Amount</option><option value="percentage">Percentage</option>
+            </select></div>
+          <div><label class="field-label">Discount Value</label>
+            <input id="cn-disc-val" type="number" step="0.01" value="0" class="field-input" oninput="recomputeCNTotals()"></div>
+          <div><label class="field-label">Adjustment</label>
+            <input id="cn-adjustment" type="number" step="0.01" value="0" class="field-input" oninput="recomputeCNTotals()"></div>
+        </div>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div><label class="field-label">Client Note</label>
+              <textarea id="cn-client-note" class="field-input" rows="3"></textarea></div>
+            <div><label class="field-label">Terms</label>
+              <textarea id="cn-terms" class="field-input" rows="3"></textarea></div>
+            <div style="grid-column:1/-1"><label class="field-label">Admin Note</label>
+              <textarea id="cn-admin-note" class="field-input" rows="2"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCNModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveCN()">Save Credit Note</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cn-apply-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeCNApplyModal()">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header"><h3>Apply to Invoice</h3><button onclick="closeCNApplyModal()" class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <p id="cn-apply-remaining" style="font-weight:600;margin-bottom:12px"></p>
+        <div style="margin-bottom:12px"><label class="field-label">Invoice</label>
+          <select id="cn-apply-invoice" class="field-input"><option value="">— Select invoice —</option></select></div>
+        <div><label class="field-label">Amount to Apply *</label>
+          <input id="cn-apply-amount" type="number" step="0.01" class="field-input"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCNApplyModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitCNApply()">Apply Credit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cn-refund-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeCNRefundModal()">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header"><h3>Record Refund</h3><button onclick="closeCNRefundModal()" class="modal-close">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px"><label class="field-label">Amount *</label>
+          <input id="cn-rfnd-amount" type="number" step="0.01" class="field-input"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Date</label>
+          <input id="cn-rfnd-date" type="date" class="field-input"></div>
+        <div style="margin-bottom:12px"><label class="field-label">Payment Mode</label>
+          <select id="cn-rfnd-mode" class="field-input"><option value="">— None —</option></select></div>
+        <div><label class="field-label">Note</label>
+          <textarea id="cn-rfnd-note" class="field-input" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCNRefundModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitCNRefund()">Save Refund</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+let _cnApplyId = null;
+let _cnRefundId = null;
+
+async function init_credit_notes() {
+  const cr = await fetch('/admin/api/customers?limit=200');
+  const customers = cr.ok ? await cr.json() : [];
+  const csel = document.getElementById('cn-customer');
+  if (csel) csel.innerHTML = '<option value="">— None —</option>' + customers.map(c=>`<option value="${c.id}">${esc(c.company_name)}</option>`).join('');
+
+  const pmr = await fetch('/admin/api/payment-modes');
+  const modes = pmr.ok ? await pmr.json() : [];
+  ['cn-rfnd-mode'].forEach(id => {
+    const s = document.getElementById(id);
+    if (s) s.innerHTML = '<option value="">— None —</option>' + modes.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  });
+
+  const ir = await fetch('/admin/api/invoices?status=unpaid');
+  const ir2 = await fetch('/admin/api/invoices?status=partially_paid');
+  const invs = [...(ir.ok ? await ir.json() : []), ...(ir2.ok ? await ir2.json() : [])];
+  const isel = document.getElementById('cn-apply-invoice');
+  if (isel) isel.innerHTML = '<option value="">— Select invoice —</option>' + invs.map(i=>`<option value="${i.id}">${esc(i.formatted_number||i.invoice_number)} — ${esc(i.customer_name||'')} (due: ${fmtMoney(i.total-i.amount_paid)})</option>`).join('');
+
+  await loadCNList();
+}
+
+async function loadCNList() {
+  const wrap = document.getElementById('cn-list');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+  const p = new URLSearchParams();
+  if (_cnStatus !== 'all') p.set('status', _cnStatus);
+  const r = await fetch('/admin/api/credit-notes?' + p);
+  if (!r.ok) { wrap.innerHTML = '<p style="color:red">Failed</p>'; return; }
+  const rows = await r.json();
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-file-invoice"></i><p>No credit notes found</p></div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Date</th><th>Total</th><th>Remaining</th><th>Actions</th></tr></thead>
+    <tbody>${rows.map(cn=>`<tr>
+      <td><code>${esc(cn.formatted_number)}</code>${cn.reference_no?` <span style="color:#6b7280;font-size:.78rem">${esc(cn.reference_no)}</span>`:''}</td>
+      <td>${esc(cn.customer_name||'—')}</td>
+      <td><span class="badge" style="background:${CN_STATUS_COLOR[cn.status]||'#6b7280'};color:#fff">${cn.status}</span></td>
+      <td>${fmtDate(cn.date)}</td>
+      <td>${fmtMoney(cn.total,cn.currency)}</td>
+      <td style="font-weight:600;color:${cn.remaining>0?'#3b82f6':'#6b7280'}">${fmtMoney(cn.remaining,cn.currency)}</td>
+      <td>
+        <button class="btn-icon" title="Edit" onclick="openCNModal(${cn.id})"><i class="fa-solid fa-pen"></i></button>
+        ${cn.remaining>0?`<button class="btn-icon" title="Apply to Invoice" onclick="openCNApplyModal(${cn.id},${cn.remaining})"><i class="fa-solid fa-link"></i></button>`:''}
+        ${cn.remaining>0?`<button class="btn-icon" title="Record Refund" onclick="openCNRefundModal(${cn.id})"><i class="fa-solid fa-rotate-left"></i></button>`:''}
+        <button class="btn-icon danger" title="Delete" onclick="deleteCN(${cn.id})"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function addCNItem() {
+  _cnItems.push({description:'',long_description:'',qty:1,rate:0,discount:0,tax_ids:[],amount:0});
+  renderCNItemsUI();
+}
+
+function renderCNItemsUI() {
+  const w = document.getElementById('cn-items-wrap');
+  if (!w) return;
+  if (!_cnItems.length) { w.innerHTML = '<p style="color:#6b7280;font-size:.85rem">No items — click Add Item</p>'; recomputeCNTotals(); return; }
+  w.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f9fafb"><th style="padding:6px">Description</th><th style="padding:6px;width:60px">Qty</th><th style="padding:6px;width:80px">Rate</th><th style="padding:6px;width:70px">Disc%</th><th style="padding:6px;width:80px">Amount</th><th style="padding:6px;width:30px"></th></tr></thead>
+    <tbody>${_cnItems.map((it,i)=>`<tr>
+      <td style="padding:4px"><input class="field-input" style="margin:0" value="${esc(it.description)}" oninput="_cnItems[${i}].description=this.value" placeholder="Item description"></td>
+      <td style="padding:4px"><input class="field-input" type="number" style="margin:0" value="${it.qty}" oninput="_cnItems[${i}].qty=+this.value;refreshCNItemAmt(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.rate}" oninput="_cnItems[${i}].rate=+this.value;refreshCNItemAmt(${i})"></td>
+      <td style="padding:4px"><input class="field-input" type="number" step="0.01" style="margin:0" value="${it.discount}" oninput="_cnItems[${i}].discount=+this.value;refreshCNItemAmt(${i})"></td>
+      <td style="padding:4px;font-weight:600">${fmtMoney(it.amount)}</td>
+      <td style="padding:4px"><button class="btn-icon danger" onclick="_cnItems.splice(${i},1);renderCNItemsUI()"><i class="fa-solid fa-times"></i></button></td>
+    </tr>`).join('')}</tbody></table>`;
+  recomputeCNTotals();
+}
+
+function refreshCNItemAmt(i) {
+  const it = _cnItems[i];
+  it.amount = +(it.qty * it.rate * (1 - it.discount/100)).toFixed(4);
+  renderCNItemsUI();
+}
+
+function recomputeCNTotals() {
+  const subtotal = _cnItems.reduce((s,it)=>s+it.amount,0);
+  const dtype = document.getElementById('cn-disc-type')?.value||'before_tax';
+  const dval = +(document.getElementById('cn-disc-val')?.value||0);
+  const adj = +(document.getElementById('cn-adjustment')?.value||0);
+  const disc = dtype==='percentage'?subtotal*dval/100:dval;
+  const total = subtotal-disc+adj;
+  const el = document.getElementById('cn-totals');
+  if (el) el.innerHTML = `<table style="width:100%;font-size:.88rem">
+    <tr><td>Subtotal</td><td style="text-align:right">${fmtMoney(subtotal)}</td></tr>
+    <tr><td>Discount</td><td style="text-align:right">-${fmtMoney(disc)}</td></tr>
+    <tr><td>Adjustment</td><td style="text-align:right">${fmtMoney(adj)}</td></tr>
+    <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td style="text-align:right">${fmtMoney(total)}</td></tr></table>`;
+}
+
+async function openCNModal(id) {
+  _cnEditId = id;
+  _cnItems = [];
+  document.getElementById('cn-modal-title').textContent = id ? 'Edit Credit Note' : 'New Credit Note';
+  document.getElementById('cn-ref').value = '';
+  document.getElementById('cn-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cn-currency').value = 'USD';
+  document.getElementById('cn-status').value = 'Open';
+  document.getElementById('cn-disc-type').value = 'before_tax';
+  document.getElementById('cn-disc-val').value = '0';
+  document.getElementById('cn-adjustment').value = '0';
+  document.getElementById('cn-client-note').value = '';
+  document.getElementById('cn-terms').value = '';
+  document.getElementById('cn-admin-note').value = '';
+  if (id) {
+    const r = await fetch(`/admin/api/credit-notes/${id}`);
+    if (r.ok) {
+      const cn = await r.json();
+      document.getElementById('cn-ref').value = cn.reference_no||'';
+      document.getElementById('cn-date').value = cn.date?cn.date.slice(0,10):'';
+      document.getElementById('cn-currency').value = cn.currency||'USD';
+      document.getElementById('cn-status').value = cn.status||'Open';
+      document.getElementById('cn-disc-type').value = cn.discount_type||'before_tax';
+      document.getElementById('cn-disc-val').value = cn.discount_value||0;
+      document.getElementById('cn-adjustment').value = cn.adjustment||0;
+      document.getElementById('cn-client-note').value = cn.client_note||'';
+      document.getElementById('cn-terms').value = cn.terms||'';
+      document.getElementById('cn-admin-note').value = cn.admin_note||'';
+      if (document.getElementById('cn-customer')) document.getElementById('cn-customer').value = cn.customer_id||'';
+      _cnItems = (cn.items||[]).map(it=>({...it}));
+    }
+  }
+  renderCNItemsUI();
+  document.getElementById('cn-modal').style.display = 'flex';
+}
+
+function closeCNModal() { document.getElementById('cn-modal').style.display = 'none'; }
+
+async function saveCN() {
+  const payload = {
+    customer_id: +document.getElementById('cn-customer').value||null,
+    reference_no: document.getElementById('cn-ref').value||null,
+    date: document.getElementById('cn-date').value||null,
+    currency: document.getElementById('cn-currency').value,
+    status: document.getElementById('cn-status').value,
+    discount_type: document.getElementById('cn-disc-type').value,
+    discount_value: +(document.getElementById('cn-disc-val').value||0),
+    adjustment: +(document.getElementById('cn-adjustment').value||0),
+    client_note: document.getElementById('cn-client-note').value,
+    terms: document.getElementById('cn-terms').value,
+    admin_note: document.getElementById('cn-admin-note').value,
+    items: _cnItems,
+  };
+  const url = _cnEditId?`/admin/api/credit-notes/${_cnEditId}`:'/admin/api/credit-notes';
+  const method = _cnEditId?'PUT':'POST';
+  const r = await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if (r.ok) { closeCNModal(); toast(_cnEditId?'Updated':'Created','success'); loadCNList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+async function deleteCN(id) {
+  if (!confirm('Delete this credit note?')) return;
+  const r = await fetch(`/admin/api/credit-notes/${id}`,{method:'DELETE'});
+  if (r.ok) { toast('Deleted','success'); loadCNList(); }
+  else { const d = await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+function openCNApplyModal(id, remaining) {
+  _cnApplyId = id;
+  document.getElementById('cn-apply-remaining').textContent = `Available credit: ${fmtMoney(remaining)}`;
+  document.getElementById('cn-apply-amount').value = '';
+  document.getElementById('cn-apply-invoice').value = '';
+  document.getElementById('cn-apply-modal').style.display = 'flex';
+}
+
+function closeCNApplyModal() { document.getElementById('cn-apply-modal').style.display = 'none'; }
+
+async function submitCNApply() {
+  const invoice_id = +document.getElementById('cn-apply-invoice').value;
+  const amount = +(document.getElementById('cn-apply-amount').value||0);
+  if (!invoice_id) { toast('Select an invoice','error'); return; }
+  if (!amount) { toast('Enter an amount','error'); return; }
+  const r = await fetch(`/admin/api/credit-notes/${_cnApplyId}/apply`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invoice_id,amount})});
+  if (r.ok) { closeCNApplyModal(); const d=await r.json(); toast(`Applied ${fmtMoney(d.applied)}, remaining: ${fmtMoney(d.remaining)}`,'success'); loadCNList(); }
+  else { const d=await r.json(); toast(d.detail||'Failed','error'); }
+}
+
+function openCNRefundModal(id) {
+  _cnRefundId = id;
+  document.getElementById('cn-rfnd-amount').value = '';
+  document.getElementById('cn-rfnd-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cn-rfnd-mode').value = '';
+  document.getElementById('cn-rfnd-note').value = '';
+  document.getElementById('cn-refund-modal').style.display = 'flex';
+}
+
+function closeCNRefundModal() { document.getElementById('cn-refund-modal').style.display = 'none'; }
+
+async function submitCNRefund() {
+  const amount = +(document.getElementById('cn-rfnd-amount').value||0);
+  if (!amount) { toast('Enter an amount','error'); return; }
+  const payload = {
+    amount,
+    refunded_on: document.getElementById('cn-rfnd-date').value||null,
+    payment_mode_id: +document.getElementById('cn-rfnd-mode').value||null,
+    note: document.getElementById('cn-rfnd-note').value||null,
+  };
+  const r = await fetch(`/admin/api/credit-notes/${_cnRefundId}/refund`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if (r.ok) { closeCNRefundModal(); const d=await r.json(); toast(`Refund recorded, remaining: ${fmtMoney(d.remaining)}`,'success'); loadCNList(); }
+  else { const d=await r.json(); toast(d.detail||'Failed','error'); }
+}
+// ── END MODULE 17 ─────────────────────────────────────────────────────────────
 function pgSubscriptions(){return pgPlaceholder('Subscriptions')}
 function pgItems(){return pgPlaceholder('Items')}
 function pgLeadPackages(){return pgPlaceholder('Lead Packages')}
@@ -3020,7 +3574,7 @@ function pgLeadStatuses(){return pgPlaceholder('Lead Statuses')}
 function pgCustomFieldsLeads(){return pgCustomFields('leads')}
 function pgTaxRates(){return pgPlaceholder('Tax Rates')}
 function pgCurrencies(){return pgPlaceholder('Currencies')}
-function pgPaymentModes(){return pgPlaceholder('Payment Modes')}
+// pgPaymentModes defined in Module 16b above
 function pgContractTypes(){return pgPlaceholder('Contract Types')}
 function pgTicketPriorities(){return pgPlaceholder('Ticket Priorities')}
 function pgTicketStatuses(){return pgPlaceholder('Ticket Statuses')}
