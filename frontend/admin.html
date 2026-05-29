@@ -179,9 +179,64 @@ textarea.fc{resize:vertical;min-height:80px}
 .ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
 .ph-title{font-size:21px;font-weight:700;color:var(--text)}
 .ph-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* Aliases — modules use these names; map them to the real layout classes */
+.pg-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.pg-title{font-size:21px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:10px}
+.pg-sub{font-size:13px;color:var(--muted);margin-top:2px}
 .card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);border:1px solid var(--border)}
-.card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card-hdr,.card-header{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .card-body{padding:18px}
+/* btn-pri is used standalone (no base .btn) in many modules — give it the full button styling */
+.btn-pri{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--primary);background:var(--primary);color:#fff;transition:var(--tr);white-space:nowrap;font-family:inherit;text-decoration:none}
+.btn-pri:hover{background:var(--primary-h);border-color:var(--primary-h)}
+.btn-pri:disabled{opacity:.55;cursor:not-allowed}
+.tbl{width:100%;border-collapse:collapse;background:#fff;font-size:13px}
+
+/* ── MODULE COMPONENT ALIASES ──
+   Several modules were authored against an alternate class vocabulary that
+   was never added to this stylesheet (forms, buttons, modals, tables, loaders).
+   These rules map those names onto the real design system so every module
+   renders with consistent, polished styling. */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+/* Form fields */
+.field-input,.inp{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--r);font-size:14px;transition:var(--tr);background:#fff;color:var(--text);font-family:inherit}
+.field-input:focus,.inp:focus,.fc:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
+.lbl,.field-label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+/* Buttons */
+.btn-sec{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:#fff;color:var(--text);transition:var(--tr);white-space:nowrap;font-family:inherit;text-decoration:none}
+.btn-sec:hover{background:var(--bg)}
+.btn-sec:disabled{opacity:.55;cursor:not-allowed}
+.btn-icon,.btn-ico{width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);border:1px solid var(--border);background:#fff;font-size:13px;transition:var(--tr)}
+.btn-icon:hover,.btn-ico:hover{background:var(--bg);color:var(--text);border-color:var(--muted)}
+/* Modal system */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-box{background:#fff;border-radius:12px;box-shadow:var(--sh-lg);width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;animation:mIn .15s ease}
+.modal-header,.mh-title{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;flex-shrink:0}
+.mh-title{padding:0;border:none}
+.modal-body{padding:18px 22px;overflow-y:auto;flex:1}
+.modal-footer,.mf{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+.modal-close{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:17px;border:none;background:none;transition:var(--tr)}
+.modal-close:hover{background:var(--bg);color:var(--text)}
+/* Tables */
+.data-table{width:100%;border-collapse:collapse;background:#fff;font-size:13px}
+.table-wrap{overflow-x:auto;border-radius:var(--r);border:1px solid var(--border)}
+.action-cell{text-align:right;white-space:nowrap}
+.clickable-row{cursor:pointer}
+.clickable-row:hover{background:#fafafa}
+/* States & misc */
+.empty-state{text-align:center;padding:50px 20px;color:var(--muted)}
+.loading-state,.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:50px;color:var(--muted)}
+.spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite}
+.tab-bar{display:flex;border-bottom:2px solid var(--border);margin-bottom:18px;gap:2px;overflow-x:auto}
+.tab-btn{padding:9px 16px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:var(--tr);white-space:nowrap;background:none;border-top:none;border-left:none;border-right:none}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.seg-ctrl{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.li-desc{font-size:12px;color:var(--muted)}
+.role-list-item{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:var(--tr)}
+.role-list-item:hover{background:var(--bg)}
+.danger,.text-danger{color:var(--danger)}
 
 /* Filter bar */
 .fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
@@ -208,6 +263,8 @@ tbody tr:hover .ta{opacity:1}
 .badge-blue{background:#dbeafe;color:#1d4ed8}
 .badge-red{background:#fee2e2;color:#991b1b}
 .badge-purple{background:#ede9fe;color:#6d28d9}
+.badge-muted{background:#f3f4f6;color:#6b7280}
+.badge-success{background:#d1fae5;color:#065f46}
 .bs{background:#f3f4f6;color:#4b5563}
 .bi{background:#dbeafe;color:#1d4ed8}
 .bsu{background:#dcfce7;color:#15803d}
@@ -7637,14 +7694,77 @@ function confirm(msg, cb) { if (window.confirm(msg)) cb(); }
 // ═══════════════════════════════
 // API
 // ═══════════════════════════════
-async function api(method, path, body=null) {
-  const opts={method,headers:{}};
-  if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
-  const r = await fetch('/admin/api'+path, opts);
-  if (r.status===401) { doLogout(); throw new Error('Unauthorized'); }
-  if (!r.ok) { const e=await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
-  return r.status===204 ? null : r.json();
+// Resolve any path shape to a canonical /admin/api/... URL.
+// Accepts: '/admin/api/x', '/api/x', '/x', or 'x'.
+function _apiUrl(path) {
+  if (!path) return '/admin/api';
+  if (path.startsWith('/admin/api')) return path;
+  if (path.startsWith('/api/') || path === '/api') return '/admin' + path;
+  if (path.startsWith('/')) return '/admin/api' + path;
+  return '/admin/api/' + path;
 }
+
+const _HTTP_METHODS = ['GET','POST','PUT','DELETE','PATCH','HEAD','OPTIONS'];
+
+// Core request. Tolerant of three calling conventions so every module works:
+//   api('GET', '/customers')              → method-first (legacy GET/POST wrappers)
+//   api('/api/customers')                 → path-first, GET
+//   api('/customers', {method, body})     → path-first with options
+// Returns parsed JSON (or null on 204), and throws on non-2xx.
+async function api(a, b, c=null) {
+  let method = 'GET', path, body = null;
+  if (typeof a === 'string' && _HTTP_METHODS.includes(a.toUpperCase()) && a === a.toUpperCase()) {
+    method = a.toUpperCase(); path = b; body = c;
+  } else {
+    path = a;
+    if (b && typeof b === 'object' && !Array.isArray(b)) {
+      method = (b.method || 'GET').toUpperCase();
+      body = ('body' in b) ? b.body : null;
+    } else if (b != null) {
+      method = 'POST'; body = b;
+    }
+  }
+  const opts = { method, headers: {} };
+  if (body != null) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = (typeof body === 'string') ? body : JSON.stringify(body);
+  }
+  const r = await fetch(_apiUrl(path), opts);
+  if (r.status === 401) { doLogout(); throw new Error('Unauthorized'); }
+  if (!r.ok) { const e = await r.json().catch(() => ({ detail: r.statusText })); throw new Error(e.detail || r.statusText); }
+  return r.status === 204 ? null : r.json();
+}
+
+// apiFetch / apiGet are used pervasively by modules with TWO contradictory
+// expectations: some call `(await apiFetch(url)).json()` (Response-like),
+// others use the result directly as data (`(await apiFetch(url)).map(...)`).
+// We satisfy both by returning the parsed data with a non-enumerable
+// `.json()`/`.ok`/`.status` attached, so it behaves as data AND as a Response.
+async function apiFetch(path, opts = {}) {
+  const o = { method: (opts.method || 'GET').toUpperCase(), headers: { ...(opts.headers || {}) } };
+  if (opts.body != null) {
+    if (!o.headers['Content-Type']) o.headers['Content-Type'] = 'application/json';
+    o.body = (typeof opts.body === 'string') ? opts.body : JSON.stringify(opts.body);
+  }
+  const r = await fetch(_apiUrl(path), o);
+  if (r.status === 401) { doLogout(); throw new Error('Unauthorized'); }
+  if (!r.ok) { let d; try { d = await r.json(); } catch { d = {}; } throw new Error(d.detail || r.statusText || 'Request failed'); }
+  let data;
+  if (r.status === 204) data = {};
+  else { try { data = await r.json(); } catch { data = {}; } }
+  if (data && typeof data === 'object') {
+    const def = (k, v) => { try { Object.defineProperty(data, k, { value: v, enumerable: false, configurable: true }); } catch {} };
+    def('json', async () => data);
+    def('ok', true);
+    def('status', r.status);
+  }
+  return data;
+}
+const apiGet = (p) => apiFetch(p);
+const apiPost = (p, b) => apiFetch(p, { method: 'POST', body: b });
+const apiPut = (p, b) => apiFetch(p, { method: 'PUT', body: b });
+const apiDelete = (p) => apiFetch(p, { method: 'DELETE' });
+
 const GET=p=>api('GET',p);
 const POST=(p,b)=>api('POST',p,b);
 const PUT=(p,b)=>api('PUT',p,b);
@@ -8929,114 +9049,170 @@ function wSubscriptions(s) {
 // ═══════════════════════════════════════════════
 // MODULE 31 — META ADS APP CONNECTION
 // ═══════════════════════════════════════════════
-async function pgMetaAdsConnection() {
-  app.innerHTML = `<div class="page-hd"><h1><i class="fa-solid fa-plug-circle-bolt"></i> Meta Ads App Connection</h1></div>
-  <div id="mac-wrap" style="max-width:860px">
-    <div class="es"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading connection status…</p></div>
+function pgMetaAdsConnection() {
+  return `
+  <div class="pg-hdr">
+    <div>
+      <h1 class="pg-title"><i class="fa-solid fa-plug-circle-bolt" style="color:var(--primary)"></i> Meta Ads App Connection</h1>
+      <div class="pg-sub">Link the Meta Ads upload app to the CRM — shared auth, clients & permissions.</div>
+    </div>
+    <button class="btn-pri" onclick="loadMacStatus()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+  </div>
+  <div id="mac-wrap">
+    <div class="es" style="padding:56px 0"><i class="fa-solid fa-spinner fa-spin" style="font-size:26px"></i><p>Loading connection status…</p></div>
   </div>`;
-  await loadMacStatus();
 }
+
+// nav() auto-invokes init_<page> after rendering
+window.init_meta_ads_connection = function() { loadMacStatus(); };
 
 async function loadMacStatus() {
   const wrap = document.getElementById('mac-wrap');
   if (!wrap) return;
+  wrap.innerHTML = `<div class="es" style="padding:56px 0"><i class="fa-solid fa-spinner fa-spin" style="font-size:26px"></i><p>Loading connection status…</p></div>`;
   let st;
-  try { st = await api('/admin/api/meta-ads-connection/status'); } catch(e) { wrap.innerHTML = `<div class="alert alert-danger">Failed to load: ${esc(e.message||'')}</div>`; return; }
+  try {
+    st = await apiFetch('/admin/api/meta-ads-connection/status');
+  } catch(e) {
+    wrap.innerHTML = macNotice('danger', `Failed to load connection status: ${esc(e.message||'')}`);
+    return;
+  }
 
-  const check = (ok, label) => ok
-    ? `<span class="badge badge-green"><i class="fa-solid fa-check"></i> ${label}</span>`
-    : `<span class="badge badge-red"><i class="fa-solid fa-xmark"></i> ${label}</span>`;
+  // Health pill
+  const pill = (ok, label, hint) => `
+    <div style="display:flex;gap:12px;align-items:flex-start;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${ok?'var(--success)':'var(--danger)'};border-radius:var(--r);padding:14px 16px">
+      <i class="fa-solid ${ok?'fa-circle-check':'fa-circle-xmark'}" style="color:${ok?'var(--success)':'var(--danger)'};font-size:18px;margin-top:1px"></i>
+      <div style="min-width:0">
+        <div style="font-weight:600;font-size:13px">${esc(label)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${hint}</div>
+      </div>
+    </div>`;
 
-  const fmtN = n => n === null ? '<span class="badge badge-yellow">N/A</span>' : `<strong>${n}</strong>`;
+  const fmtN = n => n === null
+    ? `<span class="badge badge-yellow">N/A</span>`
+    : `<span style="font-size:22px;font-weight:700;color:var(--text)">${n}</span>`;
+
+  const statRow = (icon, label, value) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;color:var(--muted)"><i class="fa-solid ${icon}" style="width:18px;color:var(--muted)"></i> ${esc(label)}</span>
+      ${value}
+    </div>`;
+
+  const allGreen = st.database_shared && st.view_created && st.internal_key_configured;
 
   wrap.innerHTML = `
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-header"><strong><i class="fa-solid fa-circle-info"></i> Connection Overview</strong></div>
+  <!-- Overall status banner -->
+  <div style="background:linear-gradient(135deg, ${allGreen?'#16a34a,#15803d':'#475569,#334155'});border-radius:var(--r);padding:20px 22px;color:#fff;margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <i class="fa-solid ${allGreen?'fa-link':'fa-link-slash'}" style="font-size:30px;opacity:.9"></i>
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:17px;font-weight:700">${allGreen?'Fully Connected':'Setup Incomplete'}</div>
+      <div style="font-size:13px;opacity:.9;margin-top:2px">${allGreen
+        ? 'The Meta Ads app can authenticate users and read clients through the CRM.'
+        : 'Complete the checklist below to finish wiring up the Meta Ads app.'}</div>
+    </div>
+    <span class="badge ${allGreen?'badge-green':'badge-yellow'}" style="font-size:12px">${allGreen?'ONLINE':'PENDING'}</span>
+  </div>
+
+  <!-- Health checklist -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-hdr"><span><i class="fa-solid fa-list-check"></i> Connection Checklist</span></div>
     <div class="card-body">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">SHARED DATABASE</div>
-          ${check(st.database_shared, 'Same database')}
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">Both apps use the same PostgreSQL instance.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+        ${pill(st.database_shared, 'Shared Database', 'Both apps use the same PostgreSQL instance.')}
+        ${pill(st.view_created, 'Access View', '<code>user_app_access_view</code> exists for permission lookups.')}
+        ${pill(st.internal_key_configured, 'Internal API Key', 'Set the <code>INTERNAL_API_KEY</code> env var to secure internal endpoints.')}
+      </div>
+    </div>
+  </div>
+
+  <!-- Side-by-side data counts -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-bottom:18px">
+    <div class="card">
+      <div class="card-hdr"><span><i class="fa-brands fa-meta" style="color:#1877f2"></i> Meta Ads App</span><span class="badge badge-muted">source</span></div>
+      <div class="card-body" style="padding-top:4px">
+        ${statRow('fa-user', 'Users', fmtN(st.meta_ads_app.users))}
+        ${statRow('fa-rectangle-ad', 'Clients', fmtN(st.meta_ads_app.clients))}
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0">
+          <span style="font-size:13px;color:var(--muted)"><i class="fa-solid fa-link" style="width:18px;color:var(--muted)"></i> User–Client Links</span>
+          ${fmtN(st.meta_ads_app.assignments)}
         </div>
-        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">ACCESS VIEW</div>
-          ${check(st.view_created, 'user_app_access_view')}
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">PostgreSQL view for Meta Ads app to query permissions.</div>
-        </div>
-        <div style="background:var(--bg2);border-radius:var(--r);padding:14px">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">INTERNAL API KEY</div>
-          ${check(st.internal_key_configured, 'INTERNAL_API_KEY set')}
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">Set <code>INTERNAL_API_KEY</code> env var to secure internal endpoints.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><span><i class="fa-solid fa-building" style="color:var(--primary)"></i> CRM</span><span class="badge badge-blue">target</span></div>
+      <div class="card-body" style="padding-top:4px">
+        ${statRow('fa-users-gear', 'Staff', `<span style="font-size:22px;font-weight:700">${st.crm.staff}</span>`)}
+        ${statRow('fa-building', 'Customers', `<span style="font-size:22px;font-weight:700">${st.crm.customers}</span>`)}
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0">
+          <span style="font-size:13px;color:var(--muted)"><i class="fa-solid fa-key" style="width:18px;color:var(--muted)"></i> App Client Access</span>
+          <span style="font-size:22px;font-weight:700">${st.crm.app_client_access}</span>
         </div>
       </div>
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-    <div class="card">
-      <div class="card-header"><i class="fa-brands fa-meta"></i> Meta Ads App</div>
-      <div class="card-body">
-        <table class="wt"><tbody>
-          <tr><td>Users</td><td>${fmtN(st.meta_ads_app.users)}</td></tr>
-          <tr><td>Clients</td><td>${fmtN(st.meta_ads_app.clients)}</td></tr>
-          <tr><td>User-Client Links</td><td>${fmtN(st.meta_ads_app.assignments)}</td></tr>
-        </tbody></table>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header"><i class="fa-solid fa-building"></i> CRM</div>
-      <div class="card-body">
-        <table class="wt"><tbody>
-          <tr><td>Staff</td><td><strong>${st.crm.staff}</strong></td></tr>
-          <tr><td>Customers</td><td><strong>${st.crm.customers}</strong></td></tr>
-          <tr><td>App Client Access</td><td><strong>${st.crm.app_client_access}</strong></td></tr>
-        </tbody></table>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-header"><strong><i class="fa-solid fa-arrows-rotate"></i> One-Way Data Sync</strong></div>
+  <!-- Data sync -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-hdr"><span><i class="fa-solid fa-arrows-rotate"></i> One-Way Data Sync</span></div>
     <div class="card-body">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Import existing Meta Ads app data into the CRM. These operations are additive — existing CRM records are never overwritten unless you check the option below.</p>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer">
-        <input type="checkbox" id="mac-overwrite"> Overwrite existing CRM records (staff password refresh only)
+      <p style="font-size:13px;color:var(--muted);margin:0 0 16px">Import existing Meta Ads app data into the CRM. Operations are additive — existing CRM records are skipped unless you enable overwrite. Run in order: <strong>Users → Clients → Access</strong>.</p>
+      <label class="fcheck" style="margin-bottom:16px">
+        <input type="checkbox" id="mac-overwrite"> Overwrite existing CRM records (refreshes staff passwords)
       </label>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="runMacSync('users')"><i class="fa-solid fa-users"></i> Sync Users → CRM Staff</button>
-        <button class="btn btn-primary" onclick="runMacSync('clients')"><i class="fa-solid fa-building"></i> Sync Clients → CRM Customers</button>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        <button class="btn-pri" onclick="runMacSync('users')"><i class="fa-solid fa-users"></i> Sync Users → Staff</button>
+        <button class="btn-pri" onclick="runMacSync('clients')"><i class="fa-solid fa-building"></i> Sync Clients → Customers</button>
         <button class="btn btn-secondary" onclick="runMacSync('access')"><i class="fa-solid fa-key"></i> Sync Access Assignments</button>
       </div>
-      <div id="mac-sync-result" style="margin-top:12px"></div>
+      <div id="mac-sync-result" style="margin-top:14px"></div>
     </div>
   </div>
 
+  <!-- API reference -->
   <div class="card">
-    <div class="card-header"><strong><i class="fa-solid fa-code"></i> Internal API Endpoints</strong></div>
-    <div class="card-body" style="font-size:13px">
-      <p style="color:var(--muted);margin-bottom:10px">The Meta Ads app can call these endpoints using <code>Authorization: Bearer &lt;INTERNAL_API_KEY&gt;</code>.</p>
-      <table class="wt"><thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead><tbody>
-        <tr><td><span class="badge badge-blue">POST</span></td><td><code>/admin/api/internal/auth/verify</code></td><td>Verify username + password → user info</td></tr>
-        <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/users/me?user_id=N</code></td><td>Get user details by id</td></tr>
-        <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/clients?user_id=N</code></td><td>Get accessible clients for a user</td></tr>
-      </tbody></table>
+    <div class="card-hdr"><span><i class="fa-solid fa-code"></i> Internal API Endpoints</span></div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">The Meta Ads app authenticates these with <code>Authorization: Bearer &lt;INTERNAL_API_KEY&gt;</code>.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th style="width:90px">Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-yellow">POST</span></td><td><code>/admin/api/internal/auth/verify</code></td><td>Verify username + password → user info</td></tr>
+            <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/users/me?user_id=N</code></td><td>Get user details by id</td></tr>
+            <tr><td><span class="badge badge-green">GET</span></td><td><code>/admin/api/internal/clients?user_id=N</code></td><td>Get accessible clients for a user</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>`;
+}
+
+function macNotice(kind, html) {
+  const map = {
+    success: ['var(--success)', 'fa-circle-check', 'rgba(22,163,74,.08)'],
+    danger:  ['var(--danger)',  'fa-circle-xmark', 'rgba(220,38,38,.08)'],
+    info:    ['var(--info)',    'fa-circle-info',  'rgba(2,132,199,.08)'],
+  };
+  const [c, icon, bg] = map[kind] || map.info;
+  return `<div style="display:flex;gap:10px;align-items:flex-start;background:${bg};border:1px solid ${c};border-radius:var(--r);padding:12px 14px;font-size:13px;color:var(--text)">
+    <i class="fa-solid ${icon}" style="color:${c};margin-top:1px"></i><div>${html}</div></div>`;
 }
 
 async function runMacSync(type) {
   const overwrite = document.getElementById('mac-overwrite')?.checked || false;
   const res = document.getElementById('mac-sync-result');
-  if (res) res.innerHTML = `<span style="color:var(--muted)"><i class="fa-solid fa-spinner fa-spin"></i> Syncing ${type}…</span>`;
+  if (res) res.innerHTML = `<span style="color:var(--muted);font-size:13px"><i class="fa-solid fa-spinner fa-spin"></i> Syncing ${esc(type)}…</span>`;
   try {
     const url = type === 'access' ? '/admin/api/meta-ads-connection/sync-access' : `/admin/api/meta-ads-connection/sync-${type}`;
-    const data = type === 'access' ? {} : {overwrite_existing: overwrite};
-    const r = await api(url, {method:'POST', body:JSON.stringify(data)});
-    if (res) res.innerHTML = `<div class="alert alert-success"><i class="fa-solid fa-check"></i> Done — imported: <strong>${r.imported}</strong>, skipped: <strong>${r.skipped}</strong>${r.errors?.length ? `, <span style="color:var(--danger)">${r.errors.length} error(s)</span>` : ''}</div>`;
+    const body = type === 'access' ? {} : { overwrite_existing: overwrite };
+    const r = await apiFetch(url, { method: 'POST', body });
+    const errHtml = r.errors?.length ? ` · <span style="color:var(--danger)">${r.errors.length} error(s)</span>` : '';
+    if (res) res.innerHTML = macNotice('success', `Sync complete — imported <strong>${r.imported}</strong>, skipped <strong>${r.skipped}</strong>${errHtml}`);
+    showToast('Sync complete', 'success');
     await loadMacStatus();
   } catch(e) {
-    if (res) res.innerHTML = `<div class="alert alert-danger"><i class="fa-solid fa-xmark"></i> ${esc(e.message||'Sync failed')}</div>`;
+    if (res) res.innerHTML = macNotice('danger', esc(e.message || 'Sync failed'));
+    showToast(e.message || 'Sync failed', 'error');
   }
 }
 
