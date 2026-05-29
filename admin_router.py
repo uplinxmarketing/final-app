@@ -28,7 +28,9 @@ from admin_models import (
     CRMLineItem, CRMPayment, CRMPaymentMode,
     CRMCreditNote, CRMCreditApplication, CRMCreditRefund,
     CRMSubscription, CRMExpense, CRMExpenseCategory,
-    CRMContract, CRMContractType, CRMEvent, CRMAnnouncement,
+    CRMContract, CRMContractType, CRMContractRenewal,
+    CRMMilestone, CRMProjectDiscussion, CRMDiscussionComment, CRMPinnedProject,
+    CRMEvent, CRMAnnouncement,
     CRMAnnouncementComment, CRMActivity, CRMSetting, CRMEmailTemplate,
     CRMCatalogItem, CRMTaxRate, CRMCurrency, CRMCustomerGroup, CRMTodo,
     CRMStaffNote, CRMTag,
@@ -332,14 +334,48 @@ def _project_dict(p: CRMProject) -> dict:
         "customer_id": p.customer_id,
         "customer_name": p.customer.company_name if p.customer else None,
         "status": p.status, "billing_type": p.billing_type,
-        "total_rate": p.total_rate, "estimated_hours": p.estimated_hours,
+        "total_rate": p.total_rate, "rate_per_hour": p.rate_per_hour,
+        "project_cost": p.project_cost,
+        "estimated_hours": p.estimated_hours,
         "progress": p.progress,
         "calculate_progress_from_tasks": p.calculate_progress_from_tasks,
         "start_date": p.start_date.isoformat() if p.start_date else None,
         "deadline": p.deadline.isoformat() if p.deadline else None,
+        "date_finished": p.date_finished.isoformat() if p.date_finished else None,
         "description": p.description, "tags": p.tags or [],
         "member_ids": [m.staff_id for m in (p.members or [])],
         "created_at": p.created_at.isoformat(),
+    }
+
+
+def _contract_dict(c: CRMContract) -> dict:
+    return {
+        "id": c.id, "contract_number": c.contract_number, "subject": c.subject,
+        "customer_id": c.customer_id,
+        "customer_name": c.customer.company_name if c.customer else None,
+        "project_id": c.project_id,
+        "contract_type_id": c.contract_type_id,
+        "contract_type": c.contract_type.name if c.contract_type else None,
+        "value": c.value, "currency": c.currency, "status": c.status,
+        "description": c.description, "content": c.content,
+        "allow_esign": c.allow_esign, "signed": c.signed,
+        "marked_as_signed": c.marked_as_signed,
+        "signed_at": c.signed_at.isoformat() if c.signed_at else None,
+        "signed_ip": c.signed_ip,
+        "acceptance_first_name": c.acceptance_first_name,
+        "acceptance_last_name": c.acceptance_last_name,
+        "acceptance_email": c.acceptance_email,
+        "acceptance_date": c.acceptance_date.isoformat() if c.acceptance_date else None,
+        "acceptance_ip": c.acceptance_ip,
+        "acceptance_signature": c.acceptance_signature,
+        "hash": c.hash, "trashed": c.trashed,
+        "not_visible_to_client": c.not_visible_to_client,
+        "last_sent_at": c.last_sent_at.isoformat() if c.last_sent_at else None,
+        "tags": c.tags or [],
+        "start_date": c.start_date.isoformat() if c.start_date else None,
+        "end_date": c.end_date.isoformat() if c.end_date else None,
+        "created_at": c.created_at.isoformat(),
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
 
 
@@ -1563,11 +1599,14 @@ class ProjectReq(BaseModel):
     status: str = "in_progress"
     billing_type: str = "fixed_rate"
     total_rate: Optional[float] = None
+    rate_per_hour: Optional[float] = None
+    project_cost: Optional[float] = None
     estimated_hours: Optional[float] = None
     calculate_progress_from_tasks: bool = True
     progress: int = 0
     start_date: Optional[str] = None
     deadline: Optional[str] = None
+    date_finished: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[list] = None
     member_ids: Optional[list] = None
@@ -1638,11 +1677,13 @@ async def update_project(pid: int, req: ProjectReq, staff: StaffMember = Depends
     p = r.scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    data = req.model_dump(exclude={"member_ids", "start_date", "deadline"}, exclude_unset=True)
+    data = req.model_dump(exclude={"member_ids", "start_date", "deadline", "date_finished"}, exclude_unset=True)
     if req.start_date:
         data["start_date"] = datetime.fromisoformat(req.start_date)
     if req.deadline:
         data["deadline"] = datetime.fromisoformat(req.deadline)
+    if req.date_finished:
+        data["date_finished"] = datetime.fromisoformat(req.date_finished)
     for k, v in data.items():
         setattr(p, k, v)
     if req.member_ids is not None:
@@ -1650,6 +1691,115 @@ async def update_project(pid: int, req: ProjectReq, staff: StaffMember = Depends
         for mid in req.member_ids:
             db.add(CRMProjectMember(project_id=pid, staff_id=mid))
     await _log(db, staff, "projects", "updated", p.id, p.name)
+    return {"ok": True}
+
+
+@router.post("/api/projects/{pid}/pin")
+async def pin_project(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    existing = (await db.execute(select(CRMPinnedProject).where(CRMPinnedProject.project_id == pid, CRMPinnedProject.staff_id == staff.id))).scalar_one_or_none()
+    if not existing:
+        db.add(CRMPinnedProject(project_id=pid, staff_id=staff.id))
+    return {"ok": True}
+
+
+@router.delete("/api/projects/{pid}/pin")
+async def unpin_project(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMPinnedProject).where(CRMPinnedProject.project_id == pid, CRMPinnedProject.staff_id == staff.id))
+    return {"ok": True}
+
+
+@router.get("/api/projects/{pid}/milestones")
+async def list_milestones(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMMilestone).where(CRMMilestone.project_id == pid).order_by(CRMMilestone.order, CRMMilestone.id))
+    return [{"id": m.id, "project_id": m.project_id, "name": m.name, "description": m.description,
+             "start_date": m.start_date.isoformat() if m.start_date else None,
+             "due_date": m.due_date.isoformat() if m.due_date else None,
+             "color": m.color, "order": m.order, "created_at": m.created_at.isoformat()}
+            for m in r.scalars().all()]
+
+
+@router.post("/api/projects/{pid}/milestones")
+async def create_milestone(pid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    m = CRMMilestone(
+        project_id=pid, name=req["name"],
+        description=req.get("description"),
+        color=req.get("color", "#6366f1"),
+        order=req.get("order", 0),
+        start_date=datetime.fromisoformat(req["start_date"]) if req.get("start_date") else None,
+        due_date=datetime.fromisoformat(req["due_date"]) if req.get("due_date") else None,
+    )
+    db.add(m)
+    await db.flush()
+    return {"id": m.id}
+
+
+@router.put("/api/projects/{pid}/milestones/{mid}")
+async def update_milestone(pid: int, mid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMMilestone).where(CRMMilestone.id == mid, CRMMilestone.project_id == pid))
+    m = r.scalar_one_or_none()
+    if not m:
+        raise HTTPException(404)
+    for field in ["name", "description", "color", "order"]:
+        if field in req:
+            setattr(m, field, req[field])
+    if req.get("start_date"):
+        m.start_date = datetime.fromisoformat(req["start_date"])
+    if req.get("due_date"):
+        m.due_date = datetime.fromisoformat(req["due_date"])
+    return {"ok": True}
+
+
+@router.delete("/api/projects/{pid}/milestones/{mid}")
+async def delete_milestone(pid: int, mid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMMilestone).where(CRMMilestone.id == mid, CRMMilestone.project_id == pid))
+    return {"ok": True}
+
+
+@router.get("/api/projects/{pid}/discussions")
+async def list_discussions(pid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMProjectDiscussion).options(selectinload(CRMProjectDiscussion.creator), selectinload(CRMProjectDiscussion.comments)).where(CRMProjectDiscussion.project_id == pid).order_by(desc(CRMProjectDiscussion.created_at)))
+    result = []
+    for d in r.scalars().all():
+        result.append({"id": d.id, "project_id": d.project_id, "subject": d.subject,
+                       "description": d.description, "visible_to_customer": d.visible_to_customer,
+                       "created_by": d.created_by, "creator_name": f"{d.creator.first_name} {d.creator.last_name}" if d.creator else None,
+                       "created_at": d.created_at.isoformat(),
+                       "comment_count": len(d.comments)})
+    return result
+
+
+@router.post("/api/projects/{pid}/discussions")
+async def create_discussion(pid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    d = CRMProjectDiscussion(
+        project_id=pid, subject=req["subject"],
+        description=req.get("description"),
+        visible_to_customer=req.get("visible_to_customer", False),
+        created_by=staff.id,
+    )
+    db.add(d)
+    await db.flush()
+    return {"id": d.id}
+
+
+@router.get("/api/projects/{pid}/discussions/{did}/comments")
+async def list_discussion_comments(pid: int, did: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMDiscussionComment).options(selectinload(CRMDiscussionComment.creator)).where(CRMDiscussionComment.discussion_id == did).order_by(CRMDiscussionComment.created_at))
+    return [{"id": c.id, "discussion_id": c.discussion_id, "content": c.content,
+             "created_by": c.created_by, "creator_name": f"{c.creator.first_name} {c.creator.last_name}" if c.creator else None,
+             "created_at": c.created_at.isoformat()} for c in r.scalars().all()]
+
+
+@router.post("/api/projects/{pid}/discussions/{did}/comments")
+async def add_discussion_comment(pid: int, did: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    c = CRMDiscussionComment(discussion_id=did, content=req["content"], created_by=staff.id)
+    db.add(c)
+    await db.flush()
+    return {"id": c.id}
+
+
+@router.delete("/api/projects/{pid}/discussions/{did}")
+async def delete_discussion(pid: int, did: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMProjectDiscussion).where(CRMProjectDiscussion.id == did, CRMProjectDiscussion.project_id == pid))
     return {"ok": True}
 
 
@@ -4192,30 +4342,46 @@ class ContractReq(BaseModel):
     end_date: Optional[str] = None
     status: str = "draft"
     description: Optional[str] = None
+    content: Optional[str] = None
     allow_esign: bool = False
+    not_visible_to_client: bool = False
+    tags: Optional[list] = None
 
 
 @router.get("/api/contracts")
 async def list_contracts(
     status: Optional[str] = None, customer_id: Optional[int] = None,
+    trashed: bool = False,
     staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
 ):
-    q = select(CRMContract).options(selectinload(CRMContract.customer), selectinload(CRMContract.contract_type)).order_by(desc(CRMContract.created_at))
+    q = (select(CRMContract)
+         .options(selectinload(CRMContract.customer), selectinload(CRMContract.contract_type))
+         .where(CRMContract.trashed == trashed)
+         .order_by(desc(CRMContract.created_at)))
     if status:
         q = q.where(CRMContract.status == status)
     if customer_id:
         q = q.where(CRMContract.customer_id == customer_id)
     r = await db.execute(q)
-    return [
-        {"id": c.id, "contract_number": c.contract_number, "subject": c.subject,
-         "customer_name": c.customer.company_name if c.customer else None,
-         "contract_type": c.contract_type.name if c.contract_type else None,
-         "value": c.value, "currency": c.currency, "status": c.status,
-         "start_date": c.start_date.isoformat() if c.start_date else None,
-         "end_date": c.end_date.isoformat() if c.end_date else None,
-         "signed_at": c.signed_at.isoformat() if c.signed_at else None}
-        for c in r.scalars().all()
-    ]
+    return [_contract_dict(c) for c in r.scalars().all()]
+
+
+@router.get("/api/contracts/{cid}")
+async def get_contract(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid)
+                         .options(selectinload(CRMContract.customer), selectinload(CRMContract.contract_type),
+                                  selectinload(CRMContract.renewals)))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    d = _contract_dict(c)
+    d["renewals"] = [{"id": rn.id, "old_start": rn.old_start.isoformat() if rn.old_start else None,
+                      "new_start": rn.new_start.isoformat() if rn.new_start else None,
+                      "old_end": rn.old_end.isoformat() if rn.old_end else None,
+                      "new_end": rn.new_end.isoformat() if rn.new_end else None,
+                      "old_value": rn.old_value, "new_value": rn.new_value,
+                      "renewed_at": rn.renewed_at.isoformat()} for rn in c.renewals]
+    return d
 
 
 @router.post("/api/contracts")
@@ -4233,7 +4399,98 @@ async def create_contract(req: ContractReq, staff: StaffMember = Depends(get_cur
     db.add(c)
     await db.flush()
     await _log(db, staff, "contracts", "created", c.id, c.subject)
-    return {"id": c.id, "contract_number": c.contract_number}
+    return {"id": c.id, "contract_number": c.contract_number, "hash": c.hash}
+
+
+@router.put("/api/contracts/{cid}")
+async def update_contract(cid: int, req: ContractReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    data = req.model_dump(exclude={"start_date", "end_date"}, exclude_unset=True)
+    if req.start_date:
+        data["start_date"] = datetime.fromisoformat(req.start_date)
+    if req.end_date:
+        data["end_date"] = datetime.fromisoformat(req.end_date)
+    data["updated_at"] = datetime.utcnow()
+    for k, v in data.items():
+        setattr(c, k, v)
+    await _log(db, staff, "contracts", "updated", c.id, c.subject)
+    return {"ok": True}
+
+
+@router.post("/api/contracts/{cid}/send")
+async def send_contract(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    c.last_sent_at = datetime.utcnow()
+    if c.status == "draft":
+        c.status = "active"
+    await _log(db, staff, "contracts", "sent", c.id, c.subject)
+    return {"ok": True}
+
+
+@router.post("/api/contracts/{cid}/mark-signed")
+async def mark_contract_signed(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    c.signed = True
+    c.marked_as_signed = True
+    c.signed_at = datetime.utcnow()
+    await _log(db, staff, "contracts", "marked_signed", c.id, c.subject)
+    return {"ok": True}
+
+
+@router.post("/api/contracts/{cid}/renew")
+async def renew_contract(cid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    renewal = CRMContractRenewal(
+        contract_id=cid,
+        old_start=c.start_date, old_end=c.end_date, old_value=c.value,
+        new_start=datetime.fromisoformat(req["new_start"]) if req.get("new_start") else None,
+        new_end=datetime.fromisoformat(req["new_end"]) if req.get("new_end") else None,
+        new_value=req.get("new_value"),
+        renewed_by_user_id=staff.id,
+    )
+    db.add(renewal)
+    if req.get("new_start"):
+        c.start_date = datetime.fromisoformat(req["new_start"])
+    if req.get("new_end"):
+        c.end_date = datetime.fromisoformat(req["new_end"])
+    if req.get("new_value") is not None:
+        c.value = req["new_value"]
+    c.status = "active"
+    c.updated_at = datetime.utcnow()
+    await _log(db, staff, "contracts", "renewed", c.id, c.subject)
+    return {"ok": True}
+
+
+@router.post("/api/contracts/{cid}/trash")
+async def trash_contract(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    c.trashed = True
+    return {"ok": True}
+
+
+@router.post("/api/contracts/{cid}/restore")
+async def restore_contract(cid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    c.trashed = False
+    return {"ok": True}
 
 
 @router.delete("/api/contracts/{cid}")
@@ -4259,6 +4516,113 @@ async def create_contract_type(req: dict, staff: StaffMember = Depends(get_curre
 @router.delete("/api/contract-types/{ctid}")
 async def delete_contract_type(ctid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(CRMContractType).where(CRMContractType.id == ctid))
+    return {"ok": True}
+
+
+# ── Public contract sign page ─────────────────────────────────────────────────
+
+@router.get("/contract/{cid}/{chash}")
+async def contract_public_page(cid: int, chash: str, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid, CRMContract.hash == chash)
+                         .options(selectinload(CRMContract.customer), selectinload(CRMContract.contract_type)))
+    c = r.scalar_one_or_none()
+    if not c:
+        raise HTTPException(404)
+    from fastapi.responses import HTMLResponse
+    signed_block = ""
+    if c.signed or c.marked_as_signed:
+        signed_block = f"""<div class="signed-banner"><span>✓ Signed by {c.acceptance_first_name or ''} {c.acceptance_last_name or ''}</span><span>on {c.acceptance_date.strftime('%B %d, %Y') if c.acceptance_date else (c.signed_at.strftime('%B %d, %Y') if c.signed_at else '')}</span></div>"""
+    esign_block = ""
+    if c.allow_esign and not c.signed and not c.marked_as_signed:
+        esign_block = f"""
+<div id="esign-section">
+  <h2>Sign this Contract</h2>
+  <div class="form-row"><label>First Name *</label><input id="sign-fn" type="text" placeholder="First name"/></div>
+  <div class="form-row"><label>Last Name *</label><input id="sign-ln" type="text" placeholder="Last name"/></div>
+  <div class="form-row"><label>Email *</label><input id="sign-email" type="email" placeholder="Email address"/></div>
+  <div class="form-row"><label>Signature *</label>
+    <canvas id="sign-canvas" width="500" height="150" style="border:1px solid #ccc;border-radius:6px;background:#fff;touch-action:none;"></canvas>
+    <button type="button" onclick="clearSig()" style="margin-top:6px;font-size:12px;">Clear</button>
+  </div>
+  <button class="btn-primary" onclick="submitSign({c.id}, '{chash}')">Sign Contract</button>
+</div>
+<script>
+const cv=document.getElementById('sign-canvas');const ctx=cv.getContext('2d');let drawing=false,lastX=0,lastY=0;
+function pos(e){{const r=cv.getBoundingClientRect();if(e.touches){{return{{x:e.touches[0].clientX-r.left,y:e.touches[0].clientY-r.top}};}}return{{x:e.clientX-r.left,y:e.clientY-r.top}};}}
+cv.addEventListener('mousedown',e=>{{drawing=true;const p=pos(e);lastX=p.x;lastY=p.y;}});
+cv.addEventListener('mousemove',e=>{{if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2;ctx.stroke();lastX=p.x;lastY=p.y;}});
+cv.addEventListener('mouseup',()=>drawing=false);cv.addEventListener('mouseleave',()=>drawing=false);
+cv.addEventListener('touchstart',e=>{{e.preventDefault();drawing=true;const p=pos(e);lastX=p.x;lastY=p.y;}},{{passive:false}});
+cv.addEventListener('touchmove',e=>{{e.preventDefault();if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2;ctx.stroke();lastX=p.x;lastY=p.y;}},{{passive:false}});
+cv.addEventListener('touchend',()=>drawing=false);
+function clearSig(){{ctx.clearRect(0,0,cv.width,cv.height);}}
+async function submitSign(id,hash){{
+  const fn=document.getElementById('sign-fn').value.trim();
+  const ln=document.getElementById('sign-ln').value.trim();
+  const em=document.getElementById('sign-email').value.trim();
+  if(!fn||!ln||!em){{alert('Please fill in all fields.');return;}}
+  const sig=cv.toDataURL('image/png');
+  const res=await fetch('/admin/contract/'+id+'/'+hash+'/sign',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{first_name:fn,last_name:ln,email:em,signature:sig}})}});
+  if(res.ok){{document.getElementById('esign-section').innerHTML='<div class="signed-banner">✓ Contract signed successfully. Thank you!</div>';}}
+  else{{alert('Error signing contract.');}}
+}}
+</script>"""
+    html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contract – {c.subject}</title>
+<style>
+body{{font-family:system-ui,sans-serif;background:#f8fafc;color:#1e293b;margin:0;padding:0}}
+.container{{max-width:860px;margin:0 auto;padding:32px 24px}}
+.header{{background:#1a1a2e;color:#fff;padding:24px 32px;border-radius:12px;margin-bottom:32px}}
+.header h1{{margin:0 0 8px;font-size:24px}}
+.meta{{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#fff;padding:20px;border-radius:10px;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,.07)}}
+.meta-item span{{display:block;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}}
+.content-body{{background:#fff;padding:24px;border-radius:10px;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,.07);line-height:1.7}}
+#esign-section{{background:#fff;padding:24px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:24px}}
+#esign-section h2{{margin:0 0 20px;font-size:18px}}
+.form-row{{margin-bottom:14px}}
+.form-row label{{display:block;font-size:13px;font-weight:600;margin-bottom:4px}}
+.form-row input{{width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;box-sizing:border-box}}
+.btn-primary{{background:#6366f1;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:15px;cursor:pointer;margin-top:8px}}
+.signed-banner{{background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:16px 20px;display:flex;gap:16px;align-items:center;font-weight:600;color:#166534;margin-bottom:16px}}
+</style></head><body>
+<div class="container">
+  <div class="header">
+    <h1>{c.subject}</h1>
+    <div style="font-size:13px;opacity:.8">Contract #{c.contract_number}</div>
+  </div>
+  {signed_block}
+  <div class="meta">
+    <div class="meta-item"><span>Client</span>{c.customer.company_name if c.customer else '—'}</div>
+    <div class="meta-item"><span>Contract Type</span>{c.contract_type.name if c.contract_type else '—'}</div>
+    <div class="meta-item"><span>Value</span>{c.currency} {c.value:,.2f if c.value else '—'}</div>
+    <div class="meta-item"><span>Status</span>{c.status.title()}</div>
+    <div class="meta-item"><span>Start Date</span>{c.start_date.strftime('%B %d, %Y') if c.start_date else '—'}</div>
+    <div class="meta-item"><span>End Date</span>{c.end_date.strftime('%B %d, %Y') if c.end_date else '—'}</div>
+  </div>
+  <div class="content-body">{c.content or c.description or '<p><em>No contract body provided.</em></p>'}</div>
+  {esign_block}
+</div></body></html>"""
+    return HTMLResponse(html)
+
+
+@router.post("/contract/{cid}/{chash}/sign")
+async def sign_contract_public(cid: int, chash: str, req: dict, request: Request, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMContract).where(CRMContract.id == cid, CRMContract.hash == chash))
+    c = r.scalar_one_or_none()
+    if not c or not c.allow_esign:
+        raise HTTPException(404)
+    if c.signed or c.marked_as_signed:
+        raise HTTPException(400, "Already signed")
+    c.acceptance_first_name = req.get("first_name")
+    c.acceptance_last_name = req.get("last_name")
+    c.acceptance_email = req.get("email")
+    c.acceptance_signature = req.get("signature")
+    c.acceptance_date = datetime.utcnow()
+    c.acceptance_ip = request.client.host if request.client else None
+    c.signed = True
+    c.signed_at = datetime.utcnow()
+    c.signed_ip = request.client.host if request.client else None
+    c.status = "active"
     return {"ok": True}
 
 
@@ -5265,8 +5629,6 @@ async def init_admin_db(engine) -> None:
         await conn.run_sync(AdminBase.metadata.create_all)
 
     # ── Schema migrations: each runs in its own connection so one failure can't abort others ──
-    # Uses CURRENT_TIMESTAMP (valid in both PostgreSQL and SQLite).
-    # TIMESTAMPTZ / JSONB / BOOLEAN are ignored by SQLite (stored as text) — that's fine.
     _migrations = [
         # crm_roles
         "ALTER TABLE crm_roles ADD COLUMN IF NOT EXISTS description TEXT",
@@ -5355,13 +5717,34 @@ async def init_admin_db(engine) -> None:
         # crm_expenses — Module 19 additions
         "ALTER TABLE crm_expenses ADD COLUMN IF NOT EXISTS tax_id_2 INTEGER",
         "ALTER TABLE crm_expenses ADD COLUMN IF NOT EXISTS invoice_id INTEGER",
+        # crm_contracts — Module 20 additions
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS content TEXT",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS signed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS marked_as_signed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_first_name VARCHAR(100)",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_last_name VARCHAR(100)",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_email VARCHAR(200)",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_date TIMESTAMP",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_ip VARCHAR(50)",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS acceptance_signature TEXT",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS hash VARCHAR(64)",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS trashed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS not_visible_to_client BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMP",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS last_sign_reminder_at TIMESTAMP",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS is_expiry_notified BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS tags JSON",
+        "ALTER TABLE crm_contracts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        # crm_projects — Module 21 additions
+        "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS rate_per_hour FLOAT",
+        "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS project_cost FLOAT",
+        "ALTER TABLE crm_projects ADD COLUMN IF NOT EXISTS date_finished TIMESTAMP",
     ]
     for _sql in _migrations:
         try:
             async with engine.begin() as _conn:
                 await _conn.execute(text(_sql))
         except Exception as _me:
-            # Column already exists or DB doesn't support IF NOT EXISTS — safe to ignore
             logger.debug("Migration skipped (%s): %s", type(_me).__name__, _sql)
 
     # Seed from a short session

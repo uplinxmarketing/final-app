@@ -718,15 +718,51 @@ class CRMContract(AdminBase):
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|active|expired|cancelled
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     allow_esign: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    signed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    marked_as_signed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     signed_ip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    acceptance_first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    acceptance_last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    acceptance_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    acceptance_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acceptance_ip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    acceptance_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True, default=lambda: secrets.token_hex(16))
+    trashed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    not_visible_to_client: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sign_reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_expiry_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
     created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     customer: Mapped[Optional[CRMCustomer]] = relationship("CRMCustomer", back_populates="contracts")
     project: Mapped[Optional["CRMProject"]] = relationship("CRMProject", back_populates="contracts", foreign_keys=[project_id])
     contract_type: Mapped[Optional[CRMContractType]] = relationship("CRMContractType")
+    renewals: Mapped[list["CRMContractRenewal"]] = relationship("CRMContractRenewal", back_populates="contract", cascade="all, delete-orphan")
+
+
+class CRMContractRenewal(AdminBase):
+    __tablename__ = "crm_contract_renewals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    contract_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_contracts.id", ondelete="CASCADE"), nullable=False)
+    old_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    old_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    old_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    new_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    renewed_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+
+    contract: Mapped[CRMContract] = relationship("CRMContract", back_populates="renewals")
+    renewed_by: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[renewed_by_user_id])
 
 
 # ── Subscriptions ─────────────────────────────────────────────────────────────
@@ -780,11 +816,14 @@ class CRMProject(AdminBase):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="in_progress")  # not_started|in_progress|on_hold|cancelled|finished
     billing_type: Mapped[str] = mapped_column(String(30), nullable=False, default="fixed_rate")  # fixed_rate|project_hours|task_hours
     total_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    rate_per_hour: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    project_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     estimated_hours: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     calculate_progress_from_tasks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    date_finished: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tags: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=list)
     settings: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=dict)
@@ -798,6 +837,9 @@ class CRMProject(AdminBase):
     invoices: Mapped[list[CRMInvoice]] = relationship("CRMInvoice", back_populates="project")
     contracts: Mapped[list[CRMContract]] = relationship("CRMContract", back_populates="project",
                                                          foreign_keys="CRMContract.project_id")
+    milestones: Mapped[list["CRMMilestone"]] = relationship("CRMMilestone", back_populates="project", cascade="all, delete-orphan")
+    discussions: Mapped[list["CRMProjectDiscussion"]] = relationship("CRMProjectDiscussion", back_populates="project", cascade="all, delete-orphan")
+    pinned_by: Mapped[list["CRMPinnedProject"]] = relationship("CRMPinnedProject", back_populates="project", cascade="all, delete-orphan")
 
 
 class CRMProjectMember(AdminBase):
@@ -811,6 +853,64 @@ class CRMProjectMember(AdminBase):
 
     project: Mapped[CRMProject] = relationship("CRMProject", back_populates="members")
     staff: Mapped[StaffMember] = relationship("StaffMember")
+
+
+class CRMMilestone(AdminBase):
+    __tablename__ = "crm_milestones"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="#6366f1")
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    project: Mapped[CRMProject] = relationship("CRMProject", back_populates="milestones")
+
+
+class CRMProjectDiscussion(AdminBase):
+    __tablename__ = "crm_project_discussions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="CASCADE"), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    visible_to_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    project: Mapped[CRMProject] = relationship("CRMProject", back_populates="discussions")
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+    comments: Mapped[list["CRMDiscussionComment"]] = relationship("CRMDiscussionComment", back_populates="discussion", cascade="all, delete-orphan")
+
+
+class CRMDiscussionComment(AdminBase):
+    __tablename__ = "crm_discussion_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    discussion_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_project_discussions.id", ondelete="CASCADE"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    discussion: Mapped[CRMProjectDiscussion] = relationship("CRMProjectDiscussion", back_populates="comments")
+    creator: Mapped[Optional["StaffMember"]] = relationship("StaffMember", foreign_keys=[created_by])
+
+
+class CRMPinnedProject(AdminBase):
+    __tablename__ = "crm_pinned_projects"
+    __table_args__ = (UniqueConstraint("staff_id", "project_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    staff_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_staff.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("crm_projects.id", ondelete="CASCADE"), nullable=False)
+    pinned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    project: Mapped[CRMProject] = relationship("CRMProject", back_populates="pinned_by")
+    staff: Mapped["StaffMember"] = relationship("StaffMember")
 
 
 class CRMTask(AdminBase):
