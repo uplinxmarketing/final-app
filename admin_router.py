@@ -38,6 +38,8 @@ from admin_models import (
     CRMPolyNote, CRMFile, CRMFilter, CRMFilterDefault, CRMNotification,
     CRMSalesActivity, CRMProjectActivity, CRMMailQueue, CRMTrackedMail,
     CRMScheduledEmail, CRMDashboardLayout,
+    CRMTicketDepartment, CRMTicketPriority, CRMTicketStatus, CRMTicketService,
+    CRMTicket, CRMTicketReply, CRMPredefinedReply, CRMSpamFilter,
 )
 
 router = APIRouter(prefix="/admin")
@@ -4626,6 +4628,325 @@ async def sign_contract_public(cid: int, chash: str, req: dict, request: Request
     return {"ok": True}
 
 
+# ── MODULE 23: Tickets ────────────────────────────────────────────────────────
+
+def _ticket_dict(t: CRMTicket) -> dict:
+    return {
+        "id": t.id, "ticket_key": t.ticket_key,
+        "subject": t.subject, "message": t.message,
+        "customer_id": t.customer_id,
+        "customer_name": t.customer.company_name if t.customer else None,
+        "contact_id": t.contact_id,
+        "name": t.name, "email": t.email,
+        "department_id": t.department_id,
+        "department_name": t.department.name if t.department else None,
+        "priority_id": t.priority_id,
+        "priority_name": t.priority_obj.name if t.priority_obj else None,
+        "priority_color": t.priority_obj.color if t.priority_obj else None,
+        "status_id": t.status_id,
+        "status_name": t.status_obj.name if t.status_obj else None,
+        "status_color": t.status_obj.color if t.status_obj else None,
+        "service_id": t.service_id,
+        "service_name": t.service.name if t.service else None,
+        "project_id": t.project_id,
+        "assigned_user_id": t.assigned_user_id,
+        "assigned_user_name": f"{t.assigned_user.first_name} {t.assigned_user.last_name}" if t.assigned_user else None,
+        "cc": t.cc, "tags": t.tags or [],
+        "last_reply_at": t.last_reply_at.isoformat() if t.last_reply_at else None,
+        "client_read": t.client_read, "admin_read": t.admin_read,
+        "merged_into_ticket_id": t.merged_into_ticket_id,
+        "created_at": t.created_at.isoformat(),
+    }
+
+
+def _reply_dict(r: CRMTicketReply) -> dict:
+    return {
+        "id": r.id, "ticket_id": r.ticket_id,
+        "user_id": r.user_id,
+        "author_name": f"{r.user.first_name} {r.user.last_name}" if r.user else (r.contact.first_name + " " + r.contact.last_name if r.contact else "Customer"),
+        "is_staff": r.user_id is not None,
+        "content": r.content,
+        "is_internal_note": r.is_internal_note,
+        "attachments": r.attachments or [],
+        "created_at": r.created_at.isoformat(),
+    }
+
+
+class TicketReq(BaseModel):
+    subject: str
+    message: Optional[str] = None
+    customer_id: Optional[int] = None
+    contact_id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    department_id: Optional[int] = None
+    priority_id: Optional[int] = None
+    status_id: Optional[int] = None
+    service_id: Optional[int] = None
+    project_id: Optional[int] = None
+    assigned_user_id: Optional[int] = None
+    cc: Optional[str] = None
+    tags: Optional[list] = None
+
+
+class TicketReplyReq(BaseModel):
+    content: str
+    is_internal_note: bool = False
+    new_status_id: Optional[int] = None
+
+
+@router.get("/api/tickets")
+async def list_tickets(
+    status_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    priority_id: Optional[int] = None,
+    assigned_user_id: Optional[int] = None,
+    customer_id: Optional[int] = None,
+    staff: StaffMember = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    q = (select(CRMTicket)
+         .options(
+             selectinload(CRMTicket.customer),
+             selectinload(CRMTicket.department),
+             selectinload(CRMTicket.priority_obj),
+             selectinload(CRMTicket.status_obj),
+             selectinload(CRMTicket.service),
+             selectinload(CRMTicket.assigned_user),
+         )
+         .where(CRMTicket.merged_into_ticket_id == None)
+         .order_by(desc(CRMTicket.last_reply_at), desc(CRMTicket.created_at)))
+    if status_id is not None:
+        q = q.where(CRMTicket.status_id == status_id)
+    if department_id:
+        q = q.where(CRMTicket.department_id == department_id)
+    if priority_id:
+        q = q.where(CRMTicket.priority_id == priority_id)
+    if assigned_user_id:
+        q = q.where(CRMTicket.assigned_user_id == assigned_user_id)
+    if customer_id:
+        q = q.where(CRMTicket.customer_id == customer_id)
+    r = await db.execute(q)
+    return [_ticket_dict(t) for t in r.scalars().all()]
+
+
+@router.get("/api/tickets/{tid}")
+async def get_ticket(tid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(
+        select(CRMTicket).where(CRMTicket.id == tid)
+        .options(
+            selectinload(CRMTicket.customer),
+            selectinload(CRMTicket.department),
+            selectinload(CRMTicket.priority_obj),
+            selectinload(CRMTicket.status_obj),
+            selectinload(CRMTicket.service),
+            selectinload(CRMTicket.assigned_user),
+            selectinload(CRMTicket.replies).selectinload(CRMTicketReply.user),
+            selectinload(CRMTicket.replies).selectinload(CRMTicketReply.contact),
+        )
+    )
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    t.admin_read = True
+    d = _ticket_dict(t)
+    d["replies"] = [_reply_dict(rp) for rp in t.replies]
+    return d
+
+
+@router.post("/api/tickets")
+async def create_ticket(req: TicketReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    # Auto-assign default status (first "Open" status or lowest sort order)
+    status_id = req.status_id
+    if not status_id:
+        def_r = await db.execute(select(CRMTicketStatus).order_by(CRMTicketStatus.is_default.desc(), CRMTicketStatus.sort_order).limit(1))
+        def_s = def_r.scalar_one_or_none()
+        if def_s:
+            status_id = def_s.id
+    t = CRMTicket(
+        subject=req.subject, message=req.message,
+        customer_id=req.customer_id, contact_id=req.contact_id,
+        name=req.name, email=req.email,
+        department_id=req.department_id, priority_id=req.priority_id,
+        status_id=status_id, service_id=req.service_id,
+        project_id=req.project_id,
+        assigned_user_id=req.assigned_user_id or staff.id,
+        cc=req.cc, tags=req.tags or [],
+        last_reply_at=datetime.utcnow(),
+        admin_read=True,
+    )
+    db.add(t)
+    await db.flush()
+    await _log(db, staff, "tickets", "created", t.id, t.subject)
+    return {"id": t.id, "ticket_key": t.ticket_key}
+
+
+@router.put("/api/tickets/{tid}")
+async def update_ticket(tid: int, req: TicketReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicket).where(CRMTicket.id == tid))
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    for field in ["subject", "customer_id", "contact_id", "name", "email", "department_id",
+                  "priority_id", "status_id", "service_id", "project_id", "assigned_user_id", "cc", "tags"]:
+        val = getattr(req, field, None)
+        if val is not None:
+            setattr(t, field, val)
+    await _log(db, staff, "tickets", "updated", t.id, t.subject)
+    return {"ok": True}
+
+
+@router.post("/api/tickets/{tid}/reply")
+async def reply_ticket(tid: int, req: TicketReplyReq, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicket).where(CRMTicket.id == tid))
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    reply = CRMTicketReply(ticket_id=tid, user_id=staff.id, content=req.content, is_internal_note=req.is_internal_note)
+    db.add(reply)
+    t.last_reply_at = datetime.utcnow()
+    t.admin_read = True
+    t.client_read = False
+    if req.new_status_id:
+        t.status_id = req.new_status_id
+    elif not req.is_internal_note:
+        # Auto-move to "Answered" status if one exists
+        answered = await db.execute(select(CRMTicketStatus).where(func.lower(CRMTicketStatus.name) == "answered"))
+        ans = answered.scalar_one_or_none()
+        if ans:
+            t.status_id = ans.id
+    await db.flush()
+    await _log(db, staff, "tickets", "replied", t.id, t.subject)
+    return {"id": reply.id}
+
+
+@router.post("/api/tickets/{tid}/merge")
+async def merge_ticket(tid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicket).where(CRMTicket.id == tid))
+    t = r.scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    target_id = req.get("target_id")
+    if not target_id or target_id == tid:
+        raise HTTPException(400, "Invalid target ticket")
+    t.merged_into_ticket_id = target_id
+    await _log(db, staff, "tickets", "merged", t.id, t.subject)
+    return {"ok": True}
+
+
+@router.delete("/api/tickets/{tid}/replies/{rid}")
+async def delete_reply(tid: int, rid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMTicketReply).where(CRMTicketReply.id == rid, CRMTicketReply.ticket_id == tid))
+    return {"ok": True}
+
+
+@router.delete("/api/tickets/{tid}")
+async def delete_ticket(tid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMTicket).where(CRMTicket.id == tid))
+    return {"ok": True}
+
+
+# ── Ticket lookups ────────────────────────────────────────────────────────────
+
+@router.get("/api/ticket-departments")
+async def list_ticket_departments(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicketDepartment).order_by(CRMTicketDepartment.name))
+    return [{"id": d.id, "name": d.name, "email": d.email} for d in r.scalars().all()]
+
+
+@router.post("/api/ticket-departments")
+async def create_ticket_department(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    d = CRMTicketDepartment(name=req["name"], email=req.get("email"))
+    db.add(d)
+    await db.flush()
+    return {"id": d.id}
+
+
+@router.delete("/api/ticket-departments/{did}")
+async def delete_ticket_department(did: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMTicketDepartment).where(CRMTicketDepartment.id == did))
+    return {"ok": True}
+
+
+@router.get("/api/ticket-priorities")
+async def list_ticket_priorities(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicketPriority).order_by(CRMTicketPriority.sort_order))
+    return [{"id": p.id, "name": p.name, "color": p.color} for p in r.scalars().all()]
+
+
+@router.get("/api/ticket-statuses")
+async def list_ticket_statuses(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicketStatus).order_by(CRMTicketStatus.sort_order))
+    return [{"id": s.id, "name": s.name, "color": s.color, "is_default": s.is_default} for s in r.scalars().all()]
+
+
+@router.post("/api/ticket-statuses")
+async def create_ticket_status(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    s = CRMTicketStatus(name=req["name"], color=req.get("color", "#6366f1"))
+    db.add(s)
+    await db.flush()
+    return {"id": s.id}
+
+
+@router.delete("/api/ticket-statuses/{sid}")
+async def delete_ticket_status(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMTicketStatus).where(CRMTicketStatus.id == sid))
+    return {"ok": True}
+
+
+@router.get("/api/ticket-services")
+async def list_ticket_services(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMTicketService).order_by(CRMTicketService.name))
+    return [{"id": s.id, "name": s.name} for s in r.scalars().all()]
+
+
+@router.post("/api/ticket-services")
+async def create_ticket_service(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    s = CRMTicketService(name=req["name"])
+    db.add(s)
+    await db.flush()
+    return {"id": s.id}
+
+
+@router.delete("/api/ticket-services/{sid}")
+async def delete_ticket_service(sid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMTicketService).where(CRMTicketService.id == sid))
+    return {"ok": True}
+
+
+@router.get("/api/predefined-replies")
+async def list_predefined_replies(staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPredefinedReply).order_by(CRMPredefinedReply.name))
+    return [{"id": pr.id, "name": pr.name, "message": pr.message} for pr in r.scalars().all()]
+
+
+@router.post("/api/predefined-replies")
+async def create_predefined_reply(req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    pr = CRMPredefinedReply(name=req["name"], message=req["message"], created_by=staff.id)
+    db.add(pr)
+    await db.flush()
+    return {"id": pr.id}
+
+
+@router.put("/api/predefined-replies/{prid}")
+async def update_predefined_reply(prid: int, req: dict, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(CRMPredefinedReply).where(CRMPredefinedReply.id == prid))
+    pr = r.scalar_one_or_none()
+    if not pr:
+        raise HTTPException(404)
+    if "name" in req:
+        pr.name = req["name"]
+    if "message" in req:
+        pr.message = req["message"]
+    return {"ok": True}
+
+
+@router.delete("/api/predefined-replies/{prid}")
+async def delete_predefined_reply(prid: int, staff: StaffMember = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(CRMPredefinedReply).where(CRMPredefinedReply.id == prid))
+    return {"ok": True}
+
+
 # ── Events / Calendar ─────────────────────────────────────────────────────────
 
 class EventReq(BaseModel):
@@ -5820,6 +6141,33 @@ async def init_admin_db(engine) -> None:
             db.add(CRMCurrency(code="USD", name="US Dollar", symbol="$", is_default=True))
             db.add(CRMCurrency(code="EUR", name="Euro", symbol="€"))
             db.add(CRMCurrency(code="GBP", name="British Pound", symbol="£"))
+
+        # Default ticket priorities
+        tp_exist = await db.execute(select(func.count()).select_from(CRMTicketPriority))
+        if (tp_exist.scalar() or 0) == 0:
+            for i, (name, color) in enumerate([("Low", "#10b981"), ("Medium", "#f59e0b"), ("High", "#ef4444")]):
+                db.add(CRMTicketPriority(name=name, color=color, sort_order=i))
+
+        # Default ticket statuses
+        ts_exist = await db.execute(select(func.count()).select_from(CRMTicketStatus))
+        if (ts_exist.scalar() or 0) == 0:
+            for i, (name, color, is_def) in enumerate([
+                ("Open", "#6366f1", True), ("In Progress", "#3b82f6", False),
+                ("Answered", "#10b981", False), ("On Hold", "#f59e0b", False), ("Closed", "#94a3b8", False),
+            ]):
+                db.add(CRMTicketStatus(name=name, color=color, sort_order=i, is_default=is_def))
+
+        # Default ticket departments
+        td_exist = await db.execute(select(func.count()).select_from(CRMTicketDepartment))
+        if (td_exist.scalar() or 0) == 0:
+            for name in ["General Support", "Billing", "Technical"]:
+                db.add(CRMTicketDepartment(name=name))
+
+        # Default ticket services
+        tsv_exist = await db.execute(select(func.count()).select_from(CRMTicketService))
+        if (tsv_exist.scalar() or 0) == 0:
+            for name in ["Meta Ads", "Google Ads", "SEO", "Social Media", "Other"]:
+                db.add(CRMTicketService(name=name))
 
         # Seed default admin staff if none exist
         await db.flush()  # ensure roles are visible to this query

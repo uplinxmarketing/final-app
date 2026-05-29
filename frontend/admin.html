@@ -4605,7 +4605,339 @@ function showToast(msg){
 }
 function pgTasks(){return pgPlaceholder('Tasks')}
 function pgLeads(){return pgPlaceholder('Leads')}
-function pgTickets(){return pgPlaceholder('Tickets')}
+// ── MODULE 23: TICKETS ──────────────────────────────────────────────────────
+
+let _ticketsList=[], _ticketStatuses=[], _ticketPriorities=[], _ticketDepts=[], _ticketServices=[];
+let _ticketStatusFilter=null, _currentTicket=null, _predefinedReplies=[];
+let _ticketView='list'; // 'list' | 'detail'
+
+function pgTickets(){
+  return `<div id="tickets-page">
+  <div class="page-header" id="tickets-list-header">
+    <h1>Support Tickets</h1>
+    <button class="btn-primary" onclick="openNewTicketModal()">+ New Ticket</button>
+  </div>
+  <div id="ticket-status-tabs" class="tab-bar"></div>
+  <div id="tickets-list-wrap">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <select id="tkt-dept-filter" class="inp" style="width:180px" onchange="loadTickets()"><option value="">All Departments</option></select>
+      <select id="tkt-pri-filter" class="inp" style="width:150px" onchange="loadTickets()"><option value="">All Priorities</option></select>
+      <select id="tkt-assign-filter" class="inp" style="width:160px" onchange="loadTickets()"><option value="">All Assignees</option></select>
+    </div>
+    <div class="card" style="overflow:auto">
+      <table class="data-table"><thead><tr>
+        <th>#</th><th>Subject</th><th>Client</th><th>Dept</th><th>Priority</th><th>Service</th><th>Status</th><th>Assigned</th><th>Last Reply</th><th>Actions</th>
+      </tr></thead><tbody id="tickets-tbody"></tbody></table>
+    </div>
+  </div>
+  <div id="ticket-detail-wrap" style="display:none"></div>
+</div>
+
+<div id="new-ticket-modal" class="modal" style="display:none"><div class="modal-box" style="max-width:680px">
+  <div class="modal-header"><h2>New Ticket</h2><button class="modal-close" onclick="document.getElementById('new-ticket-modal').style.display='none'">✕</button></div>
+  <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div style="grid-column:1/-1"><label class="lbl">Subject *</label><input id="ntkt-subject" class="inp" placeholder="Ticket subject"/></div>
+    <div><label class="lbl">Client</label><select id="ntkt-customer" class="inp"><option value="">— Select —</option></select></div>
+    <div><label class="lbl">Department</label><select id="ntkt-dept" class="inp"><option value="">— None —</option></select></div>
+    <div><label class="lbl">Priority</label><select id="ntkt-priority" class="inp"><option value="">— None —</option></select></div>
+    <div><label class="lbl">Service</label><select id="ntkt-service" class="inp"><option value="">— None —</option></select></div>
+    <div><label class="lbl">Assign To</label><select id="ntkt-assign" class="inp"><option value="">— Unassigned —</option></select></div>
+    <div style="grid-column:1/-1"><label class="lbl">Message *</label><textarea id="ntkt-message" class="inp" rows="5" placeholder="Describe the issue…"></textarea></div>
+  </div>
+  <div class="modal-footer"><button class="btn-secondary" onclick="document.getElementById('new-ticket-modal').style.display='none'">Cancel</button><button class="btn-primary" onclick="saveNewTicket()">Create Ticket</button></div>
+</div></div>`;
+}
+
+async function init_tickets(){
+  const [statuses, priorities, depts, services, staff, predefined] = await Promise.all([
+    apiFetch('/admin/api/ticket-statuses').catch(()=>[]),
+    apiFetch('/admin/api/ticket-priorities').catch(()=>[]),
+    apiFetch('/admin/api/ticket-departments').catch(()=>[]),
+    apiFetch('/admin/api/ticket-services').catch(()=>[]),
+    apiFetch('/admin/api/staff').catch(()=>[]),
+    apiFetch('/admin/api/predefined-replies').catch(()=>[]),
+  ]);
+  _ticketStatuses=statuses; _ticketPriorities=priorities;
+  _ticketDepts=depts; _ticketServices=services;
+  _predefinedReplies=predefined;
+
+  // Build status tabs
+  const tabsEl=document.getElementById('ticket-status-tabs');
+  if(tabsEl){
+    tabsEl.innerHTML=`<button class="tab active" onclick="setTicketStatusFilter(null,this)">All</button>`
+      +statuses.map(s=>`<button class="tab" onclick="setTicketStatusFilter(${s.id},this)" style="--tab-color:${s.color}">${s.name}</button>`).join('');
+  }
+
+  // Populate filter dropdowns
+  const deptSel=document.getElementById('tkt-dept-filter');
+  if(deptSel) depts.forEach(d=>{const o=new Option(d.name,d.id);deptSel.add(o);});
+  const priSel=document.getElementById('tkt-pri-filter');
+  if(priSel) priorities.forEach(p=>{const o=new Option(p.name,p.id);priSel.add(o);});
+  const asnSel=document.getElementById('tkt-assign-filter');
+  if(asnSel) staff.forEach(s=>{const o=new Option(`${s.first_name} ${s.last_name}`,s.id);asnSel.add(o);});
+
+  await loadTickets();
+}
+
+function setTicketStatusFilter(id,el){
+  _ticketStatusFilter=id;
+  document.querySelectorAll('#ticket-status-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  loadTickets();
+}
+
+async function loadTickets(){
+  const params=new URLSearchParams();
+  if(_ticketStatusFilter!=null) params.set('status_id',_ticketStatusFilter);
+  const deptEl=document.getElementById('tkt-dept-filter');
+  const priEl=document.getElementById('tkt-pri-filter');
+  const asnEl=document.getElementById('tkt-assign-filter');
+  if(deptEl&&deptEl.value) params.set('department_id',deptEl.value);
+  if(priEl&&priEl.value) params.set('priority_id',priEl.value);
+  if(asnEl&&asnEl.value) params.set('assigned_user_id',asnEl.value);
+  _ticketsList=await apiFetch('/admin/api/tickets?'+params).catch(()=>[]);
+  renderTicketsTable();
+}
+
+function renderTicketsTable(){
+  const tb=document.getElementById('tickets-tbody');
+  if(!tb) return;
+  if(!_ticketsList.length){
+    tb.innerHTML='<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">No tickets found.</td></tr>';
+    return;
+  }
+  tb.innerHTML=_ticketsList.map(t=>{
+    const priColor=t.priority_color||'#94a3b8';
+    const stColor=t.status_color||'#94a3b8';
+    const unread=!t.admin_read?'<span style="display:inline-block;width:8px;height:8px;background:#6366f1;border-radius:50%;margin-right:4px"></span>':'';
+    return `<tr style="${!t.admin_read?'font-weight:600':''}" onclick="openTicketDetail(${t.id})" class="clickable-row">
+      <td style="font-size:12px;color:#94a3b8">#${t.id}</td>
+      <td>${unread}<a href="#" onclick="openTicketDetail(${t.id});return false" style="color:#6366f1">${esc(t.subject)}</a></td>
+      <td>${t.customer_name||t.name||'—'}</td>
+      <td>${t.department_name||'—'}</td>
+      <td><span class="badge" style="background:${priColor}20;color:${priColor}">${t.priority_name||'—'}</span></td>
+      <td>${t.service_name||'—'}</td>
+      <td><span class="badge" style="background:${stColor}20;color:${stColor}">${t.status_name||'—'}</span></td>
+      <td>${t.assigned_user_name||'—'}</td>
+      <td style="font-size:12px;color:#64748b">${t.last_reply_at?fmtDate(t.last_reply_at):'—'}</td>
+      <td class="action-cell" onclick="event.stopPropagation()">
+        <button class="btn-icon" onclick="openTicketDetail(${t.id})" title="View">👁️</button>
+        <button class="btn-icon danger" onclick="deleteTicketRecord(${t.id})" title="Delete">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function openTicketDetail(id){
+  const t=await apiFetch(`/admin/api/tickets/${id}`).catch(()=>null);
+  if(!t) return;
+  _currentTicket=t;
+  document.getElementById('tickets-list-wrap').style.display='none';
+  document.getElementById('ticket-status-tabs').style.display='none';
+  document.getElementById('tickets-list-header').style.display='none';
+  const detail=document.getElementById('ticket-detail-wrap');
+  detail.style.display='block';
+  detail.innerHTML=renderTicketDetail(t);
+}
+
+function renderTicketDetail(t){
+  const priColor=t.priority_color||'#94a3b8';
+  const stColor=t.status_color||'#94a3b8';
+  const statusOpts=_ticketStatuses.map(s=>`<option value="${s.id}"${t.status_id===s.id?' selected':''}>${s.name}</option>`).join('');
+  const assignOpts=`<option value="">Unassigned</option>`;
+  const thread=[{
+    id:0,author_name:t.name||(t.customer_name||'Customer'),is_staff:false,
+    content:t.message||'(no message)',is_internal_note:false,
+    created_at:t.created_at,
+  },...(t.replies||[])];
+  return `
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn-secondary" onclick="closeTicketDetail()">← Back</button>
+    <div style="flex:1">
+      <h2 style="margin:0;font-size:18px">${esc(t.subject)}</h2>
+      <span style="font-size:12px;color:#94a3b8">Ticket #${t.id} · ${fmtDate(t.created_at)}</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="inp" style="width:160px" onchange="changeTicketStatus(${t.id},this.value)">${statusOpts}</select>
+      <span class="badge" style="background:${priColor}20;color:${priColor}">${t.priority_name||'No Priority'}</span>
+      <button class="btn-icon danger" onclick="deleteTicketRecord(${t.id})" title="Delete">🗑️</button>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+    <div>
+      <div id="ticket-thread">
+        ${thread.map(r=>renderTicketReply(r)).join('')}
+      </div>
+      <div class="card" style="margin-top:16px" id="reply-form">
+        <h3 style="margin:0 0 12px;font-size:15px">Add Reply</h3>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="btn-secondary" style="font-size:12px" id="reply-tab-reply" onclick="switchReplyTab('reply')">Reply</button>
+          <button class="btn-secondary" style="font-size:12px;opacity:.6" id="reply-tab-note" onclick="switchReplyTab('note')">Internal Note</button>
+          <div style="flex:1"></div>
+          <select id="predefined-sel" class="inp" style="width:200px;font-size:12px" onchange="insertPredefined(this.value)">
+            <option value="">Insert predefined reply…</option>
+            ${_predefinedReplies.map(pr=>`<option value="${pr.id}">${esc(pr.name)}</option>`).join('')}
+          </select>
+        </div>
+        <textarea id="reply-content" class="inp" rows="5" placeholder="Type your reply…" style="margin-bottom:10px"></textarea>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="reply-status" class="inp" style="width:180px;font-size:12px">
+            <option value="">Keep current status</option>
+            ${_ticketStatuses.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+          </select>
+          <button class="btn-primary" onclick="submitTicketReply(${t.id})">Send Reply</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin:0 0 12px;font-size:14px">Details</h3>
+        <div style="display:grid;gap:8px;font-size:13px">
+          <div><span style="color:#64748b">Client</span><div>${t.customer_name||t.name||'—'}</div></div>
+          <div><span style="color:#64748b">Email</span><div>${t.email||'—'}</div></div>
+          <div><span style="color:#64748b">Department</span><div>${t.department_name||'—'}</div></div>
+          <div><span style="color:#64748b">Service</span><div>${t.service_name||'—'}</div></div>
+          <div><span style="color:#64748b">Assigned To</span><div>${t.assigned_user_name||'Unassigned'}</div></div>
+          <div><span style="color:#64748b">Created</span><div>${fmtDate(t.created_at)}</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 10px;font-size:14px">Merge Ticket</h3>
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px">Merge this ticket into another</div>
+        <input id="merge-target-id" class="inp" type="number" placeholder="Target ticket ID" style="margin-bottom:8px"/>
+        <button class="btn-secondary" style="width:100%" onclick="mergeTicket(${t.id})">Merge</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderTicketReply(r){
+  const isNote=r.is_internal_note;
+  const bg=isNote?'#fef9c3':r.is_staff?'#f8fafc':'#fff';
+  const border=isNote?'border-left:3px solid #f59e0b':'';
+  return `<div class="card" style="margin-bottom:10px;background:${bg};${border}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:32px;height:32px;border-radius:50%;background:${r.is_staff?'#6366f1':'#10b981'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">${(r.author_name||'?')[0].toUpperCase()}</div>
+        <div>
+          <div style="font-weight:600;font-size:13px">${esc(r.author_name||'Unknown')}${r.is_staff?'<span style="font-size:10px;color:#6366f1;margin-left:6px">Staff</span>':''}</div>
+          ${isNote?'<span style="font-size:10px;color:#f59e0b">Internal Note</span>':''}
+        </div>
+      </div>
+      <span style="font-size:12px;color:#94a3b8">${fmtDate(r.created_at)}</span>
+    </div>
+    <div style="font-size:14px;line-height:1.6;white-space:pre-wrap">${esc(r.content)}</div>
+  </div>`;
+}
+
+let _replyIsNote=false;
+function switchReplyTab(tab){
+  _replyIsNote=tab==='note';
+  document.getElementById('reply-tab-reply').style.opacity=tab==='reply'?'1':'.6';
+  document.getElementById('reply-tab-note').style.opacity=tab==='note'?'1':'.6';
+  const ta=document.getElementById('reply-content');
+  if(ta) ta.placeholder=tab==='note'?'Internal note (only visible to staff)…':'Type your reply…';
+}
+
+function insertPredefined(id){
+  if(!id) return;
+  const pr=_predefinedReplies.find(p=>p.id==id);
+  if(!pr) return;
+  const ta=document.getElementById('reply-content');
+  if(ta) ta.value=(ta.value?ta.value+'\n\n':'')+pr.message;
+  document.getElementById('predefined-sel').value='';
+}
+
+async function submitTicketReply(tid){
+  const content=document.getElementById('reply-content').value.trim();
+  if(!content){alert('Reply content is required.');return;}
+  const newStatusId=document.getElementById('reply-status').value||null;
+  await apiFetch(`/admin/api/tickets/${tid}/reply`,{
+    method:'POST',
+    body:JSON.stringify({content,is_internal_note:_replyIsNote,new_status_id:newStatusId?+newStatusId:null})
+  }).catch(e=>alert(e.message));
+  document.getElementById('reply-content').value='';
+  document.getElementById('reply-status').value='';
+  // Refresh detail
+  const t=await apiFetch(`/admin/api/tickets/${tid}`).catch(()=>null);
+  if(t){
+    _currentTicket=t;
+    document.getElementById('ticket-detail-wrap').innerHTML=renderTicketDetail(t);
+  }
+}
+
+async function changeTicketStatus(tid,statusId){
+  if(!statusId) return;
+  await apiFetch(`/admin/api/tickets/${tid}`,{
+    method:'PUT',
+    body:JSON.stringify({subject:_currentTicket.subject,status_id:+statusId})
+  });
+  if(_currentTicket) _currentTicket.status_id=+statusId;
+}
+
+async function mergeTicket(tid){
+  const targetId=document.getElementById('merge-target-id').value;
+  if(!targetId){alert('Enter target ticket ID.');return;}
+  if(!confirm(`Merge ticket #${tid} into ticket #${targetId}?`)) return;
+  await apiFetch(`/admin/api/tickets/${tid}/merge`,{method:'POST',body:JSON.stringify({target_id:+targetId})});
+  closeTicketDetail();
+  await loadTickets();
+}
+
+async function deleteTicketRecord(id){
+  if(!confirm('Delete this ticket and all replies?')) return;
+  await apiFetch(`/admin/api/tickets/${id}`,{method:'DELETE'});
+  if(_currentTicket&&_currentTicket.id===id) closeTicketDetail();
+  await loadTickets();
+}
+
+function closeTicketDetail(){
+  _currentTicket=null;
+  document.getElementById('ticket-detail-wrap').style.display='none';
+  document.getElementById('tickets-list-wrap').style.display='block';
+  document.getElementById('ticket-status-tabs').style.display='flex';
+  document.getElementById('tickets-list-header').style.display='flex';
+}
+
+async function openNewTicketModal(){
+  const m=document.getElementById('new-ticket-modal');
+  const custSel=document.getElementById('ntkt-customer');
+  if(custSel.options.length<=1){
+    const custs=await apiFetch('/admin/api/customers').catch(()=>[]);
+    custs.forEach(c=>{const o=new Option(c.company_name,c.id);custSel.add(o);});
+  }
+  const deptSel=document.getElementById('ntkt-dept');
+  if(deptSel.options.length<=1) _ticketDepts.forEach(d=>{const o=new Option(d.name,d.id);deptSel.add(o);});
+  const priSel=document.getElementById('ntkt-priority');
+  if(priSel.options.length<=1) _ticketPriorities.forEach(p=>{const o=new Option(p.name,p.id);priSel.add(o);});
+  const srvSel=document.getElementById('ntkt-service');
+  if(srvSel.options.length<=1) _ticketServices.forEach(s=>{const o=new Option(s.name,s.id);srvSel.add(o);});
+  const staffList=await apiFetch('/admin/api/staff').catch(()=>[]);
+  const asnSel=document.getElementById('ntkt-assign');
+  if(asnSel.options.length<=1) staffList.forEach(s=>{const o=new Option(`${s.first_name} ${s.last_name}`,s.id);asnSel.add(o);});
+  document.getElementById('ntkt-subject').value='';
+  document.getElementById('ntkt-message').value='';
+  m.style.display='flex';
+}
+
+async function saveNewTicket(){
+  const subject=document.getElementById('ntkt-subject').value.trim();
+  const message=document.getElementById('ntkt-message').value.trim();
+  if(!subject){alert('Subject is required.');return;}
+  const body={
+    subject,message,
+    customer_id:document.getElementById('ntkt-customer').value||null,
+    department_id:document.getElementById('ntkt-dept').value||null,
+    priority_id:document.getElementById('ntkt-priority').value||null,
+    service_id:document.getElementById('ntkt-service').value||null,
+    assigned_user_id:document.getElementById('ntkt-assign').value||null,
+  };
+  const r=await apiFetch('/admin/api/tickets',{method:'POST',body:JSON.stringify(body)}).catch(e=>{alert(e.message);return null;});
+  if(!r) return;
+  document.getElementById('new-ticket-modal').style.display='none';
+  await loadTickets();
+  openTicketDetail(r.id);
+}
 function pgKnowledgeBase(){return pgPlaceholder('Knowledge Base')}
 function pgCalendar(){return pgPlaceholder('Calendar')}
 function pgReminders(){return pgAllReminders()}
