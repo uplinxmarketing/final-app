@@ -2890,6 +2890,21 @@ async def api_ai_usage(request: Request, db: AsyncSession = Depends(get_db)):
     }
 
 
+@app.get("/api/ai-usage/log")
+async def api_ai_usage_log(request: Request, lines: int = 100):
+    """Return the last N lines of the AI diagnostic log as plain text."""
+    from pathlib import Path as _Path
+    session = get_session(request)
+    if not session.get("user_id") and not session.get("meta_user_id"):
+        raise HTTPException(401, "Not authenticated")
+    log_file = _Path("logs/ai_usage.log")
+    if not log_file.exists():
+        return {"log": "", "count": 0}
+    all_lines = log_file.read_text(encoding="utf-8").splitlines()
+    tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+    return {"log": "\n".join(tail), "count": len(tail), "total": len(all_lines)}
+
+
 # ── AI provider switcher ───────────────────────────────────────────────────────
 
 class SwitchProviderRequest(BaseModel):

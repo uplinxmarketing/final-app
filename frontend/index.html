@@ -916,6 +916,13 @@ a{color:inherit;text-decoration:none}
       </div>
       <div class="api-count" id="ai-token-total">0 tokens this session</div>
       <div style="font-size:11px;color:var(--text-dim);margin-top:4px" id="ai-token-alltime"></div>
+      <button id="copy-log-btn" onclick="copyDiagLog()"
+        style="margin-top:10px;width:100%;padding:6px 0;border-radius:6px;border:1px solid var(--border);
+               background:var(--bg-deep);color:var(--text-dim);font-size:11px;font-weight:600;
+               cursor:pointer;letter-spacing:.3px;transition:background .15s"
+        onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg-deep)'">
+        📋 Copy Diagnostic Log
+      </button>
     </div>
 
     <div class="panel-section">
@@ -2323,6 +2330,45 @@ async function refreshAiUsage() {
   if (data.alltime_total) {
     _setTextIfExists('ai-token-alltime', `All-time: ${data.alltime_total.toLocaleString()} tokens`);
   }
+}
+
+async function copyDiagLog() {
+  const btn = document.getElementById('copy-log-btn');
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Fetching…';
+  btn.disabled = true;
+  try {
+    const data = await api('GET', '/api/ai-usage/log?lines=100').catch(() => null);
+    if (!data || !data.log) {
+      btn.textContent = '⚠️ No log yet';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+      return;
+    }
+    // Format into a readable report for pasting into chat
+    const header = [
+      '=== Uplinx AI Diagnostic Log ===',
+      `Exported: ${new Date().toISOString()}`,
+      `Entries: ${data.count} (of ${data.total} total)`,
+      '─'.repeat(60),
+    ].join('\n');
+    const rows = data.log.split('\n').filter(Boolean).map(line => {
+      try {
+        const e = JSON.parse(line);
+        if (e.error) {
+          return `[${e.ts}] ❌ ERROR (${e.error}) | ${e.provider}/${e.model} | conv:${e.conv_id} | ${e.detail}`;
+        }
+        const tools = e.tools_used && e.tools_used.length ? ` | tools:[${e.tools_used.join(',')}]` : '';
+        const flag  = e.empty_reply ? ' ⚠️ EMPTY_REPLY' : '';
+        return `[${e.ts}] ${e.provider}/${e.model} | in:${e.in_tokens} out:${e.out_tokens} tot:${e.total} | cap:${e.max_tok_cap} | meta:${e.meta_req}${tools}${flag} | "${e.msg_preview}"`;
+      } catch { return line; }
+    });
+    const text = header + '\n' + rows.join('\n');
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✅ Copied!';
+  } catch (err) {
+    btn.textContent = '❌ Failed';
+  }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
 }
 
 // ── API usage ──────────────────────────────────────────────────────────────
