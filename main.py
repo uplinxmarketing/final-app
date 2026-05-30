@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select, delete, update
+from sqlalchemy import select, delete, update, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -678,12 +678,76 @@ class PageAssignmentRequest(BaseModel):
     meta_app_db_id: Optional[int] = None
 
 
+async def _provision_meta_user_from_staff(staff, db: AsyncSession) -> User:
+    """Find or create the Meta Ads app `users` row linked to a CRM staff member.
+
+    The CRM (crm_staff) is the single source of truth for identity. The Meta app
+    still references its own `users` table for page/client assignments, so we keep
+    a linked row in sync. This never deletes Meta data — it only links/back-fills
+    and keeps the password hash in sync with the CRM.
+    """
+    # Match an existing Meta user by username or email.
+    conds = []
+    if staff.username:
+        conds.append(User.username == staff.username)
+    if staff.email:
+        conds.append(func.lower(User.email) == staff.email.lower())
+    user = None
+    if conds:
+        user = (await db.execute(select(User).where(or_(*conds)))).scalars().first()
+
+    derived_username = staff.username or (staff.email.split("@")[0] if staff.email else f"user{staff.id}")
+    role = "admin" if staff.is_admin else "user"
+
+    if user:
+        # Keep the linked Meta user in sync with the CRM record.
+        user.hashed_password = staff.hashed_password
+        user.is_active = True
+        user.role = role
+        if staff.email and not user.email:
+            user.email = staff.email
+    else:
+        user = User(
+            username=derived_username,
+            email=staff.email,
+            hashed_password=staff.hashed_password,
+            role=role,
+            interface_access="both",
+            is_active=True,
+        )
+        db.add(user)
+    await db.flush()
+    return user
+
+
 @app.post("/api/auth/login")
 async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == req.username, User.is_active == True))
-    user = result.scalar_one_or_none()
-    if not user or not _verify_password(req.password, user.hashed_password):
-        raise HTTPException(401, "Invalid username or password")
+    # ── Unified login ────────────────────────────────────────────────────────
+    # The CRM (crm_staff) is the single source of truth. Validate the credential
+    # (which may be an email OR a username) against crm_staff, then ensure a
+    # linked Meta Ads `users` row exists so the rest of the app keeps working.
+    from admin_models import StaffMember
+    ident = (req.username or "").strip()
+    staff = (await db.execute(
+        select(StaffMember).where(
+            or_(
+                func.lower(StaffMember.email) == ident.lower(),
+                StaffMember.username == ident,
+            ),
+            StaffMember.is_active == True,
+        )
+    )).scalars().first()
+
+    if staff and _verify_password(req.password, staff.hashed_password):
+        user = await _provision_meta_user_from_staff(staff, db)
+        await db.commit()
+    else:
+        # Fallback: legacy Meta-only users that haven't been migrated yet.
+        result = await db.execute(select(User).where(User.username == ident, User.is_active == True))
+        user = result.scalar_one_or_none()
+        if not user or not _verify_password(req.password, user.hashed_password):
+            raise HTTPException(401, "Invalid username or password")
+
     session_data = {
         "user_id": user.id,
         "user_role": user.role,

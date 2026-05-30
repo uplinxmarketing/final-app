@@ -179,6 +179,51 @@ def _decode_admin_token(token: str) -> Optional[dict]:
         return None
 
 
+# ── Cross-app SSO ──────────────────────────────────────────────────────────
+# The CRM (crm_staff) is the single source of truth. When a staff member signs
+# in to the CRM, also establish a Meta Ads app session so they can open the
+# Meta app without logging in again. We provision/sync the linked Meta `users`
+# row (never deleting Meta data — only linking/back-filling/keeping in sync).
+META_SESSION_COOKIE = "uplinx_session"
+
+async def _set_meta_session(staff: StaffMember, response: Response, db: AsyncSession, remember_me: bool = False):
+    from database import User
+    from security import create_session_token
+    conds = []
+    if staff.username:
+        conds.append(User.username == staff.username)
+    if staff.email:
+        conds.append(func.lower(User.email) == staff.email.lower())
+    user = None
+    if conds:
+        user = (await db.execute(select(User).where(or_(*conds)))).scalars().first()
+
+    derived_username = staff.username or (staff.email.split("@")[0] if staff.email else f"user{staff.id}")
+    role = "admin" if staff.is_admin else "user"
+    if user:
+        user.hashed_password = staff.hashed_password
+        user.is_active = True
+        user.role = role
+        if staff.email and not user.email:
+            user.email = staff.email
+    else:
+        user = User(
+            username=derived_username, email=staff.email,
+            hashed_password=staff.hashed_password, role=role,
+            interface_access="both", is_active=True,
+        )
+        db.add(user)
+    await db.flush()
+    token = create_session_token({
+        "user_id": user.id, "user_role": user.role,
+        "user_access": user.interface_access, "username": user.username,
+    })
+    response.set_cookie(
+        META_SESSION_COOKIE, token, httponly=True, samesite="lax",
+        max_age=(86400 * 30 if remember_me else None),
+    )
+
+
 async def get_current_admin(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -290,6 +335,7 @@ def _staff_dict(s: StaffMember) -> dict:
     return {
         "id": s.id, "first_name": s.first_name, "last_name": s.last_name,
         "full_name": s.full_name, "email": s.email, "phone": s.phone,
+        "username": s.username,
         "role_id": s.role_id, "role_name": s.role.name if s.role else None,
         "is_admin": s.is_admin, "is_active": s.is_active,
         "profile_photo": s.profile_photo,
@@ -518,7 +564,7 @@ async def _send_email(to: str, subject: str, html: str) -> bool:
 
 
 class LoginReq(BaseModel):
-    email: str
+    email: str  # accepts email OR username (the field name is kept for compatibility)
     password: str
     remember_me: bool = False
 
@@ -562,9 +608,14 @@ async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
 @router.post("/api/auth/login")
 async def admin_login(req: LoginReq, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     now = _utcnow()
+    # Accept either an email or a username as the login identifier.
+    ident = (req.email or "").strip()
     result = await db.execute(
         select(StaffMember).options(selectinload(StaffMember.role)).where(
-            StaffMember.email == req.email.lower().strip(),
+            or_(
+                func.lower(StaffMember.email) == ident.lower(),
+                StaffMember.username == ident,
+            )
         )
     )
     staff = result.scalar_one_or_none()
@@ -600,6 +651,13 @@ async def admin_login(req: LoginReq, request: Request, response: Response, db: A
     max_age = 86400 * _REMEMBER_ME_DAYS if req.remember_me else _ADMIN_SESSION_LIFETIME
     token = _make_admin_token(staff.id)
     response.set_cookie("admin_session", token, httponly=True, samesite="lax", max_age=max_age)
+    # Single sign-on: also establish a Meta Ads app session so the same login
+    # grants access to the connected app without a second sign-in.
+    try:
+        await _set_meta_session(staff, response, db, remember_me=req.remember_me)
+        await db.commit()
+    except Exception as _sso_e:
+        logger.debug("Meta SSO session not set: %s", _sso_e)
     return {"ok": True, "staff": _staff_dict(staff), "force_password_change": staff.force_password_change}
 
 
@@ -6629,6 +6687,9 @@ async def init_admin_db(engine) -> None:
         "ALTER TABLE crm_roles ADD COLUMN IF NOT EXISTS description TEXT",
         # crm_staff — Module 03 additions
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'",
+        # crm_staff — unified login: username column (login by email OR username)
+        "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS username VARCHAR(150)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_crm_staff_username ON crm_staff (username)",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_ip VARCHAR(45)",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS last_password_change_at TIMESTAMP",
         "ALTER TABLE crm_staff ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0",
@@ -6955,6 +7016,51 @@ async def init_admin_db(engine) -> None:
                     default_subject=subject, default_body=body,
                     is_active=True,
                 ))
+
+        # ── Unified login migration ──────────────────────────────────────
+        # The CRM (crm_staff) is the single source of truth for identity.
+        # Copy any existing Meta Ads app users (the `users` table) into
+        # crm_staff so they can sign in to the CRM with the SAME credentials.
+        # Idempotent: matches on username OR email and never overwrites or
+        # deletes anything in the Meta Ads app — it only links/back-fills.
+        try:
+            meta_users = (await db.execute(text(
+                "SELECT id, username, email, hashed_password, role, is_active FROM users"
+            ))).fetchall()
+            for mu in meta_users:
+                muid, m_username, m_email, m_pwd, m_role, m_active = mu
+                if not m_username and not m_email:
+                    continue
+                # Already linked? (match by username or email, case-insensitive)
+                match_conds = []
+                if m_username:
+                    match_conds.append(StaffMember.username == m_username)
+                if m_email:
+                    match_conds.append(func.lower(StaffMember.email) == m_email.lower())
+                existing = (await db.execute(
+                    select(StaffMember).where(or_(*match_conds))
+                )).scalars().first()
+                if existing:
+                    # Back-fill username link if missing so future logins match.
+                    if m_username and not existing.username:
+                        existing.username = m_username
+                    continue
+                # Derive a sensible name + a guaranteed-unique email.
+                base_name = (m_username or (m_email.split("@")[0] if m_email else "user"))
+                fname = base_name.split(".")[0].capitalize() if "." in base_name else base_name
+                lname = base_name.split(".", 1)[1].capitalize() if "." in base_name else ""
+                email = m_email or f"{base_name}@meta-ads-import.local"
+                db.add(StaffMember(
+                    first_name=fname or base_name,
+                    last_name=lname or base_name,
+                    email=email,
+                    username=m_username,
+                    hashed_password=m_pwd or _hash_pw(secrets.token_urlsafe(16)),
+                    is_admin=(m_role == "admin"),
+                    is_active=bool(m_active) if m_active is not None else True,
+                ))
+        except Exception as _mig_e:
+            logger.debug("Meta users → crm_staff migration skipped: %s", _mig_e)
 
         await db.commit()
 

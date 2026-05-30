@@ -433,8 +433,8 @@ tbody tr:hover .ta{opacity:1}
     <div class="err-box" id="lerr"></div>
     <div id="login-form-wrap">
       <div class="fg">
-        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL</label>
-        <input type="email" id="lemail" class="fc" placeholder="uplinxmarketing@gmail.com" autofocus
+        <label style="font-size:12px;font-weight:600;color:#6b7280;letter-spacing:.3px">EMAIL OR USERNAME</label>
+        <input type="text" id="lemail" class="fc" placeholder="you@uplinx.com or username" autofocus autocomplete="username"
           style="background:#fff5f5;border-color:#fca5a5">
       </div>
       <div class="fg">
@@ -955,7 +955,7 @@ async function doLogin() {
   const remember = document.getElementById('lremember').checked;
   const err = document.getElementById('lerr');
   err.style.display = 'none';
-  if (!email || !pw) { err.textContent = 'Please enter email and password.'; err.style.display = 'block'; return; }
+  if (!email || !pw) { err.textContent = 'Please enter your email/username and password.'; err.style.display = 'block'; return; }
 
   const btn = document.getElementById('lbtn');
   btn.disabled = true;
