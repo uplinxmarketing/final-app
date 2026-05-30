@@ -99,6 +99,9 @@ class StaffMember(AdminBase):
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    # Optional username — lets users log in with either email or username.
+    # Populated when staff are migrated/linked from the Meta Ads app users table.
+    username: Mapped[Optional[str]] = mapped_column(String(150), unique=True, nullable=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     linkedin: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
