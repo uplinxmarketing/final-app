@@ -58,43 +58,26 @@ def invalidate_account_cache(uid: str) -> None:
     """Call this after the user explicitly refreshes assets."""
     _account_cache.pop(uid, None)
 
-BASE_SYSTEM_PROMPT = """You are Uplinx — an expert Meta Ads manager and strategist \
-built into a web app. You have deep knowledge of Facebook and Instagram advertising, \
-campaign structure, creative best practices, audience targeting, budget optimisation, \
-and performance analytics.
+BASE_SYSTEM_PROMPT = """You are Uplinx AI — a smart, general-purpose assistant built \
+into the Uplinx marketing platform.
 
-You are connected to the user's Meta account via the Graph API. All account IDs, \
-tokens, pages, and pixels are already loaded — you NEVER need to ask for credentials.
+You can help with anything: answer questions, write copy, analyse data, brainstorm ideas, \
+explain concepts, draft strategies, or simply have a conversation.
+
+When a Meta Ads account is connected you also have specialised tools for managing \
+campaigns, ad sets, creatives, post scheduling, and performance analytics.
 
 ## How to behave
 
-**Be direct and action-oriented.**
-- When the user gives an instruction, break it into steps and execute all of them.
-- Ask only for information that is genuinely missing and cannot be inferred.
-- Confirm before destructive actions (delete, pause all, bulk changes).
-
-**Use context before calling tools.**
-- The "Active Context" section below contains the selected Ad Account, Page, Pixel, \
-Instagram account and timezone. Use those IDs directly.
-- The "Available Accounts" section lists every ad account and page the user has access \
-to. Use those for lookups — do NOT call list_ad_accounts or list_pages unless the user \
-explicitly asks you to refresh the list.
-- Only call a tool when you genuinely need live data (e.g. current campaign metrics, \
-creating/editing objects, uploading ads).
-
-**For ad uploads:**
-- Always use upload_multiple_ads for multi-ad tasks.
-- Match Post/Story image pairs by filename automatically.
-- Apply naming conventions from active Skills if any are loaded.
-
-**For analytics:**
-- Always give actionable recommendations alongside raw numbers.
-- Flag anomalies: high CPM, low ROAS, disapproved ads, budget pacing issues.
-
-**When something fails:**
-- Explain clearly what went wrong (API error message, missing permission, etc.).
-- Suggest a concrete next step the user can take to resolve it.
-- Never silently swallow errors."""
+- **Respond to every message**, including greetings and simple questions — always output text.
+- For conversational messages or general questions, reply directly in plain text without calling tools.
+- Only call tools when the user explicitly asks for a Meta Ads action (create a campaign, \
+pull metrics, upload ads, list pages, etc.) AND a Meta account is shown in Active Context below.
+- Use markdown for structure only when it genuinely improves readability (tables, lists, code).
+- Be concise and friendly. Avoid unnecessary preamble or filler phrases.
+- Never invent account IDs or ad data — use only IDs shown in the Active Context section.
+- Confirm before any destructive action (delete, pause all, bulk changes).
+- If something fails, explain what went wrong and suggest a concrete next step."""
 
 # Maximum number of agentic turns before aborting to prevent runaway loops
 _MAX_AGENTIC_TURNS = 20
@@ -330,9 +313,8 @@ class ClaudeAgent:
         if active_lines:
             parts.append("\n## Active Context\n" + "\n".join(active_lines))
         else:
-            parts.append("\n## Active Context\nNo ad account selected yet. "
-                         "The user should select one from the right panel, or you can list "
-                         "available accounts from the Available Accounts section below.")
+            parts.append("\n## Active Context\nNo Meta ad account selected. "
+                         "The user can connect one via the Connect button in the top bar.")
 
         # ── 2. Available accounts (cached, skipped when context is set) ───────
         # Only inject the full account list when no ad account is selected yet.
@@ -457,10 +439,10 @@ class ClaudeAgent:
             yield _sse({"type": "error", "message": f"Database error: {exc}"})
             return
 
-        # 2. Load history
+        # 2. Load history (keep last 6 turns to reduce token usage)
         try:
             history = await self.get_conversation_messages(
-                conversation_id, db, limit=10
+                conversation_id, db, limit=6
             )
         except Exception as exc:
             logger.error("Failed to load conversation history: %s", exc)
@@ -485,7 +467,11 @@ class ClaudeAgent:
         if not messages or messages[-1].get("content") != user_message:
             messages.append({"role": "user", "content": user_message})
 
-        tool_definitions = self.get_tool_definitions()
+        # Only expose Meta tools when a Meta account is actually linked.
+        # Without a connected account the tools would fail and the AI tends to
+        # call them anyway for simple messages, producing no visible text reply.
+        meta_connected = bool(session_data.get("meta_user_id"))
+        tool_definitions = self.get_tool_definitions() if meta_connected else []
         full_response_text = ""
         total_input_tokens = 0
         total_output_tokens = 0
@@ -518,14 +504,16 @@ class ClaudeAgent:
                     # conversation pay ~10% of the normal input token price.
                     cached_system = [{"type": "text", "text": system_prompt,
                                       "cache_control": {"type": "ephemeral"}}]
-                    async with self.client.messages.stream(
+                    claude_kwargs: dict = dict(
                         model=self.model,
                         max_tokens=self.max_tokens,
                         system=cached_system,
                         messages=messages,
-                        tools=tool_definitions,
                         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-                    ) as stream:
+                    )
+                    if tool_definitions:
+                        claude_kwargs["tools"] = tool_definitions
+                    async with self.client.messages.stream(**claude_kwargs) as stream:
                         current_tool_id: Optional[str] = None
                         current_tool_name: Optional[str] = None
                         current_tool_input_parts: list[str] = []
@@ -611,14 +599,18 @@ class ClaudeAgent:
                     stop_reason = "end_turn"  # default; updated by finish_reason
                     turn_in_oai = 0
                     turn_out_oai = 0
-                    async for chunk in await self._openai_client.chat.completions.create(
+                    create_kwargs: dict = dict(
                         model=self.model,
                         max_tokens=self.max_tokens,
                         messages=oai_messages,
-                        tools=oai_tools if oai_tools else None,
-                        tool_choice="auto" if oai_tools else None,
                         stream=True,
                         stream_options={"include_usage": True},
+                    )
+                    if oai_tools:
+                        create_kwargs["tools"] = oai_tools
+                        create_kwargs["tool_choice"] = "auto"
+                    async for chunk in await self._openai_client.chat.completions.create(
+                        **create_kwargs
                     ):
                         choice = chunk.choices[0] if chunk.choices else None
                         if choice is None:
@@ -781,6 +773,13 @@ class ClaudeAgent:
                 }
             )
             full_response_text += "\n\n[Max tool-use turns reached. Stopping.]"
+
+        # Guard: if the AI produced no text at all (e.g. only ran tools with no follow-up),
+        # emit a short fallback so the user isn't left with an empty chat bubble.
+        if not full_response_text.strip():
+            fallback = "I'm here! How can I help you?"
+            full_response_text = fallback
+            yield _sse({"type": "text", "text": fallback})
 
         # 7. Save assistant response to DB
         try:
