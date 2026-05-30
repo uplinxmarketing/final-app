@@ -916,6 +916,7 @@ class StaffCreateReq(BaseModel):
     first_name: str
     last_name: str
     email: str
+    username: Optional[str] = None
     password: str
     phone: Optional[str] = None
     role_id: Optional[int] = None
@@ -927,6 +928,7 @@ class StaffUpdateReq(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
+    username: Optional[str] = None
     phone: Optional[str] = None
     linkedin: Optional[str] = None
     role_id: Optional[int] = None
@@ -957,9 +959,15 @@ async def create_staff(
     existing = await db.execute(select(StaffMember).where(StaffMember.email == req.email.lower()))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Email already in use")
+    uname = (req.username or "").strip() or None
+    if uname:
+        dupe = await db.execute(select(StaffMember).where(StaffMember.username == uname))
+        if dupe.scalar_one_or_none():
+            raise HTTPException(400, "Username already in use")
     s = StaffMember(
         first_name=req.first_name, last_name=req.last_name,
-        email=req.email.lower().strip(), hashed_password=_hash_pw(req.password),
+        email=req.email.lower().strip(), username=uname,
+        hashed_password=_hash_pw(req.password),
         phone=req.phone, role_id=req.role_id, is_admin=req.is_admin, is_active=req.is_active,
     )
     db.add(s)
@@ -994,6 +1002,14 @@ async def update_staff(
     if req.first_name is not None: s.first_name = req.first_name
     if req.last_name is not None: s.last_name = req.last_name
     if req.email is not None: s.email = req.email.lower().strip()
+    if req.username is not None:
+        uname = req.username.strip() or None
+        if uname:
+            dupe = await db.execute(select(StaffMember).where(
+                StaffMember.username == uname, StaffMember.id != staff_id))
+            if dupe.scalar_one_or_none():
+                raise HTTPException(400, "Username already in use")
+        s.username = uname
     if req.phone is not None: s.phone = req.phone
     if req.linkedin is not None: s.linkedin = req.linkedin
     if req.role_id is not None: s.role_id = req.role_id
