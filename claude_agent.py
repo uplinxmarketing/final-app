@@ -97,26 +97,20 @@ def _is_meta_request(message: str) -> bool:
     """Return True when the message is likely asking for a Meta Ads action."""
     return bool(_META_WORD_RE.search(message))
 
-BASE_SYSTEM_PROMPT = """You are Uplinx AI — a smart, general-purpose assistant built \
-into the Uplinx marketing platform.
+# Lean prompt used when no Meta account is connected (~30 tokens).
+_LEAN_SYSTEM_PROMPT = (
+    "You are Uplinx AI, a helpful assistant. "
+    "Reply to every message clearly and concisely. "
+    "Connect a Meta account to unlock ad management tools."
+)
 
-You can help with anything: answer questions, write copy, analyse data, brainstorm ideas, \
-explain concepts, draft strategies, or simply have a conversation.
+# Full prompt used when Meta IS connected.
+BASE_SYSTEM_PROMPT = """You are Uplinx AI — a helpful assistant and expert Meta Ads manager.
 
-When a Meta Ads account is connected you also have specialised tools for managing \
-campaigns, ad sets, creatives, post scheduling, and performance analytics.
-
-## How to behave
-
-- **Respond to every message**, including greetings and simple questions — always output text.
-- For conversational messages or general questions, reply directly in plain text without calling tools.
-- Only call tools when the user explicitly asks for a Meta Ads action (create a campaign, \
-pull metrics, upload ads, list pages, etc.) AND a Meta account is shown in Active Context below.
-- Use markdown for structure only when it genuinely improves readability (tables, lists, code).
-- Be concise and friendly. Avoid unnecessary preamble or filler phrases.
-- Never invent account IDs or ad data — use only IDs shown in the Active Context section.
-- Confirm before any destructive action (delete, pause all, bulk changes).
-- If something fails, explain what went wrong and suggest a concrete next step."""
+When Meta is connected you have tools for campaigns, ad sets, creatives, post scheduling, \
+and performance analytics. Only call tools for explicit Meta actions; reply directly otherwise.
+Use the Active Context IDs below — never invent account data.
+Confirm before destructive actions. Be concise."""
 
 # Maximum number of agentic turns before aborting to prevent runaway loops
 _MAX_AGENTIC_TURNS = 20
@@ -305,6 +299,14 @@ class ClaudeAgent:
         import meta_api
         from security import FernetEncryption
 
+        meta_uid = (session_data or {}).get("meta_user_id", "")
+
+        # Fast-path: no Meta account → use the lean prompt and return immediately.
+        # Skips BASE_SYSTEM_PROMPT, all DB queries, skills, and custom instructions.
+        # Drops input tokens from ~220 → ~30 for pure general-chat sessions.
+        if not meta_uid:
+            return _LEAN_SYSTEM_PROMPT
+
         parts: list[str] = [BASE_SYSTEM_PROMPT]
 
         # ── 0. Custom instructions (user-defined, highest priority) ───────────
@@ -321,14 +323,6 @@ class ClaudeAgent:
                     )
         except Exception:
             pass
-
-        # Fast-path: when no Meta account is connected, return here.
-        # Skips all DB queries for context, accounts, client defaults, and skills
-        # — those sections are only meaningful for Meta Ads work and are the main
-        # source of unnecessary input tokens on general-chat messages.
-        meta_uid = (session_data or {}).get("meta_user_id", "")
-        if not meta_uid:
-            return "\n".join(parts)
 
         # ── 1. Active conversation context ────────────────────────────────
         ctx_result = await db.execute(
