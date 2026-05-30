@@ -10,18 +10,19 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
 :root{
-  --primary:#2563eb;--primary-h:#1d4ed8;
-  --sb-bg:#1e2a3b;--sb-hover:#253448;--sb-active:#2563eb;
-  --sb-text:#94a3b8;--sb-text-a:#ffffff;
+  --primary:#dc2626;--primary-h:#b91c1c;
+  --sb-bg:#fff5f5;--sb-hover:#fee2e2;--sb-active:rgba(220,38,38,.1);
+  --sb-text:#6b7280;--sb-text-a:#dc2626;
   --sb-w:250px;--sb-c:60px;--tb-h:60px;
-  --bg:#f0f2f5;--white:#ffffff;--border:#e5e7eb;
+  --bg:#f9fafb;--bg2:#fff5f5;--white:#ffffff;--border:#e5e7eb;
   --text:#1f2937;--muted:#6b7280;
   --success:#10b981;--warning:#f59e0b;--danger:#ef4444;--info:#3b82f6;
-  --r:8px;--sh:0 1px 3px rgba(0,0,0,.1);--sh-md:0 4px 12px rgba(0,0,0,.12);--sh-lg:0 10px 30px rgba(0,0,0,.18);
+  --accent:#dc2626;--accent-soft:rgba(220,38,38,.08);
+  --r:8px;--sh:0 1px 3px rgba(0,0,0,.08);--sh-md:0 4px 12px rgba(0,0,0,.1);--sh-lg:0 10px 30px rgba(0,0,0,.15);
   --tr:all .18s ease;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit}
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -43,7 +44,7 @@ button{font-family:inherit}
 .fg{margin-bottom:16px}
 .fg label{display:block;font-weight:500;font-size:13px;margin-bottom:5px;color:var(--text)}
 .fc{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--r);font-size:14px;transition:var(--tr);background:white;color:var(--text);font-family:inherit}
-.fc:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.fc:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(220,38,38,.1)}
 select.fc{cursor:pointer}
 textarea.fc{resize:vertical;min-height:80px}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -70,17 +71,17 @@ textarea.fc{resize:vertical;min-height:80px}
 #app{display:none}
 
 /* ── TOPBAR ── */
-#topbar{position:fixed;top:0;left:0;right:0;height:var(--tb-h);background:#fff;border-bottom:1px solid var(--border);z-index:1000;display:flex;align-items:center;padding:0 14px;gap:8px;box-shadow:var(--sh)}
+#topbar{position:fixed;top:0;left:0;right:0;height:var(--tb-h);background:#fff;border-bottom:1px solid #fca5a5;z-index:1000;display:flex;align-items:center;padding:0 14px;gap:8px;box-shadow:0 1px 3px rgba(220,38,38,.08)}
 .tb-hbg{width:38px;height:38px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;border-radius:7px;flex-shrink:0;transition:var(--tr)}
 .tb-hbg:hover{background:var(--bg)}
 .tb-hbg span{display:block;width:19px;height:2px;background:var(--text);border-radius:2px;transition:var(--tr)}
-.tb-logo{font-size:17px;font-weight:700;color:var(--primary);flex-shrink:0;letter-spacing:-.3px;cursor:pointer}
-.tb-logo i{margin-right:2px}
+.tb-logo{font-size:17px;font-weight:700;color:var(--primary);font-family:'Syne',sans-serif;flex-shrink:0;letter-spacing:.5px;cursor:pointer}
+.tb-logo i{margin-right:4px}
 
 /* Search */
 .tb-search{flex:1;max-width:380px;margin:0 10px;position:relative}
 .tb-search input{width:100%;padding:8px 12px 8px 34px;border:1.5px solid var(--border);border-radius:20px;font-size:13px;background:var(--bg);transition:var(--tr);font-family:inherit}
-.tb-search input:focus{outline:none;background:#fff;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.tb-search input:focus{outline:none;background:#fff;border-color:var(--primary);box-shadow:0 0 0 3px rgba(220,38,38,.1)}
 .tb-search .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px;pointer-events:none}
 .sr{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh-lg);max-height:380px;overflow-y:auto;display:none;z-index:2500}
 .sr.show{display:block}
@@ -121,7 +122,7 @@ textarea.fc{resize:vertical;min-height:80px}
 .ni-list{max-height:360px;overflow-y:auto}
 .ni{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:10px;cursor:pointer;transition:var(--tr)}
 .ni:hover{background:var(--bg)}
-.ni.unread{background:#eff6ff}
+.ni.unread{background:#fff5f5}
 .ni-av{width:34px;height:34px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0}
 .ni-body{flex:1;min-width:0}
 .ni-txt{font-size:13px;color:var(--text);line-height:1.4}
@@ -135,40 +136,40 @@ textarea.fc{resize:vertical;min-height:80px}
 .u-av{width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;cursor:pointer}
 
 /* ── SIDEBAR ── */
-#sidebar{position:fixed;top:var(--tb-h);left:0;bottom:0;width:var(--sb-w);background:var(--sb-bg);z-index:900;overflow-y:auto;overflow-x:hidden;transition:width .22s ease;display:flex;flex-direction:column}
+#sidebar{position:fixed;top:var(--tb-h);left:0;bottom:0;width:var(--sb-w);background:var(--sb-bg);border-right:1px solid #fca5a5;z-index:900;overflow-y:auto;overflow-x:hidden;transition:width .22s ease;display:flex;flex-direction:column}
 #sidebar.collapsed{width:var(--sb-c)}
-.sb-user{padding:14px 10px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:9px;cursor:pointer;transition:var(--tr);position:relative}
+.sb-user{padding:14px 10px;border-bottom:1px solid #fca5a5;display:flex;align-items:center;gap:9px;cursor:pointer;transition:var(--tr);position:relative}
 .sb-user:hover{background:var(--sb-hover)}
 .sb-uinfo{flex:1;min-width:0;overflow:hidden}
-.sb-uname{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sb-urole{font-size:11px;color:var(--sb-text);white-space:nowrap}
+.sb-uname{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-urole{font-size:11px;color:var(--muted);white-space:nowrap}
 #sidebar.collapsed .sb-uinfo,#sidebar.collapsed .sb-uchev{display:none}
 .sb-nav{flex:1;padding:6px 0}
 .ni-item{display:flex;align-items:center;gap:11px;padding:9px 13px;color:var(--sb-text);cursor:pointer;transition:var(--tr);user-select:none;position:relative;white-space:nowrap}
-.ni-item:hover{background:var(--sb-hover);color:#fff}
-.ni-item.active{background:var(--sb-active);color:#fff}
+.ni-item:hover{background:var(--sb-hover);color:var(--text)}
+.ni-item.active{background:var(--sb-active);color:var(--primary);font-weight:600}
 .ni-ico{width:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px}
 .ni-lbl{flex:1;font-size:13px;font-weight:500;overflow:hidden}
 #sidebar.collapsed .ni-lbl,#sidebar.collapsed .ni-chev,#sidebar.collapsed .ni-badge{display:none}
 .ni-chev{font-size:10px;transition:transform .18s}
 .ni-item.open .ni-chev{transform:rotate(90deg)}
-.ni-children{display:none;background:rgba(0,0,0,.18)}
+.ni-children{display:none;background:rgba(220,38,38,.03)}
 .ni-item.open + .ni-children{display:block}
-.ni-child{display:flex;align-items:center;gap:8px;padding:7px 13px 7px 44px;color:var(--sb-text);cursor:pointer;font-size:12px;transition:var(--tr);white-space:nowrap}
-.ni-child:hover{background:var(--sb-hover);color:#fff}
-.ni-child.active{color:#fff;background:rgba(37,99,235,.35)}
+.ni-child{display:flex;align-items:center;gap:8px;padding:7px 13px 7px 44px;color:var(--muted);cursor:pointer;font-size:12px;transition:var(--tr);white-space:nowrap}
+.ni-child:hover{background:var(--sb-hover);color:var(--text)}
+.ni-child.active{color:var(--primary);background:rgba(220,38,38,.1);font-weight:600}
 .ni-child i{width:14px;font-size:12px;flex-shrink:0}
 #sidebar.collapsed .ni-children{display:none!important}
-.sb-div{height:1px;background:rgba(255,255,255,.07);margin:6px 0}
+.sb-div{height:1px;background:#fca5a5;margin:6px 0}
 .sb-tip{display:none;position:absolute;left:calc(var(--sb-c) + 6px);top:50%;transform:translateY(-50%);background:rgba(0,0,0,.85);color:#fff;padding:4px 9px;border-radius:5px;font-size:12px;white-space:nowrap;pointer-events:none;z-index:1200}
 #sidebar.collapsed .ni-item:hover .sb-tip{display:block}
 /* Section labels inside collapsed groups */
-.ni-section{padding:6px 13px 3px 44px;font-size:10px;font-weight:700;color:rgba(148,163,184,.55);text-transform:uppercase;letter-spacing:.6px;pointer-events:none;white-space:nowrap}
+.ni-section{padding:6px 13px 3px 44px;font-size:10px;font-weight:700;color:var(--muted);opacity:.7;text-transform:uppercase;letter-spacing:.6px;pointer-events:none;white-space:nowrap}
 /* Setup hover-only mode */
 #sidebar.setup-hover .ni-item[data-g="setup"]{opacity:0;pointer-events:none;transition:opacity .18s}
 #sidebar.setup-hover:hover .ni-item[data-g="setup"]{opacity:1;pointer-events:auto}
 /* My Account section at bottom */
-.sb-bottom{border-top:1px solid rgba(255,255,255,.07);padding:4px 0 6px}
+.sb-bottom{border-top:1px solid #fca5a5;padding:4px 0 6px}
 
 /* ── MAIN ── */
 #main{margin-left:var(--sb-w);margin-top:var(--tb-h);min-height:calc(100vh - var(--tb-h));transition:margin-left .22s ease;padding:22px}
@@ -201,7 +202,7 @@ textarea.fc{resize:vertical;min-height:80px}
 .filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 /* Form fields */
 .field-input,.inp{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--r);font-size:14px;transition:var(--tr);background:#fff;color:var(--text);font-family:inherit}
-.field-input:focus,.inp:focus,.fc:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
+.field-input:focus,.inp:focus,.fc:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(220,38,38,.12)}
 .lbl,.field-label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
 /* Buttons */
 .btn-sec{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:#fff;color:var(--text);transition:var(--tr);white-space:nowrap;font-family:inherit;text-decoration:none}
@@ -407,7 +408,7 @@ tbody tr:hover .ta{opacity:1}
 .dov-list{list-style:none;padding:0;margin:0;max-height:420px;overflow-y:auto}
 .dov-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px;user-select:none}
 .dov-item.dragging{opacity:.4}
-.dov-item.drag-over{border-top:2px solid var(--primary);background:#eff6ff}
+.dov-item.drag-over{border-top:2px solid var(--primary);background:rgba(220,38,38,.06)}
 .dov-drag{cursor:grab;color:var(--muted);flex-shrink:0;font-size:13px}
 .dov-drag:active{cursor:grabbing}
 .dov-lbl{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer}
@@ -1393,7 +1394,7 @@ function pgDashboard(){
 
 async function pgCustomers() {
   return `<div class="pg-hdr">
-    <h1 class="pg-title"><i class="fa-solid fa-building" style="color:#6366f1"></i> Customers</h1>
+    <h1 class="pg-title"><i class="fa-solid fa-building" style="color:#dc2626"></i> Customers</h1>
     <div style="display:flex;gap:8px">
       ${hasPerm('customers','create') ? `<button class="btn-pri" onclick="openCustomerModal()"><i class="fa-solid fa-plus"></i> New Customer</button>` : ''}
     </div>
@@ -1464,7 +1465,7 @@ function customerModal(c) {
             <div class="fg"><label class="lbl">COUNTRY</label><input id="cm-country" class="fc" list="country-list" value="${esc(c?.country||'')}"></div>
           </div>
           <details style="margin-top:12px">
-            <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#6366f1">Billing Address <span style="font-weight:400;color:#9ca3af">(if different)</span></summary>
+            <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#dc2626">Billing Address <span style="font-weight:400;color:#9ca3af">(if different)</span></summary>
             <div style="margin-top:10px">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#6b7280;margin-bottom:8px;cursor:pointer">
                 <input type="checkbox" id="cm-bill-same" onchange="copyMainToBilling(this.checked)" ${!c?.billing_address?' checked':''}> Same as main address
@@ -1491,10 +1492,10 @@ function customerModal(c) {
           ` : ''}
           <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin:${isEdit?'0':16}px 0 12px">Status</div>
           <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-bottom:10px">
-            <input type="checkbox" id="cm-active" ${c?.is_active!==false?' checked':''} style="accent-color:#6366f1"> Active
+            <input type="checkbox" id="cm-active" ${c?.is_active!==false?' checked':''} style="accent-color:#dc2626"> Active
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">
-            <input type="checkbox" id="cm-portal" ${c?.allow_portal_login?' checked':''} style="accent-color:#6366f1"> Allow portal login
+            <input type="checkbox" id="cm-portal" ${c?.allow_portal_login?' checked':''} style="accent-color:#dc2626"> Allow portal login
           </label>
         </div>
       </div>
@@ -1691,7 +1692,7 @@ async function pgCustomerDetail() {
   </div>
   <!-- Tabs -->
   <div class="tab-bar" style="display:flex;gap:0;border-bottom:2px solid #f3f4f6;margin-bottom:20px;overflow-x:auto">
-    ${tabs.map(t=>`<button class="tab-btn${_custDetailTab===t.id?' active':''}" onclick="setCustTab('${t.id}')" style="padding:10px 16px;font-size:13px;font-weight:500;background:none;border:none;border-bottom:2px solid ${_custDetailTab===t.id?'#6366f1':'transparent'};color:${_custDetailTab===t.id?'#6366f1':'#6b7280'};cursor:pointer;white-space:nowrap;margin-bottom:-2px">
+    ${tabs.map(t=>`<button class="tab-btn${_custDetailTab===t.id?' active':''}" onclick="setCustTab('${t.id}')" style="padding:10px 16px;font-size:13px;font-weight:500;background:none;border:none;border-bottom:2px solid ${_custDetailTab===t.id?'#dc2626':'transparent'};color:${_custDetailTab===t.id?'#dc2626':'#6b7280'};cursor:pointer;white-space:nowrap;margin-bottom:-2px">
       <i class="fa-solid ${t.icon}" style="margin-right:6px;font-size:11px"></i>${t.label}
     </button>`).join('')}
   </div>
@@ -1728,8 +1729,8 @@ function setCustTab(tab) {
   if (!c) return;
   document.querySelectorAll('.tab-btn').forEach(btn => {
     const active = btn.textContent.trim().startsWith(tab) || btn.getAttribute('onclick')?.includes(`'${tab}'`);
-    btn.style.borderBottomColor = active ? '#6366f1' : 'transparent';
-    btn.style.color = active ? '#6366f1' : '#6b7280';
+    btn.style.borderBottomColor = active ? '#dc2626' : 'transparent';
+    btn.style.color = active ? '#dc2626' : '#6b7280';
   });
   document.getElementById('cust-tab-content').innerHTML = custTabContent(tab, c, {});
   // Re-run inline scripts (notes panel etc.)
@@ -1746,7 +1747,7 @@ function custTabOverview(c, fin) {
     <div style="display:flex;flex-direction:column;gap:16px">
       <div class="card">
         <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">Company Details</div>
-        ${[['Phone',c.phone],['Website',c.website?`<a href="${esc(c.website)}" target="_blank" style="color:#6366f1">${esc(c.website)}</a>`:null],['VAT',c.vat_number],['Currency',c.currency],['Language',c.language]].filter(([,v])=>v).map(([l,v])=>`
+        ${[['Phone',c.phone],['Website',c.website?`<a href="${esc(c.website)}" target="_blank" style="color:#dc2626">${esc(c.website)}</a>`:null],['VAT',c.vat_number],['Currency',c.currency],['Language',c.language]].filter(([,v])=>v).map(([l,v])=>`
           <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f9fafb;font-size:13px">
             <span style="color:#9ca3af">${l}</span><span style="color:#111;font-weight:500">${v}</span>
           </div>`).join('')}
@@ -1758,7 +1759,7 @@ function custTabOverview(c, fin) {
       ${fin && hasPerm('customers','view_financial_summary') ? `<div class="card">
         <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">Financial Summary</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          ${[['Total Invoiced',fin.total_invoiced,'#374151'],['Total Paid',fin.total_paid,'#16a34a'],['Outstanding',fin.outstanding,'#6366f1'],['Overdue',fin.overdue,'#dc2626']].map(([l,v,col])=>`
+          ${[['Total Invoiced',fin.total_invoiced,'#374151'],['Total Paid',fin.total_paid,'#16a34a'],['Outstanding',fin.outstanding,'#dc2626'],['Overdue',fin.overdue,'#dc2626']].map(([l,v,col])=>`
           <div style="background:#f9fafb;border-radius:8px;padding:14px">
             <div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${l}</div>
             <div style="font-size:18px;font-weight:700;color:${col}">${fmtCur(v)}</div>
@@ -1769,7 +1770,7 @@ function custTabOverview(c, fin) {
         <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Primary Contact</div>
         ${(c.contacts||[]).filter(ct=>ct.is_primary).concat((c.contacts||[]).filter(ct=>!ct.is_primary)).slice(0,1).map(ct=>`
           <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px">${(ct.first_name[0]||'?').toUpperCase()}</div>
+            <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#dc2626,#b91c1c);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px">${(ct.first_name[0]||'?').toUpperCase()}</div>
             <div>
               <div style="font-weight:600;font-size:14px">${esc(ct.full_name)}</div>
               ${ct.email?`<div style="font-size:12px;color:#6b7280">${esc(ct.email)}</div>`:''}
@@ -1816,8 +1817,8 @@ function custTabContacts(c) {
       <div class="fg"><label class="lbl">PHONE</label><input id="ct-phone" class="fc"></div>
       <div class="fg" style="margin-bottom:16px"><label class="lbl">TITLE / ROLE</label><input id="ct-title" class="fc" placeholder="e.g. Marketing Director"></div>
       <div style="display:flex;gap:20px;margin-bottom:20px">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="ct-primary" style="accent-color:#6366f1"> Primary contact</label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="ct-login" style="accent-color:#6366f1"> Can login to portal</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="ct-primary" style="accent-color:#dc2626"> Primary contact</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="ct-login" style="accent-color:#dc2626"> Can login to portal</label>
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button class="btn-sec" onclick="document.getElementById('contact-modal').style.display='none'">Cancel</button>
@@ -2352,7 +2353,7 @@ function renderEstPipeline(container, data) {
         <div style="background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer" onclick="openEstimateDetail(${e.id})">
           <div style="font-weight:600;font-size:13px;margin-bottom:4px">${esc(e.formatted_number)}</div>
           <div style="font-size:12px;color:#6b7280">${esc(e.customer_name || '—')}</div>
-          <div style="font-size:14px;font-weight:700;color:#6366f1;margin-top:6px">${e.currency} ${fmtMoney(e.total)}</div>
+          <div style="font-size:14px;font-weight:700;color:#dc2626;margin-top:6px">${e.currency} ${fmtMoney(e.total)}</div>
         </div>`).join('')}
         ${hasPerm('estimates','create')?`<button class="btn btn-ghost btn-sm" onclick="openEstimateModal(null,'${s}')" style="width:100%;margin-top:4px"><i class="fa-solid fa-plus"></i> Add</button>`:''}
       </div>
@@ -2521,7 +2522,7 @@ function openEstimateModal(data, defaultStatus) {
           <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Tax</span><span id="est-tax">0.00</span></div>
           <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Discount</span><span>-<span id="est-disc-amt">0.00</span></span></div>
           <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#6b7280"><span>Adjustment</span><span id="est-adj-disp">0.00</span></div>
-          <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;padding:8px 0 0;border-top:2px solid var(--border);margin-top:4px"><span>Total</span><span style="color:#6366f1" id="est-total">0.00</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;padding:8px 0 0;border-top:2px solid var(--border);margin-top:4px"><span>Total</span><span style="color:#dc2626" id="est-total">0.00</span></div>
         </div>
       </div>
     </div>
@@ -2529,7 +2530,7 @@ function openEstimateModal(data, defaultStatus) {
     <div style="padding:0 24px 16px">
       <div style="display:flex;gap:2px;border-bottom:2px solid var(--border);margin-bottom:12px">
         ${['client_note','terms','admin_note'].map((t,i)=>`<button class="tab-btn" id="esttab-${t}"
-          onclick="setEstTab('${t}')" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid ${i===0?'#6366f1':'transparent'};color:${i===0?'#6366f1':'#6b7280'};font-size:13px;cursor:pointer;margin-bottom:-2px">
+          onclick="setEstTab('${t}')" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid ${i===0?'#dc2626':'transparent'};color:${i===0?'#dc2626':'#6b7280'};font-size:13px;cursor:pointer;margin-bottom:-2px">
           ${t==='client_note'?'Client Note':t==='terms'?'Terms':'Admin Note (private)'}
         </button>`).join('')}
       </div>
@@ -2552,8 +2553,8 @@ function openEstimateModal(data, defaultStatus) {
 
 function setEstTab(t) {
   ['client_note','terms','admin_note'].forEach(k => {
-    document.getElementById(`esttab-${k}`).style.borderBottomColor = k===t?'#6366f1':'transparent';
-    document.getElementById(`esttab-${k}`).style.color = k===t?'#6366f1':'#6b7280';
+    document.getElementById(`esttab-${k}`).style.borderBottomColor = k===t?'#dc2626':'transparent';
+    document.getElementById(`esttab-${k}`).style.color = k===t?'#dc2626':'#6b7280';
     document.getElementById(`esttabpane-${k}`).style.display = k===t?'block':'none';
   });
 }
@@ -2612,7 +2613,7 @@ async function sendEstimate(id) {
     toast('Estimate sent!', 'success');
     if (d.public_url) {
       const link = d.public_url;
-      toast(`Public link: <a href="${link}" target="_blank" style="color:#6366f1">${link}</a>`, 'info');
+      toast(`Public link: <a href="${link}" target="_blank" style="color:#dc2626">${link}</a>`, 'info');
     }
     loadEstimates();
   } else {
@@ -4036,7 +4037,7 @@ async function loadExpenses() {
       <td style="font-weight:600">${fmtMoney(e.amount,e.currency)}</td>
       <td>${esc(e.customer_name||'—')}</td>
       <td>${e.is_billable?'<span style="color:#10b981">✓</span>':'—'}</td>
-      <td>${e.is_billed?`<a href="#" onclick="nav('invoices')" style="color:#6366f1;font-size:.8rem">Billed</a>`:'—'}</td>
+      <td>${e.is_billed?`<a href="#" onclick="nav('invoices')" style="color:#dc2626;font-size:.8rem">Billed</a>`:'—'}</td>
       <td>
         <button class="btn-icon" title="Edit" onclick="openExpModal(${e.id})"><i class="fa-solid fa-pen"></i></button>
         ${e.is_billable&&!e.is_billed?`<button class="btn-icon" title="Bill now" onclick="billExpense(${e.id})"><i class="fa-solid fa-file-invoice-dollar"></i></button>`:''}
@@ -4220,7 +4221,7 @@ function renderContractsTable(){
   const statusColors={draft:'#94a3b8',active:'#10b981',expired:'#f59e0b',cancelled:'#ef4444'};
   tb.innerHTML=_contractsList.length===0?'<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">No contracts found.</td></tr>':_contractsList.map(c=>`<tr>
     <td><strong>${c.contract_number}</strong></td>
-    <td><a href="#" onclick="viewContractDetail(${c.id});return false" style="color:#6366f1;font-weight:600">${c.subject}</a></td>
+    <td><a href="#" onclick="viewContractDetail(${c.id});return false" style="color:#dc2626;font-weight:600">${c.subject}</a></td>
     <td>${c.customer_name||'—'}</td>
     <td>${c.contract_type||'—'}</td>
     <td>${c.currency} ${c.value!=null?(+c.value).toLocaleString():'—'}</td>
@@ -4536,7 +4537,7 @@ function renderProjOverview(p,color,pct){
       <div class="card">
         <h3 style="margin:0 0 10px">Members</h3>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${(p.member_ids||[]).map(id=>`<div style="width:36px;height:36px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px" title="Staff #${id}">${id}</div>`).join('')||'<span style="color:#94a3b8;font-size:13px">No members</span>'}
+          ${(p.member_ids||[]).map(id=>`<div style="width:36px;height:36px;border-radius:50%;background:#dc2626;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px" title="Staff #${id}">${id}</div>`).join('')||'<span style="color:#94a3b8;font-size:13px">No members</span>'}
         </div>
       </div>
     </div>
@@ -4879,10 +4880,10 @@ function renderTicketsTable(){
   tb.innerHTML=_ticketsList.map(t=>{
     const priColor=t.priority_color||'#94a3b8';
     const stColor=t.status_color||'#94a3b8';
-    const unread=!t.admin_read?'<span style="display:inline-block;width:8px;height:8px;background:#6366f1;border-radius:50%;margin-right:4px"></span>':'';
+    const unread=!t.admin_read?'<span style="display:inline-block;width:8px;height:8px;background:#dc2626;border-radius:50%;margin-right:4px"></span>':'';
     return `<tr style="${!t.admin_read?'font-weight:600':''}" onclick="openTicketDetail(${t.id})" class="clickable-row">
       <td style="font-size:12px;color:#94a3b8">#${t.id}</td>
-      <td>${unread}<a href="#" onclick="openTicketDetail(${t.id});return false" style="color:#6366f1">${esc(t.subject)}</a></td>
+      <td>${unread}<a href="#" onclick="openTicketDetail(${t.id});return false" style="color:#dc2626">${esc(t.subject)}</a></td>
       <td>${t.customer_name||t.name||'—'}</td>
       <td>${t.department_name||'—'}</td>
       <td><span class="badge" style="background:${priColor}20;color:${priColor}">${t.priority_name||'—'}</span></td>
@@ -4990,7 +4991,7 @@ function renderTicketReply(r){
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:32px;height:32px;border-radius:50%;background:${r.is_staff?'#6366f1':'#10b981'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">${(r.author_name||'?')[0].toUpperCase()}</div>
         <div>
-          <div style="font-weight:600;font-size:13px">${esc(r.author_name||'Unknown')}${r.is_staff?'<span style="font-size:10px;color:#6366f1;margin-left:6px">Staff</span>':''}</div>
+          <div style="font-weight:600;font-size:13px">${esc(r.author_name||'Unknown')}${r.is_staff?'<span style="font-size:10px;color:#dc2626;margin-left:6px">Staff</span>':''}</div>
           ${isNote?'<span style="font-size:10px;color:#f59e0b">Internal Note</span>':''}
         </div>
       </div>
@@ -5168,10 +5169,10 @@ function renderKbSidebar() {
       <span style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase">Groups</span>
       <button class="btn-sec btn-sm" onclick="openKbGroupModal(null)"><i class="fa-solid fa-plus"></i></button>
     </div>
-    <div onclick="kbFilterGroup(null)" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:${_kbSelGroup===null?'700':'400'};background:${_kbSelGroup===null?'#eff6ff':'none'};color:${_kbSelGroup===null?'#6366f1':'#374151'}">
+    <div onclick="kbFilterGroup(null)" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:${_kbSelGroup===null?'700':'400'};background:${_kbSelGroup===null?'#fff5f5':'none'};color:${_kbSelGroup===null?'#6366f1':'#374151'}">
       <i class="fa-solid fa-layer-group" style="margin-right:6px;font-size:11px"></i>All Articles
     </div>
-    ${_kbGroups.map(g => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;background:${_kbSelGroup===g.id?'#eff6ff':'none'}" onclick="kbFilterGroup(${g.id})">
+    ${_kbGroups.map(g => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;background:${_kbSelGroup===g.id?'#fff5f5':'none'}" onclick="kbFilterGroup(${g.id})">
       <span style="font-size:13px;font-weight:${_kbSelGroup===g.id?'700':'400'};color:${_kbSelGroup===g.id?'#6366f1':'#374151'}">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color};margin-right:6px"></span>${esc(g.name)}
         <span style="font-size:11px;color:#9ca3af;margin-left:4px">${g.article_count}</span>
@@ -5199,7 +5200,7 @@ function renderKbList() {
       <tbody>
         ${_kbArticles.length === 0 ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">No articles yet</td></tr>` :
           _kbArticles.map(a => `<tr>
-            <td><span style="cursor:pointer;color:#6366f1;font-weight:500" onclick="kbViewArticle(${a.id})">${esc(a.subject)}</span>
+            <td><span style="cursor:pointer;color:#dc2626;font-weight:500" onclick="kbViewArticle(${a.id})">${esc(a.subject)}</span>
               ${a.staff_only ? '<span class="badge badge-yellow" style="font-size:10px;margin-left:6px">Staff Only</span>' : ''}
             </td>
             <td>${a.group_name ? `<span style="font-size:12px;color:#6b7280">${esc(a.group_name)}</span>` : '<span style="color:#9ca3af">—</span>'}</td>
@@ -5523,7 +5524,7 @@ function renderCalMonth() {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday = dateStr === todayStr;
     const evs = calEventsForDate(dateStr);
-    html += `<div style="padding:8px;min-height:90px;border:1px solid #f3f4f6;vertical-align:top;background:${isToday?'#eff6ff':'#fff'}">
+    html += `<div style="padding:8px;min-height:90px;border:1px solid #f3f4f6;vertical-align:top;background:${isToday?'#fff5f5':'#fff'}">
       <div style="font-size:13px;font-weight:${isToday?'700':'500'};color:${isToday?'#6366f1':'#374151'};margin-bottom:4px">${d}</div>
       ${evs.slice(0,3).map(e => `<div style="font-size:10px;background:${e.color};color:#fff;border-radius:3px;padding:2px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}
       ${evs.length > 3 ? `<div style="font-size:10px;color:#9ca3af">+${evs.length-3} more</div>` : ''}
@@ -5554,7 +5555,7 @@ function renderCalWeek() {
         const ds = d.toISOString().split('T')[0];
         const isToday = ds === todayStr;
         const evs = calEventsForDate(ds);
-        return `<div style="padding:12px;border:1px solid #f3f4f6;min-height:120px;background:${isToday?'#eff6ff':'#fff'}">
+        return `<div style="padding:12px;border:1px solid #f3f4f6;min-height:120px;background:${isToday?'#fff5f5':'#fff'}">
           <div style="font-size:13px;font-weight:${isToday?'700':'500'};color:${isToday?'#6366f1':'#374151'};margin-bottom:8px">
             ${d.toLocaleDateString('default',{weekday:'short'})} ${d.getDate()}
           </div>
@@ -5634,7 +5635,7 @@ function renderVaultTab() {
   const el = document.getElementById('vault-tab-wrap');
   if (!el) return;
   el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <h3 style="margin:0;font-size:15px;font-weight:600"><i class="fa-solid fa-vault" style="margin-right:8px;color:#6366f1"></i>Credential Vault</h3>
+    <h3 style="margin:0;font-size:15px;font-weight:600"><i class="fa-solid fa-vault" style="margin-right:8px;color:#dc2626"></i>Credential Vault</h3>
     <button class="btn-pri btn-sm" onclick="openVaultModal(null)"><i class="fa-solid fa-plus"></i> Add Entry</button>
   </div>
   ${_vaultEntries.length === 0 ? `<div class="card" style="text-align:center;padding:40px;color:#9ca3af"><i class="fa-solid fa-vault" style="font-size:28px;display:block;margin-bottom:12px"></i><p>No credentials stored yet</p></div>` :
@@ -5684,7 +5685,7 @@ function renderVaultTab() {
   </div>
   <div id="vault-reveal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1001;align-items:center;justify-content:center">
     <div style="background:#fff;border-radius:12px;width:100%;max-width:420px;padding:28px">
-      <h3 style="margin:0 0 16px"><i class="fa-solid fa-shield-halved" style="color:#6366f1;margin-right:8px"></i>Re-authenticate</h3>
+      <h3 style="margin:0 0 16px"><i class="fa-solid fa-shield-halved" style="color:#dc2626;margin-right:8px"></i>Re-authenticate</h3>
       <p style="font-size:13px;color:#6b7280;margin-bottom:16px">Enter your password to reveal this credential.</p>
       <input id="vault-reveal-pw" type="password" class="fc" placeholder="Your password" style="margin-bottom:16px">
       <div id="vault-revealed-data" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;word-break:break-all"></div>
@@ -5877,7 +5878,7 @@ function toggleGoalStaffPicker() {
 function renderGoalStaffOptions(selectedIds) {
   const el = document.getElementById('goal-staff-options');
   if (!el) return;
-  el.innerHTML = _goalStaffList.map(s => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;background:${selectedIds.includes(s.id)?'#eff6ff':'#fff'}">
+  el.innerHTML = _goalStaffList.map(s => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;background:${selectedIds.includes(s.id)?'#fff5f5':'#fff'}">
     <input type="checkbox" value="${s.id}" ${selectedIds.includes(s.id)?'checked':''} onchange=""> ${esc(s.full_name)}
   </label>`).join('');
 }
@@ -6491,7 +6492,7 @@ function renderStaffApps() {
     ${apps.map(a => `<div class="card" style="padding:16px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="display:flex;align-items:center;gap:12px">
-          <i class="fa-solid ${a.icon||'fa-grid-2'}" style="font-size:20px;color:#6366f1;width:32px;text-align:center"></i>
+          <i class="fa-solid ${a.icon||'fa-grid-2'}" style="font-size:20px;color:#dc2626;width:32px;text-align:center"></i>
           <div>
             <div style="font-weight:600;font-size:14px">${esc(a.name)}</div>
             <div style="font-size:12px;color:#9ca3af">${a.client_ids.length} clients granted</div>
@@ -6590,7 +6591,7 @@ async function loadStaffProjects(staffId) {
       <thead><tr><th>Project</th><th>Client</th><th>Status</th><th>Deadline</th></tr></thead>
       <tbody>${projs.length===0?`<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:32px">No projects</td></tr>`:
         projs.map(p=>`<tr>
-          <td style="font-weight:500;cursor:pointer;color:#6366f1" onclick="openProjectDetail(${p.id})">${esc(p.name)}</td>
+          <td style="font-weight:500;cursor:pointer;color:#dc2626" onclick="openProjectDetail(${p.id})">${esc(p.name)}</td>
           <td style="font-size:12px;color:#6b7280">${esc(p.customer_name||'—')}</td>
           <td><span class="badge badge-${p.status==='in_progress'?'blue':p.status==='finished'?'green':'gray'}">${p.status}</span></td>
           <td style="font-size:12px;color:#9ca3af">${p.deadline?new Date(p.deadline).toLocaleDateString():'—'}</td>
@@ -6901,7 +6902,7 @@ function selectRole(id) {
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:${canEdit?'pointer':'default'}">
               <input type="checkbox" ${perms[mod]?.[cap]?'checked':''} ${canEdit?'':'disabled'}
                 onchange="toggleRolePerm(${r.id},'${mod}','${cap}',this.checked)"
-                style="accent-color:#6366f1;width:14px;height:14px">
+                style="accent-color:#dc2626;width:14px;height:14px">
               ${capLabel}
             </label>`).join('')}
         </div>
@@ -7027,7 +7028,7 @@ function renderEtSidebar() {
   el.innerHTML = Object.keys(ET_GROUP_LABELS).map(g => {
     const count = (_etGroups[g] || []).length;
     if (count === 0) return '';
-    return `<div onclick="etSelectGroup('${g}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_etSelGroup===g?'#eff6ff':'none'}">
+    return `<div onclick="etSelectGroup('${g}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_etSelGroup===g?'#fff5f5':'none'}">
       <span style="font-size:13px;font-weight:${_etSelGroup===g?'600':'400'};color:${_etSelGroup===g?'#6366f1':'#374151'}">${ET_GROUP_LABELS[g]||g}</span>
       <span style="font-size:11px;color:#9ca3af">${count}</span>
     </div>`;
@@ -7133,7 +7134,7 @@ function renderEtEditor() {
         <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Available Merge Tags</div>
         <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">Click to copy · paste into subject or body</div>
         <div style="display:flex;flex-direction:column;gap:4px;max-height:460px;overflow-y:auto">
-          ${allTags.map(tag => `<button onclick="etInsertTag('${tag}')" style="text-align:left;padding:5px 8px;font-size:11px;font-family:monospace;background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;color:#6366f1;transition:background .15s" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#f8fafc'">${tag}</button>`).join('')}
+          ${allTags.map(tag => `<button onclick="etInsertTag('${tag}')" style="text-align:left;padding:5px 8px;font-size:11px;font-family:monospace;background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;color:#dc2626;transition:background .15s" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='#f8fafc'">${tag}</button>`).join('')}
         </div>
       </div>
     </div>
@@ -7215,7 +7216,7 @@ async function initSettings() {
 function renderSettingsSidebar() {
   const el = document.getElementById('settings-sidebar');
   if (!el) return;
-  el.innerHTML = SETTINGS_CATEGORIES.map(c => `<div onclick="setSettingsCat('${c.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_settingsCat===c.id?'#eff6ff':'none'}">
+  el.innerHTML = SETTINGS_CATEGORIES.map(c => `<div onclick="setSettingsCat('${c.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;background:${_settingsCat===c.id?'#fff5f5':'none'}">
     <i class="fa-solid ${c.icon}" style="font-size:12px;color:${_settingsCat===c.id?'#6366f1':'#9ca3af'};width:14px;text-align:center"></i>
     <span style="font-size:13px;font-weight:${_settingsCat===c.id?'600':'400'};color:${_settingsCat===c.id?'#6366f1':'#374151'}">${c.label}</span>
   </div>`).join('');
@@ -7438,7 +7439,7 @@ function pgProfile(){
   <button class="btn-pri" onclick="nav('edit-profile')"><i class="fa-solid fa-pen"></i> Edit Profile</button></div>
   <div style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start">
     <div class="card" style="text-align:center;padding:32px 24px">
-      <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;margin:0 auto 16px">
+      <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#dc2626,#b91c1c);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;margin:0 auto 16px">
         ${CU.profile_photo ? `<img src="${CU.profile_photo}" style="width:80px;height:80px;border-radius:50%;object-fit:cover">` : initials}
       </div>
       <div style="font-size:18px;font-weight:700;color:#111">${CU.full_name || CU.email}</div>
@@ -7669,7 +7670,7 @@ function renderAppGrid(apps) {
       style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 10px;border-radius:10px;text-decoration:none;color:#374151;transition:background .15s;cursor:pointer"
       onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background=''"
       onclick="closeAll()">
-      <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px">
+      <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#dc2626,#b91c1c);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px">
         <i class="${iconClass(a.icon)}"></i>
       </div>
       <div style="font-size:12px;font-weight:600;text-align:center;max-width:80px;line-height:1.3">${a.name}</div>
@@ -8941,7 +8942,7 @@ function wMyReminders(s) {
   const rs = s.my_reminders || [];
   if (!rs.length) return `<div class="es" style="padding:24px 0"><i class="fa-solid fa-bell"></i><p>No upcoming reminders</p></div>`;
   return `${rs.map(r => `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-    <div style="width:34px;height:34px;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+    <div style="width:34px;height:34px;border-radius:8px;background:rgba(220,38,38,.08);display:flex;align-items:center;justify-content:center;flex-shrink:0">
       <i class="fa-solid fa-bell" style="color:var(--primary)"></i>
     </div>
     <div style="flex:1;min-width:0">
