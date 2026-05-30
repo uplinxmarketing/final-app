@@ -83,20 +83,19 @@ def invalidate_account_cache(uid: str) -> None:
     _account_cache.pop(uid, None)
 
 
-_META_KEYWORDS = frozenset({
-    "campaign", "ad set", "adset", "ad account", "creative", "pixel",
-    "facebook", "instagram", "meta", "impression", "click", "cpm", "cpc",
-    "roas", "budget", "audience", "targeting", "placement", "post",
-    "schedule", "reel", "upload", "story", "feed", "analytics", "report",
-    "metric", "spend", "conversion", "lead", "traffic", "awareness",
-    "objective", "pause", "activate", "create ad", "list ad",
-})
+import re as _re
+_META_WORD_RE = _re.compile(
+    r'\b(ads?|campaign|adset|ad\s+set|ad\s+account|creative|pixel|facebook|instagram|'
+    r'meta\s+ads?|impression|cpm|cpc|ctr|roas|budget|audience|targeting|placement|'
+    r'schedule|reel|upload|analytics|report|spend|conversion|lead|traffic|awareness|'
+    r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload)\b',
+    _re.IGNORECASE,
+)
 
 
 def _is_meta_request(message: str) -> bool:
     """Return True when the message is likely asking for a Meta Ads action."""
-    lower = message.lower()
-    return any(kw in lower for kw in _META_KEYWORDS)
+    return bool(_META_WORD_RE.search(message))
 
 BASE_SYSTEM_PROMPT = """You are Uplinx AI — a smart, general-purpose assistant built \
 into the Uplinx marketing platform.
@@ -323,6 +322,14 @@ class ClaudeAgent:
         except Exception:
             pass
 
+        # Fast-path: when no Meta account is connected, return here.
+        # Skips all DB queries for context, accounts, client defaults, and skills
+        # — those sections are only meaningful for Meta Ads work and are the main
+        # source of unnecessary input tokens on general-chat messages.
+        meta_uid = (session_data or {}).get("meta_user_id", "")
+        if not meta_uid:
+            return "\n".join(parts)
+
         # ── 1. Active conversation context ────────────────────────────────
         ctx_result = await db.execute(
             select(ActiveContext).where(ActiveContext.conversation_id == conversation_id)
@@ -352,51 +359,35 @@ class ClaudeAgent:
 
         if active_lines:
             parts.append("\n## Active Context\n" + "\n".join(active_lines))
-        # Skip the section entirely when nothing is set — no tokens wasted.
 
-        # ── 2. Available accounts (cached, skipped when context is set) ───────
-        # Only inject the full account list when no ad account is selected yet.
-        # When the user has a context set, the AI already has the IDs it needs
-        # above — fetching the full list every message wastes Meta API quota
-        # and adds latency.  When we do fetch, results are cached for 10 min.
+        # ── 2. Available accounts (only when no full context set yet) ─────────
         context_complete = (
             ctx is not None
             and ctx.selected_ad_account_id
             and ctx.selected_page_id
         )
         try:
-            uid = (session_data or {}).get("meta_user_id", "")
-            if uid and not context_complete:
+            if not context_complete:
                 enc = FernetEncryption()
                 acc_result = await db.execute(
                     select(ConnectedMetaAccount).where(
-                        ConnectedMetaAccount.facebook_user_id == uid,
+                        ConnectedMetaAccount.facebook_user_id == meta_uid,
                         ConnectedMetaAccount.is_active == True,
                     )
                 )
                 meta_acc = acc_result.scalar_one_or_none()
                 if meta_acc:
                     token = enc.decrypt(meta_acc.encrypted_long_token)
-                    cached = await _get_cached_meta_accounts(uid, token)
+                    cached = await _get_cached_meta_accounts(meta_uid, token)
                     account_lines: list[str] = [
-                        f"Connected as: {meta_acc.user_name or uid}"
+                        f"Connected as: {meta_acc.user_name or meta_uid}"
                     ]
-                    accounts = cached["ad_accounts"]
-                    if accounts:
-                        account_lines.append("\n**Ad Accounts:**")
-                        for a in accounts[:10]:  # cap at 10 to keep prompt lean
-                            account_lines.append(
-                                f"  - {a.get('name', a.get('account_id', '?'))} "
-                                f"| ID: {a.get('id','?')} "
-                                f"| Currency: {a.get('currency','?')}"
-                            )
-                    pages = cached["pages"]
-                    if pages:
-                        account_lines.append("\n**Facebook Pages:**")
-                        for p in pages[:10]:  # cap at 10
-                            account_lines.append(
-                                f"  - {p.get('name','?')} | ID: {p.get('id','?')}"
-                            )
+                    for a in cached["ad_accounts"][:10]:
+                        account_lines.append(
+                            f"  - {a.get('name', '?')} | ID: {a.get('id','?')} | {a.get('currency','?')}"
+                        )
+                    for p in cached["pages"][:10]:
+                        account_lines.append(f"  - Page: {p.get('name','?')} | ID: {p.get('id','?')}")
                     parts.append("\n## Available Accounts\n" + "\n".join(account_lines))
         except Exception as exc:
             logger.debug("Could not pre-load account list into prompt: %s", exc)
@@ -413,8 +404,7 @@ class ClaudeAgent:
                     for aa in client_accounts:
                         aa_lines.append(f"- {aa.nickname} | Meta ID: {aa.meta_account_id}" +
                             (f" | Page: {aa.default_page_id}" if aa.default_page_id else "") +
-                            (f" | Pixel: {aa.default_pixel_id}" if aa.default_pixel_id else "") +
-                            (f" | TZ: {aa.default_timezone}" if aa.default_timezone else ""))
+                            (f" | Pixel: {aa.default_pixel_id}" if aa.default_pixel_id else ""))
                     parts.append("\n".join(aa_lines))
             except Exception as exc:
                 logger.debug("Could not load client ad accounts: %s", exc)
