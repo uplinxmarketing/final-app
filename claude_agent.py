@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import datetime
 from typing import AsyncGenerator, Optional, Any
 
 import time
@@ -18,6 +19,29 @@ from pathlib import Path
 import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+
+# ── Diagnostic log ─────────────────────────────────────────────────────────────
+_LOG_DIR  = Path("logs")
+_LOG_FILE = _LOG_DIR / "ai_usage.log"
+_MAX_LOG_LINES = 500  # rotate after this many entries (keep last 500)
+
+
+def _write_log_entry(entry: dict) -> None:
+    """Append one JSONL line to the diagnostic log (non-blocking best-effort)."""
+    try:
+        _LOG_DIR.mkdir(exist_ok=True)
+        line = json.dumps(entry, ensure_ascii=False)
+        # Rotate: keep last _MAX_LOG_LINES lines
+        if _LOG_FILE.exists():
+            existing = _LOG_FILE.read_text(encoding="utf-8").splitlines()
+            if len(existing) >= _MAX_LOG_LINES:
+                existing = existing[-(  _MAX_LOG_LINES - 1):]
+                _LOG_FILE.write_text("\n".join(existing) + "\n" + line + "\n", encoding="utf-8")
+                return
+        with _LOG_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:
+        pass  # never crash the agent over logging
 
 logger = logging.getLogger("uplinx")
 
@@ -694,20 +718,32 @@ class ClaudeAgent:
 
             except anthropic.APIConnectionError as exc:
                 logger.error("Anthropic connection error: %s", exc)
+                _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                    "conv_id": conversation_id, "error": "connection_error", "detail": str(exc),
+                    "provider": self._provider, "model": self.model})
                 yield _sse({"type": "error", "message": "Connection to Claude failed. Please retry."})
                 return
             except anthropic.RateLimitError as exc:
                 logger.error("Anthropic rate limit: %s", exc)
+                _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                    "conv_id": conversation_id, "error": "rate_limit", "detail": str(exc),
+                    "provider": self._provider, "model": self.model})
                 yield _sse({"type": "error", "message": "Rate limit reached. Please wait a moment and retry."})
                 return
             except anthropic.APIStatusError as exc:
                 logger.error("Anthropic API error %d: %s", exc.status_code, exc.message)
+                _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                    "conv_id": conversation_id, "error": f"api_status_{exc.status_code}",
+                    "detail": exc.message, "provider": self._provider, "model": self.model})
                 yield _sse({"type": "error", "message": f"Claude API error ({exc.status_code}): {exc.message}"})
                 return
             except Exception as exc:
                 # Catch OpenAI/Groq SDK errors and any other unexpected errors
                 err_str = str(exc)
                 logger.error("Error in stream_response: %s", err_str, exc_info=True)
+                _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                    "conv_id": conversation_id, "error": "unexpected", "detail": err_str[:300],
+                    "provider": self._provider, "model": self.model})
                 # Friendly message for common API errors
                 if "400" in err_str or "invalid_request" in err_str.lower():
                     yield _sse({"type": "error", "message": f"API request error: {err_str}"})
@@ -823,6 +859,23 @@ class ClaudeAgent:
         _ai_session_tokens[uid]["calls"]    += 1
         _ai_session_tokens[uid]["provider"]  = self._provider
         _ai_session_tokens[uid]["model"]     = self.model
+
+        # Write diagnostic log entry
+        _write_log_entry({
+            "ts":          datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "uid":         uid[:8] + "…" if len(uid) > 8 else uid,
+            "conv_id":     conversation_id,
+            "msg_preview": user_message[:120].replace("\n", " "),
+            "provider":    self._provider,
+            "model":       self.model,
+            "in_tokens":   total_input_tokens,
+            "out_tokens":  total_output_tokens,
+            "total":       total_tokens,
+            "tools_used":  [t["name"] for t in all_tool_calls] if all_tool_calls else [],
+            "meta_req":    use_tools,
+            "max_tok_cap": effective_max_tokens,
+            "empty_reply": not full_response_text.strip() if not all_tool_calls else False,
+        })
 
         # 8. Signal completion
         yield _sse({"type": "done"})
