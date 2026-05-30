@@ -122,6 +122,7 @@ class ClaudeAgent:
         """
         from config import settings
         self.settings = settings
+        self._init_error = None
         requested = settings.AI_PROVIDER.lower()
 
         key_map = {
@@ -143,19 +144,30 @@ class ClaudeAgent:
             self.max_tokens = 4096
             return
 
-        if provider == "openai":
-            from openai import AsyncOpenAI
-            self._provider = "openai"
-            self._openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            self.model = settings.OPENAI_MODEL or "gpt-4o"
-        elif provider == "groq":
-            from openai import AsyncOpenAI
-            self._provider = "groq"
-            self._openai_client = AsyncOpenAI(
-                api_key=settings.GROQ_API_KEY,
-                base_url="https://api.groq.com/openai/v1",
-            )
-            self.model = settings.GROQ_MODEL or "llama-3.3-70b-versatile"
+        if provider in ("openai", "groq"):
+            # Both OpenAI and Groq use the OpenAI-compatible client. If the
+            # package is unavailable, degrade gracefully with a clear reason
+            # rather than crashing the whole app / leaving the agent broken.
+            try:
+                from openai import AsyncOpenAI
+            except ImportError as exc:
+                logger.error("openai package not installed — cannot use %s provider: %s", provider, exc)
+                self._provider = "none"
+                self._init_error = "The 'openai' package is required for OpenAI/Groq. Install it (pip install openai)."
+                self.model = ""
+                self.max_tokens = 4096
+                return
+            if provider == "openai":
+                self._provider = "openai"
+                self._openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+                self.model = settings.OPENAI_MODEL or "gpt-4o"
+            else:
+                self._provider = "groq"
+                self._openai_client = AsyncOpenAI(
+                    api_key=settings.GROQ_API_KEY,
+                    base_url="https://api.groq.com/openai/v1",
+                )
+                self.model = settings.GROQ_MODEL or "llama-3.3-70b-versatile"
         else:
             self._provider = "claude"
             self.client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)

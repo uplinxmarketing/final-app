@@ -2236,7 +2236,8 @@ async def api_update_context(conv_id: int, body: UpdateContextRequest, request: 
 @limiter.limit("60/minute")
 async def api_chat(conv_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     if agent._provider == "none":
-        raise HTTPException(400, "No AI provider configured — add an API key in Settings first")
+        reason = getattr(agent, "_init_error", None) or "No AI provider configured — add an API key (Claude, OpenAI or Groq) in Settings first. A Meta connection is NOT required to chat."
+        raise HTTPException(400, reason)
 
     body = await request.json()
     message = sanitize_text(body.get("message", ""), 50000)
