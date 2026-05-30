@@ -58,6 +58,22 @@ def invalidate_account_cache(uid: str) -> None:
     """Call this after the user explicitly refreshes assets."""
     _account_cache.pop(uid, None)
 
+
+_META_KEYWORDS = frozenset({
+    "campaign", "ad set", "adset", "ad account", "creative", "pixel",
+    "facebook", "instagram", "meta", "impression", "click", "cpm", "cpc",
+    "roas", "budget", "audience", "targeting", "placement", "post",
+    "schedule", "reel", "upload", "story", "feed", "analytics", "report",
+    "metric", "spend", "conversion", "lead", "traffic", "awareness",
+    "objective", "pause", "activate", "create ad", "list ad",
+})
+
+
+def _is_meta_request(message: str) -> bool:
+    """Return True when the message is likely asking for a Meta Ads action."""
+    lower = message.lower()
+    return any(kw in lower for kw in _META_KEYWORDS)
+
 BASE_SYSTEM_PROMPT = """You are Uplinx AI — a smart, general-purpose assistant built \
 into the Uplinx marketing platform.
 
@@ -124,7 +140,7 @@ class ClaudeAgent:
             # No API keys configured — stay idle until a key is added
             self._provider = "none"
             self.model = ""
-            self.max_tokens = 4096
+            self.max_tokens = 1024
             return
 
         if provider in ("openai", "groq"):
@@ -156,7 +172,7 @@ class ClaudeAgent:
             self.client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
             self.model = settings.CLAUDE_MODEL or "claude-opus-4-7"
 
-        self.max_tokens = 4096
+        self.max_tokens = 1024  # default; bumped to 4096 when task complexity demands it
 
     # ------------------------------------------------------------------
     # Database helpers
@@ -312,9 +328,7 @@ class ClaudeAgent:
 
         if active_lines:
             parts.append("\n## Active Context\n" + "\n".join(active_lines))
-        else:
-            parts.append("\n## Active Context\nNo Meta ad account selected. "
-                         "The user can connect one via the Connect button in the top bar.")
+        # Skip the section entirely when nothing is set — no tokens wasted.
 
         # ── 2. Available accounts (cached, skipped when context is set) ───────
         # Only inject the full account list when no ad account is selected yet.
@@ -346,17 +360,16 @@ class ClaudeAgent:
                     accounts = cached["ad_accounts"]
                     if accounts:
                         account_lines.append("\n**Ad Accounts:**")
-                        for a in accounts[:30]:
+                        for a in accounts[:10]:  # cap at 10 to keep prompt lean
                             account_lines.append(
                                 f"  - {a.get('name', a.get('account_id', '?'))} "
                                 f"| ID: {a.get('id','?')} "
-                                f"| Currency: {a.get('currency','?')} "
-                                f"| Timezone: {a.get('timezone_name','?')}"
+                                f"| Currency: {a.get('currency','?')}"
                             )
                     pages = cached["pages"]
                     if pages:
                         account_lines.append("\n**Facebook Pages:**")
-                        for p in pages[:20]:
+                        for p in pages[:10]:  # cap at 10
                             account_lines.append(
                                 f"  - {p.get('name','?')} | ID: {p.get('id','?')}"
                             )
@@ -467,11 +480,17 @@ class ClaudeAgent:
         if not messages or messages[-1].get("content") != user_message:
             messages.append({"role": "user", "content": user_message})
 
-        # Only expose Meta tools when a Meta account is actually linked.
-        # Without a connected account the tools would fail and the AI tends to
-        # call them anyway for simple messages, producing no visible text reply.
+        # Only expose Meta tools when a Meta account is linked AND the message
+        # looks like a Meta Ads request.  For general chat we skip the tools
+        # entirely — they add ~1 500 input tokens every time and trigger the AI
+        # to run account lookups instead of just replying.
         meta_connected = bool(session_data.get("meta_user_id"))
-        tool_definitions = self.get_tool_definitions() if meta_connected else []
+        use_tools = meta_connected and _is_meta_request(user_message)
+        tool_definitions = self.get_tool_definitions() if use_tools else []
+
+        # Use a larger output budget for task-like requests; keep it tight for chat.
+        effective_max_tokens = 4096 if use_tools else self.max_tokens
+
         full_response_text = ""
         total_input_tokens = 0
         total_output_tokens = 0
@@ -506,7 +525,7 @@ class ClaudeAgent:
                                       "cache_control": {"type": "ephemeral"}}]
                     claude_kwargs: dict = dict(
                         model=self.model,
-                        max_tokens=self.max_tokens,
+                        max_tokens=effective_max_tokens,
                         system=cached_system,
                         messages=messages,
                         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
@@ -601,7 +620,7 @@ class ClaudeAgent:
                     turn_out_oai = 0
                     create_kwargs: dict = dict(
                         model=self.model,
-                        max_tokens=self.max_tokens,
+                        max_tokens=effective_max_tokens,
                         messages=oai_messages,
                         stream=True,
                         stream_options={"include_usage": True},
