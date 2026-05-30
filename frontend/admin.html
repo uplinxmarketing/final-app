@@ -6230,19 +6230,32 @@ async function pgStaff() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="fg"><label class="lbl">FIRST NAME *</label><input id="smod-fname" class="fc" placeholder="First"></div>
         <div class="fg"><label class="lbl">LAST NAME *</label><input id="smod-lname" class="fc" placeholder="Last"></div>
-        <div class="fg" style="grid-column:1/-1"><label class="lbl">EMAIL *</label><input id="smod-email" class="fc" type="email" placeholder="email@example.com"></div>
-        <div class="fg"><label class="lbl">PASSWORD</label><input id="smod-pw" class="fc" type="password" placeholder="New password"></div>
+        <div class="fg"><label class="lbl">EMAIL *</label><input id="smod-email" class="fc" type="email" placeholder="email@example.com"></div>
+        <div class="fg"><label class="lbl">USERNAME</label><input id="smod-username" class="fc" placeholder="e.g. emiliano" autocomplete="off"></div>
+        <div class="fg"><label class="lbl">PASSWORD</label><input id="smod-pw" class="fc" type="password" placeholder="New password" autocomplete="new-password"></div>
         <div class="fg"><label class="lbl">PHONE</label><input id="smod-phone" class="fc" placeholder="+1…"></div>
         <div class="fg"><label class="lbl">ROLE</label><select id="smod-role" class="fc"><option value="">— No Role —</option></select></div>
-        <div class="fg"><label class="lbl">HOURLY RATE ($)</label><input id="smod-rate" class="fc" type="number" min="0" step="0.01" placeholder="0.00"></div>
         <div class="fg"><label class="lbl">STATUS</label><select id="smod-active" class="fc">
           <option value="true">Active</option><option value="false">Inactive</option>
         </select></div>
+        <div style="grid-column:1/-1;font-size:11px;color:#9ca3af;margin:-4px 0 2px">The member can log in with either their email or username.</div>
         <div class="fg" style="grid-column:1/-1;display:flex;gap:12px">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="smod-admin"> Administrator (bypasses all permissions)
           </label>
         </div>
+      </div>
+
+      <!-- App Access (per-person) -->
+      <div id="smod-apps-wrap" style="margin-top:8px;border-top:1px solid #f3f4f6;padding-top:14px">
+        <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">App Access</div>
+        <div style="font-size:11px;color:#9ca3af;margin-bottom:10px">Grant access to specific apps. Some roles need none — leave unchecked.</div>
+        <div id="smod-apps-list" style="display:flex;flex-direction:column;gap:8px"><div style="font-size:12px;color:#9ca3af">Loading apps…</div></div>
+      </div>
+
+      <!-- Permission clarity note -->
+      <div style="margin-top:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;font-size:12px;color:#7f1d1d;line-height:1.5">
+        <i class="fa-solid fa-circle-info"></i> The <b>Role</b> sets default module access. To add or remove individual capabilities for just this person, save first, then open their <b>Permissions</b> tab for custom overrides.
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
         <button class="btn-sec" onclick="document.getElementById('staff-modal').style.display='none'">Cancel</button>
@@ -6256,6 +6269,7 @@ async function pgStaff() {
 let _staffEditId = null;
 let _allStaffCache = [];
 let _staffRolesCache = [];
+let _staffModalApps = [];
 
 async function initStaffList() {
   const [sR, rR] = await Promise.all([apiFetch('/admin/api/staff'), apiFetch('/admin/api/roles')]);
@@ -6313,20 +6327,46 @@ function renderStaffTable(list) {
   </tr>`).join('');
 }
 
-function openStaffModal(id) {
+async function openStaffModal(id) {
   _staffEditId = id;
   const s = id ? _allStaffCache.find(s => s.id === id) : null;
   document.getElementById('staff-modal-title').textContent = s ? 'Edit Staff Member' : 'New Staff Member';
   document.getElementById('smod-fname').value = s ? s.first_name : '';
   document.getElementById('smod-lname').value = s ? s.last_name : '';
   document.getElementById('smod-email').value = s ? s.email : '';
+  document.getElementById('smod-username').value = s ? (s.username || '') : '';
   document.getElementById('smod-pw').value = '';
   document.getElementById('smod-phone').value = s ? (s.phone || '') : '';
   document.getElementById('smod-role').value = s ? (s.role_id || '') : '';
-  document.getElementById('smod-rate').value = '';
   document.getElementById('smod-active').value = s ? String(s.is_active) : 'true';
   document.getElementById('smod-admin').checked = s ? s.is_admin : false;
   document.getElementById('staff-modal').style.display = 'flex';
+  renderStaffModalApps(id);  // async — fills the App Access checkboxes
+}
+
+// Render the per-person App Access checkboxes inside the create/edit modal.
+async function renderStaffModalApps(staffId) {
+  const wrap = document.getElementById('smod-apps-list');
+  if (!wrap) return;
+  try {
+    // For existing staff, this returns has_access flags; for new staff we just list apps.
+    let apps;
+    if (staffId) {
+      apps = await (await apiFetch(`/admin/api/staff/${staffId}/app-access`)).json();
+    } else {
+      const raw = await (await apiFetch('/admin/api/apps')).json();
+      apps = raw.map(a => ({ app_id: a.id, name: a.name, icon: a.icon, has_access: false }));
+    }
+    _staffModalApps = apps;
+    if (!apps.length) { wrap.innerHTML = '<div style="font-size:12px;color:#9ca3af">No apps configured.</div>'; return; }
+    wrap.innerHTML = apps.map(a => `<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer">
+      <input type="checkbox" class="smod-app-cb" value="${a.app_id}" ${a.has_access?'checked':''} style="accent-color:#dc2626;width:15px;height:15px">
+      <i class="fa-solid ${a.icon||'fa-grid-2'}" style="color:#dc2626;width:20px;text-align:center"></i>
+      <span style="font-size:13px;font-weight:500">${esc(a.name)}</span>
+    </label>`).join('');
+  } catch (e) {
+    wrap.innerHTML = '<div style="font-size:12px;color:#ef4444">Could not load apps.</div>';
+  }
 }
 
 async function saveStaffMember() {
@@ -6336,6 +6376,7 @@ async function saveStaffMember() {
   if (!fname || !lname || !email) { showToast('First name, last name and email required','error'); return; }
   const body = {
     first_name: fname, last_name: lname, email,
+    username: document.getElementById('smod-username').value.trim() || null,
     phone: document.getElementById('smod-phone').value.trim() || null,
     role_id: document.getElementById('smod-role').value ? parseInt(document.getElementById('smod-role').value) : null,
     is_active: document.getElementById('smod-active').value === 'true',
@@ -6348,6 +6389,24 @@ async function saveStaffMember() {
   const method = _staffEditId ? 'PUT' : 'POST';
   const r = await apiFetch(url, { method, body: JSON.stringify(body) }).catch(e => { showToast(e.message,'error'); return null; });
   if (!r) return;
+  // Resolve the staff id (create returns {id}; edit reuses _staffEditId)
+  let staffId = _staffEditId;
+  if (!staffId) { try { staffId = (await r.json()).id; } catch {} }
+
+  // Apply per-person App Access from the modal checkboxes
+  if (staffId) {
+    const checked = new Set([...document.querySelectorAll('.smod-app-cb:checked')].map(cb => parseInt(cb.value)));
+    for (const a of (_staffModalApps || [])) {
+      const want = checked.has(a.app_id);
+      if (want !== !!a.has_access) {
+        await apiFetch(`/admin/api/staff/${staffId}/app-access`, {
+          method: 'PUT',
+          body: JSON.stringify({ app_id: a.app_id, grant: want, client_ids: want ? [] : undefined })
+        }).catch(() => {});
+      }
+    }
+  }
+
   document.getElementById('staff-modal').style.display = 'none';
   showToast('Saved','success');
   const newList = await apiFetch('/admin/api/staff');
@@ -6433,7 +6492,7 @@ function renderStaffTabContent(tab) {
 
 function renderStaffProfile(s) {
   const fields = [
-    ['Email', s.email], ['Phone', s.phone], ['Role', s.role_name],
+    ['Email', s.email], ['Username', s.username], ['Phone', s.phone], ['Role', s.role_name],
     ['Last Login', s.last_login ? new Date(s.last_login).toLocaleString() : 'Never'],
     ['Last IP', s.last_ip], ['Language', s.language], ['Timezone', s.timezone],
     ['Created', new Date(s.created_at).toLocaleDateString()],
