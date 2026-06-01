@@ -844,6 +844,51 @@ def extract_file_id_from_url(url: str) -> Optional[str]:
     return None
 
 
+def extract_folder_id_from_url(url: str) -> Optional[str]:
+    """Extract the folder ID from a Google Drive folder URL.
+
+    Recognises URLs of the form:
+
+    * ``https://drive.google.com/drive/folders/{ID}``
+    * ``https://drive.google.com/drive/u/0/folders/{ID}``
+
+    Args:
+        url: A Google Drive folder URL string.
+
+    Returns:
+        The folder ID string, or ``None`` if not found.
+    """
+    match = re.search(
+        r"drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)", url
+    )
+    return match.group(1) if match else None
+
+
+async def list_drive_folder(
+    folder_id: str, access_token: str
+) -> dict[str, Any]:
+    """List all non-trashed files inside a specific Google Drive folder.
+
+    Uses the Drive v3 Files list endpoint with the query
+    ``'{folder_id}' in parents and trashed=false``.
+
+    Args:
+        folder_id: The Google Drive folder ID.
+        access_token: A valid OAuth 2.0 access token with drive.readonly scope.
+
+    Returns:
+        On success::
+
+            {"success": True, "files": list[dict], "error": ""}
+
+        On failure::
+
+            {"success": False, "files": [], "error": str}
+    """
+    query = f"'{folder_id}' in parents and trashed=false"
+    return await list_drive_files(access_token, query=query)
+
+
 # ---------------------------------------------------------------------------
 # Auto-detect URL reader
 # ---------------------------------------------------------------------------

@@ -88,7 +88,8 @@ _META_WORD_RE = _re.compile(
     r'\b(ads?|campaign|adset|ad\s+set|ad\s+account|creative|pixel|facebook|instagram|'
     r'meta\s+ads?|impression|cpm|cpc|ctr|roas|budget|audience|targeting|placement|'
     r'schedule|reel|upload|analytics|report|spend|conversion|lead|traffic|awareness|'
-    r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload)\b',
+    r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload|'
+    r'google\s+drive|drive\.google|drive\s+link|drive\s+folder)\b',
     _re.IGNORECASE,
 )
 
@@ -1587,6 +1588,57 @@ class ClaudeAgent:
                         }
                     },
                     "required": ["folder_path"],
+                },
+            },
+            # ----------------------------------------------------------
+            # Google Drive upload
+            # ----------------------------------------------------------
+            {
+                "name": "upload_ads_from_drive",
+                "description": (
+                    "Upload ads directly from Google Drive. "
+                    "images_drive_url must be a Google Drive folder (containing Post/Story "
+                    "image pairs) or a single image file URL. "
+                    "text_drive_url must be a Google Doc, Google Sheet, or Drive text file "
+                    "containing the ad copy. "
+                    "Google Sheet format: columns Headline | Primary Text | Destination URL (optional) | CTA Type (optional). "
+                    "Google Doc format: sections separated by '---', each with optional Headline:, Text:, URL: labels. "
+                    "Images are paired automatically by filename (files containing 'Post'/'Story'). "
+                    "Requires both Meta and Google accounts to be connected."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "images_drive_url": {
+                            "type": "string",
+                            "description": "Google Drive folder URL containing ad images, or a single image file URL.",
+                        },
+                        "text_drive_url": {
+                            "type": "string",
+                            "description": "Google Doc, Sheet, or Drive file URL with ad copy text.",
+                        },
+                        "ad_set_id": {
+                            "type": "string",
+                            "description": "Meta ad set ID to upload ads into.",
+                        },
+                        "page_id": {
+                            "type": "string",
+                            "description": "Facebook Page ID for the ad creatives.",
+                        },
+                        "destination_url": {
+                            "type": "string",
+                            "description": "Landing page URL used as the ad destination.",
+                        },
+                        "ad_account_id": {
+                            "type": "string",
+                            "description": "Meta ad account ID (e.g. 'act_123456'). Omit to use active context.",
+                        },
+                        "cta_type": {
+                            "type": "string",
+                            "description": "Call-to-action button type. Defaults to LEARN_MORE.",
+                        },
+                    },
+                    "required": ["images_drive_url", "text_drive_url", "ad_set_id", "page_id", "destination_url"],
                 },
             },
         ]
