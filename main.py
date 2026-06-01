@@ -1309,10 +1309,13 @@ async def auth_google(request: Request, response: Response):
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         return RedirectResponse("/?error=google_not_configured")
     state = generate_oauth_state()
+    # Derive redirect_uri from the actual request host so it works on any deployment
+    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/auth/google/callback"
     response.set_cookie("oauth_state_google", state, max_age=600, httponly=True, samesite="lax")
+    response.set_cookie("google_redirect_uri", redirect_uri, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "scope": GOOGLE_SCOPES,
         "response_type": "code",
         "access_type": "offline",
@@ -1337,8 +1340,9 @@ async def auth_google_callback(
     if not verify_oauth_state(state, expected):
         return RedirectResponse("/?error=invalid_state")
 
+    redirect_uri = request.cookies.get("google_redirect_uri") or settings.GOOGLE_REDIRECT_URI
     tokens = await google_api.exchange_code_for_tokens(
-        code, settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET, settings.GOOGLE_REDIRECT_URI
+        code, settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET, redirect_uri
     )
     if not tokens.get("success"):
         return RedirectResponse(f"/?error=google_token_failed")
