@@ -1346,6 +1346,48 @@ a{color:inherit;text-decoration:none}
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
 
+      <!-- Google OAuth credentials -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Google Drive / Docs</div>
+        <div id="google-setup-status-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div id="settings-google-dot" style="width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0"></div>
+            <span id="settings-google-label" style="font-size:13px;color:var(--text-secondary)">Not configured</span>
+          </div>
+          <a id="settings-google-conn-btn" href="/auth/google" style="display:none;padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;text-decoration:none">Connect Account →</a>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Google Client ID</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="settings-google-client-id" class="form-input" placeholder="123456789-abc….apps.googleusercontent.com" autocomplete="off" style="flex:1;font-size:13px">
+              <button onclick="saveGoogleCredentials()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Save</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Google Client Secret</label>
+            <input type="password" id="settings-google-client-secret" class="form-input" placeholder="GOCSPX-…" autocomplete="off" style="width:100%;font-size:13px">
+          </div>
+        </div>
+        <div id="settings-google-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
+        <div style="margin-top:10px;padding:10px 12px;background:var(--bg-tertiary);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">Required Redirect URI (add this in Google Cloud Console)</div>
+          <code id="settings-google-redirect-uri" style="font-size:11px;color:var(--text-primary);word-break:break-all;font-family:var(--font-mono)">Loading…</code>
+          <button onclick="navigator.clipboard.writeText(document.getElementById('settings-google-redirect-uri').textContent).then(()=>toast('Copied!','success'))"
+            style="margin-left:8px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">Copy</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.6">
+          <strong>Setup steps:</strong><br>
+          1. Go to <a href="https://console.cloud.google.com" target="_blank" style="color:var(--accent)">Google Cloud Console</a> → APIs &amp; Services → Credentials<br>
+          2. Create OAuth 2.0 Client ID (Web application type)<br>
+          3. Add the redirect URI above to "Authorised redirect URIs"<br>
+          4. Enable Drive API, Docs API, Sheets API in the library<br>
+          5. Paste the Client ID and Secret above and Save
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
       <!-- API Keys inline update -->
       <div style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">API Keys</div>
@@ -2951,6 +2993,53 @@ async function loadProviderStatus() {
   } catch(e) {}
 }
 
+// ── Google credentials ─────────────────────────────────────────────────────
+async function saveGoogleCredentials() {
+  const clientId     = (document.getElementById('settings-google-client-id')     || {}).value || '';
+  const clientSecret = (document.getElementById('settings-google-client-secret') || {}).value || '';
+  const status = document.getElementById('settings-google-status');
+  if (!clientId && !clientSecret) {
+    if (status) { status.textContent = 'Enter at least the Client ID.'; status.style.color = 'var(--error)'; }
+    return;
+  }
+  if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--text-dim)'; }
+  try {
+    const body = {};
+    if (clientId)     body.google_client_id     = clientId;
+    if (clientSecret) body.google_client_secret = clientSecret;
+    await api('POST', '/api/setup/save', body);
+    if (document.getElementById('settings-google-client-id'))     document.getElementById('settings-google-client-id').value = '';
+    if (document.getElementById('settings-google-client-secret')) document.getElementById('settings-google-client-secret').value = '';
+    if (status) { status.textContent = '✓ Saved — click "Connect Account" to authorize Google Drive access.'; status.style.color = 'var(--success)'; }
+    setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+    loadGoogleSetupStatus();
+    toast('Google credentials saved', 'success');
+  } catch(e) {
+    if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--error)'; }
+  }
+}
+
+async function loadGoogleSetupStatus() {
+  try {
+    const d = await api('GET', '/api/setup/status');
+    if (!d) return;
+    const dot   = document.getElementById('settings-google-dot');
+    const label = document.getElementById('settings-google-label');
+    const btn   = document.getElementById('settings-google-conn-btn');
+    const uriEl = document.getElementById('settings-google-redirect-uri');
+    if (uriEl && d.google_redirect_uri) uriEl.textContent = d.google_redirect_uri;
+    if (d.has_google) {
+      if (dot)   { dot.style.background = 'var(--success)'; }
+      if (label) label.textContent = 'Credentials configured — connect your account below';
+      if (btn)   btn.style.display = '';
+    } else {
+      if (dot)   { dot.style.background = '#ef4444'; }
+      if (label) label.textContent = 'Not configured — enter credentials below';
+      if (btn)   btn.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
 // ── Sidebar update shortcut ─────────────────────────────────────────────────
 async function sidebarCheckUpdate() {
   const btn = document.getElementById('sidebar-update-btn');
@@ -3043,6 +3132,21 @@ function openModal(id) {
       if (s.has_anthropic) { document.getElementById('settings-anthropic-key').placeholder = set; document.getElementById('clear-anthropic-btn').style.display = ''; }
       if (s.has_openai)    { document.getElementById('settings-openai-key').placeholder = set;    document.getElementById('clear-openai-btn').style.display = ''; }
       if (s.has_groq)      { document.getElementById('settings-groq-key').placeholder = set;      document.getElementById('clear-groq-btn').style.display = ''; }
+      // Google setup status
+      const googleDot   = document.getElementById('settings-google-dot');
+      const googleLabel = document.getElementById('settings-google-label');
+      const googleBtn   = document.getElementById('settings-google-conn-btn');
+      const googleUri   = document.getElementById('settings-google-redirect-uri');
+      if (googleUri && s.google_redirect_uri) googleUri.textContent = s.google_redirect_uri;
+      if (s.has_google) {
+        if (googleDot)   googleDot.style.background = 'var(--success)';
+        if (googleLabel) googleLabel.textContent = 'Credentials configured — connect your account below';
+        if (googleBtn)   googleBtn.style.display = '';
+      } else {
+        if (googleDot)   googleDot.style.background = '#ef4444';
+        if (googleLabel) googleLabel.textContent = 'Not configured — enter credentials below';
+        if (googleBtn)   googleBtn.style.display = 'none';
+      }
     }).catch(()=>{});
     // Sync Meta connection status
     api('GET', '/api/accounts/meta').then(accounts => {
@@ -3104,7 +3208,13 @@ const _origToggleClient = typeof toggleClient !== 'undefined' ? toggleClient : n
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
   const params = new URLSearchParams(location.search);
-  if (params.get('error')) toast('Connection error: ' + params.get('error'), 'error');
+  const err = params.get('error');
+  if (err === 'google_not_configured') {
+    toast('Google Drive not configured — enter your Client ID and Secret in Settings.', 'error');
+    setTimeout(() => openModal('settings-modal'), 800);
+  } else if (err) {
+    toast('Connection error: ' + err, 'error');
+  }
   if (params.get('connected')) toast('Connected successfully!', 'success');
   await checkAuthAndInit();
 }

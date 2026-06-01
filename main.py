@@ -615,6 +615,7 @@ async def setup_status():
         "has_openai": bool(settings.OPENAI_API_KEY),
         "has_groq": bool(settings.GROQ_API_KEY),
         "has_google": bool(settings.GOOGLE_CLIENT_ID),
+        "google_redirect_uri": settings.google_redirect_uri,
         "db_type": db_type,
     }
 
@@ -1305,6 +1306,8 @@ GOOGLE_SCOPES = " ".join([
 
 @app.get("/auth/google")
 async def auth_google(request: Request, response: Response):
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        return RedirectResponse("/?error=google_not_configured")
     state = generate_oauth_state()
     response.set_cookie("oauth_state_google", state, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
