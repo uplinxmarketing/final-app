@@ -932,6 +932,43 @@ a{color:inherit;text-decoration:none}
     </div>
 
     <div class="panel-section">
+      <div class="panel-label">Google Drive Upload</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
+        Paste a Drive folder link for images and a Doc/Sheet link for ad copy — the AI will download and push them to your campaign.
+      </div>
+      <div class="panel-field">
+        <label>Images Folder</label>
+        <input type="url" id="drive-images-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="drive.google.com/drive/folders/…">
+      </div>
+      <div class="panel-field">
+        <label>Ad Copy (Doc or Sheet)</label>
+        <input type="url" id="drive-text-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="docs.google.com/…">
+      </div>
+      <div class="panel-field">
+        <label>Landing Page URL</label>
+        <input type="url" id="drive-dest-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="https://yoursite.com/page">
+      </div>
+      <div class="panel-field">
+        <label>Ad Set ID</label>
+        <input type="text" id="drive-adset-id"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="123456789012">
+      </div>
+      <button onclick="uploadFromDrive()"
+        style="width:100%;padding:7px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;transition:background .15s"
+        onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
+        ↑ Upload to Campaign
+      </button>
+      <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
+    </div>
+
+    <div class="panel-section">
       <div class="panel-label">Skills Active</div>
       <div id="skills-list"><div style="font-size:12px;color:var(--text-dim)">No skills loaded</div></div>
       <div class="panel-link" style="margin-top:8px;display:block" onclick="openModal('skills-modal')">Manage Skills →</div>
@@ -2369,6 +2406,42 @@ async function copyDiagLog() {
     btn.textContent = '❌ Failed';
   }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+}
+
+// ── Google Drive upload ────────────────────────────────────────────────────
+function uploadFromDrive() {
+  const imagesUrl = (document.getElementById('drive-images-url') || {}).value || '';
+  const textUrl   = (document.getElementById('drive-text-url')   || {}).value || '';
+  const destUrl   = (document.getElementById('drive-dest-url')   || {}).value || '';
+  const adSetId   = (document.getElementById('drive-adset-id')   || {}).value || '';
+  const status    = document.getElementById('drive-upload-status');
+
+  if (!imagesUrl.trim()) {
+    if (status) status.textContent = '⚠️ Paste a Drive folder link for images.';
+    return;
+  }
+  if (!textUrl.trim()) {
+    if (status) status.textContent = '⚠️ Paste a Drive link for ad copy.';
+    return;
+  }
+
+  let msg = `Upload ads from Google Drive.\nImages: ${imagesUrl.trim()}\nAd copy: ${textUrl.trim()}`;
+  if (destUrl.trim()) msg += `\nDestination URL: ${destUrl.trim()}`;
+  if (adSetId.trim()) msg += `\nAd set ID: ${adSetId.trim()}`;
+
+  const inputEl = document.getElementById('chat-input');
+  if (inputEl) {
+    inputEl.value = msg;
+    // Trigger auto-resize
+    inputEl.dispatchEvent(new Event('input'));
+  }
+  sendMessage();
+
+  // Clear the link fields after sending
+  if (document.getElementById('drive-images-url')) document.getElementById('drive-images-url').value = '';
+  if (document.getElementById('drive-text-url'))   document.getElementById('drive-text-url').value = '';
+  if (status) status.textContent = '✅ Request sent — check the chat for progress.';
+  setTimeout(() => { if (status) status.textContent = ''; }, 4000);
 }
 
 // ── API usage ──────────────────────────────────────────────────────────────

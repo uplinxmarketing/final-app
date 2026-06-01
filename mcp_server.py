@@ -5,6 +5,7 @@ All Meta advertising tools exposed to the Claude AI agent.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -666,6 +667,214 @@ async def match_post_story_pairs(session_id: str, folder_path: str) -> str:
         for u in unmatched:
             lines.append(f"  {Path(u).name}")
     return "\n".join(lines)
+
+
+# ── Google Drive upload helpers ────────────────────────────────────────────────
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"}
+
+
+def _parse_ad_copies(text_result: dict, default_dest_url: str, default_cta: str) -> list[dict]:
+    """Extract a list of ad-copy dicts from a google_api read_by_url() result."""
+    rows = None
+    raw_text = None
+
+    if "rows" in text_result:
+        rows = text_result["rows"]
+    elif isinstance(text_result.get("content"), dict):
+        content_dict = text_result["content"]
+        if "rows" in content_dict:
+            rows = content_dict["rows"]
+        elif "text" in content_dict:
+            raw_text = content_dict["text"]
+    elif isinstance(text_result.get("content"), str):
+        raw_text = text_result["content"]
+
+    copies: list[dict] = []
+
+    if rows:
+        start = 0
+        if rows and any(str(c).lower() in ("headline", "primary text", "text", "copy") for c in (rows[0] or [])):
+            start = 1
+        for row in rows[start:]:
+            if not row or not any(str(c).strip() for c in row):
+                continue
+            copies.append({
+                "headline": str(row[0]).strip() if len(row) > 0 else "",
+                "primary_text": str(row[1]).strip() if len(row) > 1 else "",
+                "destination_url": str(row[2]).strip() if len(row) > 2 and row[2] else default_dest_url,
+                "cta_type": str(row[3]).strip() if len(row) > 3 and row[3] else default_cta,
+            })
+        return copies
+
+    if raw_text:
+        sections = re.split(r"\n\s*(?:---|===|###)\s*\n", raw_text.strip())
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            headline, primary_text, dest_url = "", section, default_dest_url
+            m = re.search(r"(?:headline|title):\s*(.+)", section, re.IGNORECASE)
+            if m:
+                headline = m.group(1).strip()
+            m = re.search(r"(?:text|body|primary.?text|copy):\s*(.+)", section, re.IGNORECASE | re.DOTALL)
+            if m:
+                primary_text = m.group(1).strip()
+            m = re.search(r"(?:url|link|destination):\s*(https?://\S+)", section, re.IGNORECASE)
+            if m:
+                dest_url = m.group(1).strip()
+            copies.append({
+                "headline": headline,
+                "primary_text": primary_text[:500],
+                "destination_url": dest_url,
+                "cta_type": default_cta,
+            })
+        if not copies:
+            copies.append({
+                "headline": "",
+                "primary_text": raw_text[:500],
+                "destination_url": default_dest_url,
+                "cta_type": default_cta,
+            })
+
+    return copies
+
+
+def _pair_drive_images(downloaded: list[tuple[str, str]]) -> list[dict]:
+    """Pair Post/Story images from (tmp_path, orig_name) tuples.
+
+    Falls back to using each file as a single-image ad if no Post/Story naming
+    convention is detected.
+    """
+    post_files: dict[str, tuple[str, str]] = {}
+    story_files: dict[str, tuple[str, str]] = {}
+
+    for tmp_path, orig_name in downloaded:
+        name_lower = orig_name.lower()
+        num_match = re.match(r"^(\d+)", orig_name)
+        key = num_match.group(1) if num_match else Path(orig_name).stem
+
+        if "story" in name_lower:
+            story_files[key] = (tmp_path, orig_name)
+        else:
+            post_files[key] = (tmp_path, orig_name)
+
+    pairs: list[dict] = []
+    for key, (post_path, post_name) in post_files.items():
+        story_path = story_files.get(key, (post_path, ""))[0]
+        ad_name = re.sub(r"[_\-\s]?(post|story)[_\-\s]?", " ", post_name, flags=re.IGNORECASE)
+        ad_name = Path(ad_name).stem.strip() or f"Ad {len(pairs) + 1}"
+        pairs.append({
+            "ad_name": ad_name,
+            "post_file": post_path,
+            "story_file": story_path,
+        })
+
+    return pairs
+
+
+@mcp.tool()
+async def upload_ads_from_drive(
+    session_id: str,
+    images_drive_url: str,
+    text_drive_url: str,
+    ad_set_id: str,
+    page_id: str,
+    destination_url: str,
+    ad_account_id: Optional[str] = None,
+    cta_type: str = "LEARN_MORE",
+) -> str:
+    """Upload ads from Google Drive. images_drive_url: Drive folder (or single file) containing the ad images. text_drive_url: Google Doc, Sheet, or Drive text file with ad copy (headline, body, URL per ad). destination_url: landing page URL. Pairs Post/Story images automatically by filename."""
+    meta_token = await get_meta_token_for_session(session_id)
+    if not meta_token:
+        return "Error: Meta account not connected."
+    if not ad_account_id:
+        return "Error: ad_account_id is required."
+
+    google_token = await get_google_token_for_session(session_id)
+    if not google_token:
+        return "Error: Google account not connected. Connect Google Drive in Settings first."
+
+    # 1. Read ad copy
+    text_result = await google_api.read_by_url(text_drive_url, google_token)
+    if not text_result.get("success"):
+        return f"Error reading ad copy from Drive: {text_result.get('error')}"
+    ad_copies = _parse_ad_copies(text_result, destination_url, cta_type)
+
+    # 2. Collect image file IDs from Drive
+    folder_id = google_api.extract_folder_id_from_url(images_drive_url)
+    image_entries: list[tuple[str, str]] = []  # (file_id, name)
+
+    if folder_id:
+        list_result = await google_api.list_drive_folder(folder_id, google_token)
+        if not list_result.get("success"):
+            return f"Error listing Drive folder: {list_result.get('error')}"
+        for f in list_result.get("files", []):
+            name = f.get("name", "")
+            if Path(name).suffix.lower() in _IMAGE_EXTENSIONS:
+                image_entries.append((f["id"], name))
+    else:
+        file_id = google_api.extract_file_id_from_url(images_drive_url)
+        if not file_id:
+            return "Error: Could not extract a file or folder ID from the images Drive URL."
+        meta_r = await google_api.get_file_metadata(file_id, google_token)
+        if not meta_r.get("success"):
+            return f"Error accessing Drive file: {meta_r.get('error')}"
+        image_entries.append((file_id, meta_r.get("name", "image")))
+
+    if not image_entries:
+        return "No image files found at the specified Google Drive location."
+
+    # 3. Download images to temp folder
+    uploads_dir = Path("uploads")
+    uploads_dir.mkdir(exist_ok=True)
+    temp_paths: list[str] = []
+    downloaded: list[tuple[str, str]] = []
+
+    for file_id, file_name in image_entries:
+        dl = await google_api.download_drive_file(file_id, google_token)
+        if not dl.get("success"):
+            continue
+        safe_name = re.sub(r"[^\w.\-]", "_", file_name)
+        tmp_path = str(uploads_dir / f"drive_tmp_{file_id}_{safe_name}")
+        Path(tmp_path).write_bytes(dl["bytes"])
+        temp_paths.append(tmp_path)
+        downloaded.append((tmp_path, file_name))
+
+    if not downloaded:
+        return "Error: Could not download any images from Google Drive."
+
+    # 4. Pair images and upload
+    pairs = _pair_drive_images(downloaded)
+    results = [f"Downloaded {len(downloaded)} image(s) from Drive. Uploading {len(pairs)} ad(s)…"]
+
+    for i, pair in enumerate(pairs):
+        copy = ad_copies[i % len(ad_copies)] if ad_copies else {
+            "headline": f"Ad {i + 1}",
+            "primary_text": "",
+            "destination_url": destination_url,
+            "cta_type": cta_type,
+        }
+        r = await upload_single_ad(
+            session_id,
+            ad_set_id,
+            pair["ad_name"],
+            pair["post_file"],
+            pair["story_file"],
+            copy["headline"],
+            copy["primary_text"],
+            copy["destination_url"],
+            page_id,
+            copy["cta_type"],
+            ad_account_id,
+        )
+        results.append(r)
+
+    # 5. Cleanup
+    for tmp in temp_paths:
+        Path(tmp).unlink(missing_ok=True)
+
+    return "\n\n".join(results)
 
 
 # ── Cross-account tool ─────────────────────────────────────────────────────────
