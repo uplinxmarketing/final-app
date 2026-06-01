@@ -576,49 +576,13 @@ a{color:inherit;text-decoration:none}
     </div>
 
     <!-- Posts sidebar content -->
-    <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:12px;gap:0">
-
-      <!-- Posting account status -->
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">POSTING ACCOUNT</div>
-      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text-dim)">Not connected</div>
-
-      <!-- AI Model Selector -->
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">AI MODEL</div>
-      <div style="display:flex;gap:4px;margin-bottom:6px">
-        <button onclick="selectProvider('claude')" id="posts-btn-claude" style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">Claude</button>
-        <button onclick="selectProvider('openai')" id="posts-btn-openai" style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">ChatGPT</button>
-        <button onclick="selectProvider('groq')"   id="posts-btn-groq"   style="flex:1;padding:5px 3px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s">Groq</button>
+    <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+      <div style="padding:10px 12px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">CLIENTS &amp; PAGES</div>
+        <button onclick="openPostingConnectModal()" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Connect Account</button>
       </div>
-      <div style="display:flex;gap:5px;align-items:center;margin-bottom:5px">
-        <select id="posts-model-select" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:5px 6px;color:var(--text-primary);font-size:11px;cursor:pointer"></select>
-        <button onclick="applyProviderAndModel()" style="padding:5px 8px;border-radius:6px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;cursor:pointer;border:none;white-space:nowrap">Apply</button>
-      </div>
-      <div id="posts-provider-status" style="font-size:10px;color:var(--text-dim);margin-bottom:16px"></div>
-
-      <!-- AI Token Usage -->
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">AI TOKEN USAGE</div>
-      <div id="posts-ai-token-provider" style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:5px">—</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:4px">
-        <div style="background:var(--bg-primary);border-radius:5px;padding:5px 6px;text-align:center">
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="posts-ai-token-in">0</div>
-          <div style="font-size:9px;color:var(--text-dim);margin-top:1px">input</div>
-        </div>
-        <div style="background:var(--bg-primary);border-radius:5px;padding:5px 6px;text-align:center">
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="posts-ai-token-out">0</div>
-          <div style="font-size:9px;color:var(--text-dim);margin-top:1px">output</div>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:16px" id="posts-ai-token-total">0 tokens this session</div>
-
-      <!-- Meta API Calls -->
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">META API CALLS</div>
-      <div class="api-bar-wrap"><div class="api-bar" id="posts-api-bar" style="width:0%"></div></div>
-      <div class="api-count" id="posts-api-count">0 / 200</div>
-
-      <!-- Quick links -->
-      <div style="margin-top:16px;display:flex;flex-direction:column;gap:4px">
-        <button onclick="openModal('settings-modal')" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;text-align:left">⚙️ AI Settings &amp; API Keys</button>
-        <button onclick="openModal('connections-modal')" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;text-align:left">🔗 Connections</button>
+      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:6px">
+        <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading pages…</div>
       </div>
     </div>
     <!-- Status indicators -->
@@ -704,17 +668,6 @@ a{color:inherit;text-decoration:none}
 
   <!-- POSTS MANAGER MAIN AREA -->
   <div id="posts-main" style="display:none;flex:1;overflow:hidden;background:var(--bg-secondary)">
-
-    <!-- Left Panel: Pages / Clients -->
-    <div id="posts-pages-panel" style="width:220px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg-primary);display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">CLIENTS &amp; PAGES</div>
-        <button onclick="openPostingConnectModal()" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Connect Account</button>
-      </div>
-      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:6px">
-        <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading pages…</div>
-      </div>
-    </div>
 
     <!-- Workspace -->
     <div id="posts-workspace" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
@@ -858,7 +811,15 @@ a{color:inherit;text-decoration:none}
 
   <!-- RIGHT CONTEXT PANEL -->
   <aside id="context-panel">
-    <div class="panel-section">
+    <!-- Posts mode: Posting Account (hidden in ads mode) -->
+    <div id="panel-section-posts-account" class="panel-section" style="display:none">
+      <div class="panel-label">Posting Account</div>
+      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-dim)">Not connected</div>
+      <button onclick="openPostingConnectModal()" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Manage Accounts</button>
+    </div>
+
+    <!-- Ads mode: Active Context (hidden in posts mode) -->
+    <div id="panel-section-ads-context" class="panel-section">
       <div class="panel-label">Active Context</div>
       <div id="panel-client-name" style="font-size:13px;font-weight:500;margin-bottom:10px;color:var(--text-secondary)">No client selected</div>
       <div class="panel-field">
@@ -901,7 +862,7 @@ a{color:inherit;text-decoration:none}
         <button class="panel-btn" onclick="refreshAssets()">↻ Refresh</button>
         <button class="panel-btn" onclick="resetContext()">Reset</button>
       </div>
-    </div>
+    </div><!-- end panel-section-ads-context -->
 
     <div class="panel-section">
       <div class="panel-label">AI Model</div>
@@ -952,6 +913,43 @@ a{color:inherit;text-decoration:none}
       <div class="panel-label">Uploaded Files</div>
       <div id="upload-list"><div style="font-size:12px;color:var(--text-dim)">No files uploaded</div></div>
       <button class="panel-btn" style="margin-top:8px" onclick="document.getElementById('file-input').click()">+ Upload Files</button>
+    </div>
+
+    <div class="panel-section" id="panel-section-drive-upload">
+      <div class="panel-label">Google Drive Upload</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
+        Paste a Drive folder link for images and a Doc/Sheet link for ad copy — the AI will download and push them to your campaign.
+      </div>
+      <div class="panel-field">
+        <label>Images Folder</label>
+        <input type="url" id="drive-images-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="drive.google.com/drive/folders/…">
+      </div>
+      <div class="panel-field">
+        <label>Ad Copy (Doc or Sheet)</label>
+        <input type="url" id="drive-text-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="docs.google.com/…">
+      </div>
+      <div class="panel-field">
+        <label>Landing Page URL</label>
+        <input type="url" id="drive-dest-url"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="https://yoursite.com/page">
+      </div>
+      <div class="panel-field">
+        <label>Ad Set ID</label>
+        <input type="text" id="drive-adset-id"
+          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
+          placeholder="123456789012">
+      </div>
+      <button onclick="uploadFromDrive()"
+        style="width:100%;padding:7px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;transition:background .15s"
+        onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
+        ↑ Upload to Campaign
+      </button>
+      <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
     </div>
 
     <div class="panel-section">
@@ -3257,8 +3255,15 @@ function enterInterface(iface) {
   const postsMain = document.getElementById('posts-main');
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
   if (postsMain) { postsMain.style.display = isAds ? 'none' : 'flex'; }
+  // Right panel: visible in both modes, but toggle which sections appear
   const aside = document.getElementById('context-panel');
-  if (aside) aside.style.display = isAds ? '' : 'none';
+  if (aside) aside.style.display = '';
+  const adsCtx = document.getElementById('panel-section-ads-context');
+  const driveUp = document.getElementById('panel-section-drive-upload');
+  const postsAcct = document.getElementById('panel-section-posts-account');
+  if (adsCtx) adsCtx.style.display = isAds ? '' : 'none';
+  if (driveUp) driveUp.style.display = isAds ? '' : 'none';
+  if (postsAcct) postsAcct.style.display = isAds ? 'none' : '';
   if (!isAds) loadPostingInterface();
 }
 
