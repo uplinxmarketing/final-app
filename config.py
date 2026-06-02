@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     META_REDIRECT_URI: str = "http://localhost:8000/auth/meta/callback"
     """OAuth redirect URI registered in the Meta app settings."""
 
+    META_CONFIG_ID: str = ""
+    """Facebook Login for Business configuration ID for the Ads app. When set,
+    the OAuth flow uses the business-login (config_id) flow instead of the
+    classic scope-based flow. Leave blank for classic Facebook Login apps."""
+
     META_POSTING_APP_ID: str = ""
     """Facebook App ID for the separate Posting app (Instagram & FB Page posting)."""
 
@@ -52,6 +57,9 @@ class Settings(BaseSettings):
 
     META_POSTING_REDIRECT_URI: str = ""
     """OAuth redirect URI registered in the Posting Meta app settings."""
+
+    META_POSTING_CONFIG_ID: str = ""
+    """Facebook Login for Business configuration ID for the Posting app."""
 
     # ------------------------------------------------------------------
     # Google
