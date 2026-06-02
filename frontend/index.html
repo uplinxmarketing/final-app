@@ -959,43 +959,9 @@ a{color:inherit;text-decoration:none}
         ↑ Upload to Campaign
       </button>
       <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-label">Google Drive Upload</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
-        Paste a Drive folder link for images and a Doc/Sheet link for ad copy — the AI will download and push them to your campaign.
+      <div style="font-size:10px;color:var(--text-dim);margin-top:10px;line-height:1.5;border-top:1px solid var(--border);padding-top:8px">
+        💬 Need multiple campaigns or ads with different URLs? Just describe it in the chat — e.g. <em>"Use the images in &lt;folder link&gt; and copy from &lt;doc link&gt;, create ads in ad set 123 pointing to siteA.com, and another batch in ad set 456 pointing to siteB.com."</em>
       </div>
-      <div class="panel-field">
-        <label>Images Folder</label>
-        <input type="url" id="drive-images-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="drive.google.com/drive/folders/…">
-      </div>
-      <div class="panel-field">
-        <label>Ad Copy (Doc or Sheet)</label>
-        <input type="url" id="drive-text-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="docs.google.com/…">
-      </div>
-      <div class="panel-field">
-        <label>Landing Page URL</label>
-        <input type="url" id="drive-dest-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="https://yoursite.com/page">
-      </div>
-      <div class="panel-field">
-        <label>Ad Set ID</label>
-        <input type="text" id="drive-adset-id"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="123456789012">
-      </div>
-      <button onclick="uploadFromDrive()"
-        style="width:100%;padding:7px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;transition:background .15s"
-        onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
-        ↑ Upload to Campaign
-      </button>
-      <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
     </div>
 
     <div class="panel-section">
