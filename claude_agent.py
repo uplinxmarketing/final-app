@@ -89,7 +89,9 @@ _META_WORD_RE = _re.compile(
     r'meta\s+ads?|impression|cpm|cpc|ctr|roas|budget|audience|targeting|placement|'
     r'schedule|reel|upload|analytics|report|spend|conversion|lead|traffic|awareness|'
     r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload|'
-    r'google\s+drive|drive\.google|drive\s+link|drive\s+folder)\b',
+    r'google\s+drive|drive\.google|drive\s+link|drive\s+folder|'
+    r'google\s+doc|google\s+sheet|spreadsheet|docs\.google|sheets\.google|'
+    r'drive\.google\.com|gdoc|gsheet)\b',
     _re.IGNORECASE,
 )
 
@@ -98,18 +100,28 @@ def _is_meta_request(message: str) -> bool:
     """Return True when the message is likely asking for a Meta Ads action."""
     return bool(_META_WORD_RE.search(message))
 
-# Lean prompt used when no Meta account is connected (~30 tokens).
+# Lean prompt used when no accounts are connected (~30 tokens).
 _LEAN_SYSTEM_PROMPT = (
     "You are Uplinx AI, a helpful assistant. "
     "Reply to every message clearly and concisely. "
-    "Connect a Meta account to unlock ad management tools."
+    "Connect a Meta or Google account to unlock ad management and Drive tools."
 )
 
-# Full prompt used when Meta IS connected.
+# Full prompt used when Meta or Google IS connected.
 BASE_SYSTEM_PROMPT = """You are Uplinx AI — a helpful assistant and expert Meta Ads manager.
 
-When Meta is connected you have tools for campaigns, ad sets, creatives, post scheduling, \
-and performance analytics. Only call tools for explicit Meta actions; reply directly otherwise.
+You have tools available for these categories:
+- **Meta Ads** (when Meta is connected): campaigns, ad sets, creatives, post scheduling, analytics
+- **Google Drive** (when Google Drive is connected): upload_ads_from_drive, read_google_doc, read_google_sheet
+- **File reading**: read_pdf, read_local_folder, match_post_story_pairs
+
+IMPORTANT — GOOGLE DRIVE TOOLS:
+When the user provides a Google Drive URL, Google Doc link, or Google Sheet link, you MUST \
+call the appropriate tool (upload_ads_from_drive, read_google_doc, or read_google_sheet). \
+Do NOT say you cannot access external files — you have tools specifically for this. \
+Never respond with "I don't have access to Google Drive" when a Drive URL is provided.
+
+Only call tools when the user explicitly asks for an action; reply directly for questions.
 Use the Active Context IDs below — never invent account data.
 
 CRITICAL SAFETY RULE — DESTRUCTIVE ACTIONS:
@@ -325,11 +337,12 @@ class ClaudeAgent:
         from security import FernetEncryption
 
         meta_uid = (session_data or {}).get("meta_user_id", "")
+        google_uid = (session_data or {}).get("google_user_id", "")
 
-        # Fast-path: no Meta account → use the lean prompt and return immediately.
+        # Fast-path: no Meta or Google account → use the lean prompt and return immediately.
         # Skips BASE_SYSTEM_PROMPT, all DB queries, skills, and custom instructions.
         # Drops input tokens from ~220 → ~30 for pure general-chat sessions.
-        if not meta_uid:
+        if not meta_uid and not google_uid:
             return _LEAN_SYSTEM_PROMPT
 
         parts: list[str] = [BASE_SYSTEM_PROMPT]
@@ -428,6 +441,17 @@ class ClaudeAgent:
             except Exception as exc:
                 logger.debug("Could not load client ad accounts: %s", exc)
 
+        # ── 3b. Google Drive connection status ───────────────────────────────
+        if google_uid:
+            parts.append(
+                "\n## Google Drive\n"
+                "Google Drive IS connected. You have access to these tools:\n"
+                "- upload_ads_from_drive: upload ads directly from a Drive folder URL\n"
+                "- read_google_doc: read the full text of a Google Doc\n"
+                "- read_google_sheet: read data from a Google Sheet\n"
+                "When a user provides any drive.google.com or docs.google.com URL, call the appropriate tool immediately."
+            )
+
         # ── 4. Skills ──────────────────────────────────────────────────────
         try:
             skills = await load_skills_for_conversation(conversation_id, client_id, db)
@@ -513,12 +537,13 @@ class ClaudeAgent:
         if not messages or messages[-1].get("content") != user_message:
             messages.append({"role": "user", "content": user_message})
 
-        # Only expose Meta tools when a Meta account is linked AND the message
-        # looks like a Meta Ads request.  For general chat we skip the tools
-        # entirely — they add ~1 500 input tokens every time and trigger the AI
-        # to run account lookups instead of just replying.
+        # Only expose tools when an account is linked AND the message looks like
+        # an actionable request.  For general chat we skip tools entirely — they
+        # add ~1 500 input tokens every time and trigger the AI to run lookups
+        # instead of just replying.
         meta_connected = bool(session_data.get("meta_user_id"))
-        use_tools = meta_connected and _is_meta_request(user_message)
+        google_connected = bool(session_data.get("google_user_id"))
+        use_tools = (meta_connected or google_connected) and _is_meta_request(user_message)
         tool_definitions = self.get_tool_definitions() if use_tools else []
 
         # Use a larger output budget for task-like requests; keep it tight for chat.
