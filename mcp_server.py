@@ -652,6 +652,33 @@ async def read_local_folder(
 
 
 @mcp.tool()
+async def read_google_drive_folder(
+    session_id: str,
+    folder_url: str,
+) -> str:
+    """List files inside a Google Drive folder by URL. Returns file names, types, and IDs. Use this to inspect what images or documents are in a Drive folder before calling upload_ads_from_drive."""
+    token = await get_google_token_for_session(session_id)
+    if not token:
+        return "Error: Google account not connected. Connect Google Drive in Settings first."
+    folder_id = google_api.extract_folder_id_from_url(folder_url)
+    if not folder_id:
+        # Try treating the URL as a file listing anyway
+        folder_id = google_api.extract_file_id_from_url(folder_url)
+    if not folder_id:
+        return "Error: Could not extract a folder ID from the URL. Make sure it's a Google Drive folder link."
+    result = await google_api.list_drive_folder(folder_id, token)
+    if not result.get("success"):
+        return f"Error listing Drive folder: {result.get('error')}"
+    files = result.get("files", [])
+    if not files:
+        return "The folder is empty or no files are accessible."
+    lines = [f"Found {len(files)} file(s) in the Drive folder:"]
+    for f in files:
+        lines.append(f"  - {f.get('name', '?')} (type: {f.get('mimeType', '?').split('.')[-1]}, id: {f.get('id', '?')})")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 async def match_post_story_pairs(session_id: str, folder_path: str) -> str:
     """Scan a folder and match Post/Story image pairs by filename convention."""
     result = await file_processor.match_post_story_pairs(folder_path)
