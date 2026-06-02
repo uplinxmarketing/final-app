@@ -446,6 +446,7 @@ class ClaudeAgent:
             parts.append(
                 "\n## Google Drive\n"
                 "Google Drive IS connected. You have access to these tools:\n"
+                "- read_google_drive_folder: list files in a Drive folder by URL\n"
                 "- upload_ads_from_drive: upload ads directly from a Drive folder URL\n"
                 "- read_google_doc: read the full text of a Google Doc\n"
                 "- read_google_sheet: read data from a Google Sheet\n"
@@ -1626,6 +1627,25 @@ class ClaudeAgent:
                         }
                     },
                     "required": ["file_path"],
+                },
+            },
+            {
+                "name": "read_google_drive_folder",
+                "description": (
+                    "List files inside a Google Drive folder by URL. "
+                    "Returns file names, types, and IDs. "
+                    "Use this to inspect what images or documents are in a Drive folder "
+                    "before calling upload_ads_from_drive."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "folder_url": {
+                            "type": "string",
+                            "description": "Google Drive folder URL (drive.google.com/drive/folders/...).",
+                        }
+                    },
+                    "required": ["folder_url"],
                 },
             },
             {
