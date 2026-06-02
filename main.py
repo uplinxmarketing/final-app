@@ -1309,8 +1309,15 @@ async def auth_google(request: Request, response: Response):
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         return RedirectResponse("/?error=google_not_configured")
     state = generate_oauth_state()
-    # Derive redirect_uri from the actual request host so it works on any deployment
-    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/auth/google/callback"
+    # Derive redirect_uri from the actual request host so it works on any deployment.
+    # Respect X-Forwarded-Proto/Host because proxies (Render, Fly, etc.) terminate
+    # TLS and forward to the app as plain HTTP — otherwise scheme would read "http"
+    # and Google would reject the https URI registered in the console.
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    redirect_uri = f"{scheme}://{host}/auth/google/callback"
     response.set_cookie("oauth_state_google", state, max_age=600, httponly=True, samesite="lax")
     response.set_cookie("google_redirect_uri", redirect_uri, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
