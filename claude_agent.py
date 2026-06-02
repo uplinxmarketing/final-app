@@ -111,7 +111,31 @@ BASE_SYSTEM_PROMPT = """You are Uplinx AI — a helpful assistant and expert Met
 When Meta is connected you have tools for campaigns, ad sets, creatives, post scheduling, \
 and performance analytics. Only call tools for explicit Meta actions; reply directly otherwise.
 Use the Active Context IDs below — never invent account data.
-Confirm before destructive actions. Be concise."""
+
+CRITICAL SAFETY RULE — DESTRUCTIVE ACTIONS:
+You must NEVER delete, remove, archive, or otherwise destroy anything (campaigns, ad sets, \
+ads, creatives, posts, accounts, or any other resource) without first getting EXPLICIT \
+approval from the user in their own message. Before any such action you must:
+  1. Clearly state exactly what will be deleted/removed (name and ID).
+  2. Ask the user to confirm in plain words.
+  3. Only after the user explicitly says yes (e.g. "yes, delete it") may you call the \
+destructive tool, and only then set user_approved=true.
+Never assume approval. Never set user_approved=true on your own. A vague or ambiguous \
+request is NOT approval — ask again. The system will block any destructive tool call that \
+is not explicitly approved by the user.
+
+Be concise."""
+
+# Substrings that mark a tool as destructive. Any tool whose name contains one of
+# these is hard-blocked unless the call carries an explicit user_approved=true flag.
+# Matching by substring means future delete/remove tools are covered automatically.
+_DESTRUCTIVE_TOOL_MARKERS = ("delete", "remove", "archive", "destroy", "purge")
+
+
+def _is_destructive_tool(tool_name: str) -> bool:
+    name = (tool_name or "").lower()
+    return any(marker in name for marker in _DESTRUCTIVE_TOOL_MARKERS)
+
 
 # Maximum number of agentic turns before aborting to prevent runaway loops
 _MAX_AGENTIC_TURNS = 20
@@ -885,6 +909,25 @@ class ClaudeAgent:
         """
         logger.info("Executing tool: %s  input_keys=%s", tool_name, list(tool_input.keys()))
 
+        # ── Forced safety gate: destructive actions require explicit approval ──
+        # This is a hard block independent of the system prompt. Even if the model
+        # ignores its instructions, a delete/remove/archive call cannot proceed
+        # unless the user explicitly approved it (user_approved=true in the call).
+        if _is_destructive_tool(tool_name):
+            approved = tool_input.get("user_approved")
+            if approved is not True and str(approved).lower() not in ("true", "yes", "1"):
+                logger.warning("Blocked destructive tool '%s' — no explicit user approval", tool_name)
+                return json.dumps({
+                    "error": "approval_required",
+                    "tool": tool_name,
+                    "message": (
+                        "This is a destructive action and was BLOCKED. You must first tell "
+                        "the user exactly what will be deleted (name and ID) and ask them to "
+                        "confirm. Only after the user explicitly approves in their own message "
+                        "may you retry this tool with user_approved=true. Do not approve it yourself."
+                    ),
+                })
+
         try:
             # Import lazily to avoid circular imports at module load time
             import mcp_server  # type: ignore[import]
@@ -896,6 +939,9 @@ class ClaudeAgent:
             # MCP tools use session_id (facebook_user_id) to look up tokens
             # themselves — do NOT pass db/session_data as kwargs.
             call_kwargs = dict(tool_input)
+            # The approval flag is consumed by the safety gate above; MCP handlers
+            # don't accept it, so strip it before dispatch.
+            call_kwargs.pop("user_approved", None)
             if "session_id" not in call_kwargs:
                 call_kwargs["session_id"] = session_data.get("meta_user_id", "")
             result = await handler(**call_kwargs)
@@ -1094,8 +1140,11 @@ class ClaudeAgent:
             {
                 "name": "delete_campaign",
                 "description": (
-                    "Permanently delete a Meta campaign. "
-                    "Always confirm with the user before calling this."
+                    "Permanently delete a Meta campaign. DESTRUCTIVE ACTION: you must first "
+                    "tell the user exactly which campaign (name and ID) will be deleted and "
+                    "get their explicit confirmation in their own message. Only set "
+                    "user_approved=true after the user has clearly said yes. The system blocks "
+                    "this call unless user_approved=true."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -1103,9 +1152,17 @@ class ClaudeAgent:
                         "campaign_id": {
                             "type": "string",
                             "description": "Campaign ID to delete.",
-                        }
+                        },
+                        "user_approved": {
+                            "type": "boolean",
+                            "description": (
+                                "Must be true and is only allowed after the user has "
+                                "explicitly approved this specific deletion in their own "
+                                "message. Never set this on your own initiative."
+                            ),
+                        },
                     },
-                    "required": ["campaign_id"],
+                    "required": ["campaign_id", "user_approved"],
                 },
             },
             # ----------------------------------------------------------
