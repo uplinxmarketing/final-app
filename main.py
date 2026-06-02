@@ -683,6 +683,25 @@ async def setup_status():
         "db_type": db_type,
     }
 
+@app.get("/api/setup/redirect-uris")
+async def setup_redirect_uris(request: Request):
+    """Return the EXACT OAuth redirect URIs this app sends, computed from the
+    live request host. Copy these verbatim into the Meta/Google dashboards."""
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    base = f"{scheme}://{host}"
+    return {
+        "detected_scheme": scheme,
+        "detected_host": host,
+        "meta_ads_redirect_uri": f"{base}/auth/meta/callback",
+        "meta_posting_redirect_uri": f"{base}/auth/meta/posting/callback",
+        "google_redirect_uri": f"{base}/auth/google/callback",
+        "app_domain": host,
+    }
+
+
 # ── Health & frontend ──────────────────────────────────────────────────────────
 
 @app.get("/health")
