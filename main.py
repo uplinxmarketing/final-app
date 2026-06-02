@@ -1279,14 +1279,31 @@ async def auth_meta(
     state = generate_oauth_state()
     response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax")
     response.set_cookie("oauth_meta_redirect_uri", redirect_uri_val, max_age=600, httponly=True, samesite="lax")
-    params = urllib.parse.urlencode({
-        "client_id": app_id_val,
-        "redirect_uri": redirect_uri_val,
-        "scope": META_SCOPES,
-        "response_type": "code",
-        "state": state,
-    })
-    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+
+    # Facebook Login for Business apps require the config_id flow (no scope —
+    # permissions come from the dashboard configuration). Classic apps use the
+    # scope-based flow. We pick based on whether a config_id is configured.
+    config_id = settings.META_CONFIG_ID.strip()
+    if config_id:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "config_id": config_id,
+            "redirect_uri": redirect_uri_val,
+            "response_type": "code",
+            "override_default_response_type": "true",
+            "state": state,
+        })
+        oauth_base = f"https://www.facebook.com/{settings.META_API_VERSION}/dialog/oauth"
+    else:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "redirect_uri": redirect_uri_val,
+            "scope": META_SCOPES,
+            "response_type": "code",
+            "state": state,
+        })
+        oauth_base = "https://www.facebook.com/dialog/oauth"
+    return RedirectResponse(f"{oauth_base}?{params}", headers=response.headers)
 
 @app.get("/auth/meta/callback")
 async def auth_meta_callback(
@@ -1771,14 +1788,30 @@ async def auth_meta_posting(
     state = generate_oauth_state()
     response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
     response.set_cookie("oauth_posting_redirect_uri", posting_redirect_uri, max_age=600, httponly=True, samesite="lax")
-    params = urllib.parse.urlencode({
-        "client_id": app_id_val,
-        "redirect_uri": posting_redirect_uri,
-        "scope": META_POSTING_SCOPES,
-        "response_type": "code",
-        "state": state,
-    })
-    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+
+    # Same logic as the ads app: use the Business-login config_id flow when a
+    # configuration ID is set, otherwise the classic scope-based flow.
+    posting_config_id = settings.META_POSTING_CONFIG_ID.strip()
+    if posting_config_id:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "config_id": posting_config_id,
+            "redirect_uri": posting_redirect_uri,
+            "response_type": "code",
+            "override_default_response_type": "true",
+            "state": state,
+        })
+        oauth_base = f"https://www.facebook.com/{settings.META_API_VERSION}/dialog/oauth"
+    else:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "redirect_uri": posting_redirect_uri,
+            "scope": META_POSTING_SCOPES,
+            "response_type": "code",
+            "state": state,
+        })
+        oauth_base = "https://www.facebook.com/dialog/oauth"
+    return RedirectResponse(f"{oauth_base}?{params}", headers=response.headers)
 
 
 @app.get("/auth/meta/posting/callback")
