@@ -100,6 +100,55 @@ def _is_meta_request(message: str) -> bool:
     """Return True when the message is likely asking for a Meta Ads action."""
     return bool(_META_WORD_RE.search(message))
 
+
+# Tool groups used to send only the relevant subset of tools per message.
+# Sending all ~24 tool schemas costs ~3 700 input tokens *per agentic turn*, and
+# Groq/OpenAI have no prompt caching, so trimming this is the single biggest
+# token saving for tool-using chats.
+_TOOL_GROUPS = {
+    "discovery": ["list_ad_accounts", "list_pages", "list_pixels"],
+    "drive": [
+        "read_google_doc", "read_google_sheet", "read_google_drive_folder",
+        "read_pdf", "read_local_folder", "match_post_story_pairs",
+        "upload_ads_from_drive",
+    ],
+    "campaigns": [
+        "create_campaign", "get_campaigns", "pause_campaign",
+        "activate_campaign", "delete_campaign", "create_ad_set",
+    ],
+    "ads": ["upload_single_ad", "upload_multiple_ads"],
+    "analytics": ["get_performance_report", "get_campaign_performance"],
+    "posting": [
+        "schedule_post", "schedule_reel", "get_scheduled_posts",
+        "cancel_scheduled_post",
+    ],
+}
+
+_GROUP_PATTERNS = {
+    "drive": _re.compile(r"\b(drive|google\s+doc|google\s+sheet|docs\.google|sheets\.google|spreadsheet|pdf|folder|file|document)\b", _re.IGNORECASE),
+    "campaigns": _re.compile(r"\b(campaign|ad\s*set|adset|objective|budget|pause|activate|delete|create|targeting)\b", _re.IGNORECASE),
+    "ads": _re.compile(r"\b(upload|creative|ad\s+image|new\s+ad|ads?\b)\b", _re.IGNORECASE),
+    "analytics": _re.compile(r"\b(report|performance|analytics|spend|roas|cpm|cpc|ctr|impression|conversion|metrics?)\b", _re.IGNORECASE),
+    "posting": _re.compile(r"\b(schedule|post|reel|publish|caption|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
+}
+
+
+def _select_tool_names(message: str) -> set[str]:
+    """Return the subset of tool names relevant to *message*.
+
+    Discovery tools (list_*) are always included since the model often needs
+    to resolve account/page IDs. Other groups are added only when the message
+    matches their keyword pattern. If nothing matches we return an empty set so
+    the caller can fall back to the full tool list.
+    """
+    selected: set[str] = set()
+    for group, pattern in _GROUP_PATTERNS.items():
+        if pattern.search(message):
+            selected.update(_TOOL_GROUPS[group])
+    if selected:
+        selected.update(_TOOL_GROUPS["discovery"])
+    return selected
+
 # Lean prompt used when no accounts are connected (~30 tokens).
 _LEAN_SYSTEM_PROMPT = (
     "You are Uplinx AI, a helpful assistant. "
@@ -123,6 +172,12 @@ Never respond with "I don't have access to Google Drive" when a Drive URL is pro
 
 Only call tools when the user explicitly asks for an action; reply directly for questions.
 Use the Active Context IDs below — never invent account data.
+
+EFFICIENCY — avoid wasted tool calls:
+If a tool requires information you don't have (e.g. a specific Drive folder URL, an ad set ID), \
+ask the user for it in plain text FIRST. Do NOT call a tool with missing or guessed arguments. \
+If a tool call returns an error, do NOT immediately retry the same call — explain the problem \
+and ask the user for what's needed.
 
 CRITICAL SAFETY RULE — DESTRUCTIVE ACTIONS:
 You must NEVER delete, remove, archive, or otherwise destroy anything (campaigns, ad sets, \
@@ -545,7 +600,15 @@ class ClaudeAgent:
         meta_connected = bool(session_data.get("meta_user_id"))
         google_connected = bool(session_data.get("google_user_id"))
         use_tools = (meta_connected or google_connected) and _is_meta_request(user_message)
-        tool_definitions = self.get_tool_definitions() if use_tools else []
+        if use_tools:
+            all_defs = self.get_tool_definitions()
+            wanted = _select_tool_names(user_message)
+            # Send only the relevant subset; fall back to all if nothing matched.
+            tool_definitions = (
+                [d for d in all_defs if d["name"] in wanted] if wanted else all_defs
+            )
+        else:
+            tool_definitions = []
 
         # Use a larger output budget for task-like requests; keep it tight for chat.
         effective_max_tokens = 4096 if use_tools else self.max_tokens
