@@ -1220,7 +1220,17 @@ async def auth_meta(
     then to the META_APP_ID environment variable.
     """
     app_id_val = ""
-    redirect_uri_val = settings.meta_redirect_uri
+    # Derive redirect_uri from the actual request host (respecting proxy
+    # X-Forwarded-* headers) so it always matches the live domain rather than a
+    # stale BASE_URL / localhost default.
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    redirect_uri_val = f"{scheme}://{host}/auth/meta/callback"
+    if host.startswith("localhost") or host.startswith("127.0.0.1"):
+        # Local dev — honour the configured value (may be a tunnel URL).
+        redirect_uri_val = settings.meta_redirect_uri
 
     if app:
         result = await db.execute(
@@ -1249,6 +1259,7 @@ async def auth_meta(
 
     state = generate_oauth_state()
     response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax")
+    response.set_cookie("oauth_meta_redirect_uri", redirect_uri_val, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
         "client_id": app_id_val,
         "redirect_uri": redirect_uri_val,
@@ -1290,9 +1301,11 @@ async def auth_meta_callback(
         except Exception:
             pass
 
-    # Exchange code → short-lived token
+    # Exchange code → short-lived token. Must reuse the exact redirect_uri sent
+    # in the authorize step (stored in a cookie), or Meta rejects the exchange.
+    _redirect_uri = request.cookies.get("oauth_meta_redirect_uri") or settings.meta_redirect_uri
     short = await meta_api.exchange_code_for_token(
-        code, _app_id, _app_secret, settings.meta_redirect_uri
+        code, _app_id, _app_secret, _redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
@@ -1703,6 +1716,14 @@ async def auth_meta_posting(
 ):
     """Initiate Meta OAuth for the Posting app."""
     app_id_val = ""
+    # Derive redirect_uri from the live request host (respecting proxy headers).
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    posting_redirect_uri = f"{scheme}://{host}/auth/meta/posting/callback"
+    if host.startswith("localhost") or host.startswith("127.0.0.1"):
+        posting_redirect_uri = settings.meta_posting_redirect_uri
 
     if app:
         result = await db.execute(
@@ -1730,9 +1751,10 @@ async def auth_meta_posting(
 
     state = generate_oauth_state()
     response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
+    response.set_cookie("oauth_posting_redirect_uri", posting_redirect_uri, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
         "client_id": app_id_val,
-        "redirect_uri": settings.meta_posting_redirect_uri,
+        "redirect_uri": posting_redirect_uri,
         "scope": META_POSTING_SCOPES,
         "response_type": "code",
         "state": state,
@@ -1771,8 +1793,9 @@ async def auth_meta_posting_callback(
         except Exception:
             pass
 
+    _posting_redirect_uri = request.cookies.get("oauth_posting_redirect_uri") or settings.meta_posting_redirect_uri
     short = await meta_api.exchange_code_for_token(
-        code, _papp_id, _papp_secret, settings.meta_posting_redirect_uri
+        code, _papp_id, _papp_secret, _posting_redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
