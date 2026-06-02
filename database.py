@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -190,6 +191,29 @@ class MetaApp(Base):
 
     def __repr__(self) -> str:
         return f"<MetaApp id={self.id} name={self.name!r} type={self.app_type!r}>"
+
+
+class AppSetting(Base):
+    """Durable key-value store for runtime configuration (API keys, models, etc.).
+
+    On platforms with an ephemeral filesystem (e.g. Render), the ``.env`` file
+    is wiped on every redeploy, so keys saved via the setup wizard are lost.
+    Persisting them here — in the same Postgres DB that already holds connected
+    accounts — lets them survive restarts and redeploys. Secret values are
+    stored Fernet-encrypted; non-secret values (provider name, model) in plain.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_secret: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<AppSetting key={self.key!r} is_secret={self.is_secret}>"
 
 
 class ConnectedGoogleAccount(Base):
@@ -720,6 +744,58 @@ async def init_db() -> None:
             except Exception:
                 pass
     logger.info("Database tables initialised.")
+
+
+# ---------------------------------------------------------------------------
+# Durable app-settings store (survives redeploys on ephemeral filesystems)
+# ---------------------------------------------------------------------------
+
+# Which settings are secrets (Fernet-encrypted at rest) vs. plain values.
+_SECRET_SETTING_KEYS = {
+    "META_APP_SECRET", "META_POSTING_APP_SECRET",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY",
+    "GOOGLE_CLIENT_SECRET",
+}
+
+
+async def save_app_setting(key: str, value: str, db: AsyncSession) -> None:
+    """Persist a single setting to the DB, encrypting it if it's a secret.
+
+    Empty values are ignored so we never clobber a stored key with a blank.
+    """
+    if not value:
+        return
+    is_secret = key in _SECRET_SETTING_KEYS
+    stored = value
+    if is_secret:
+        from security import fernet_encryption
+        stored = fernet_encryption.encrypt(value)
+    row = await db.get(AppSetting, key)
+    if row is None:
+        db.add(AppSetting(key=key, value=stored, is_secret=is_secret))
+    else:
+        row.value = stored
+        row.is_secret = is_secret
+
+
+async def delete_app_setting(key: str, db: AsyncSession) -> None:
+    """Remove a setting from the DB (used when a key is cleared)."""
+    row = await db.get(AppSetting, key)
+    if row is not None:
+        await db.delete(row)
+
+
+async def load_app_settings(db: AsyncSession) -> dict[str, str]:
+    """Return all stored settings as a plain {key: decrypted_value} dict."""
+    result = await db.execute(select(AppSetting))
+    out: dict[str, str] = {}
+    for row in result.scalars().all():
+        val = row.value
+        if row.is_secret and val:
+            from security import fernet_encryption
+            val = fernet_encryption.decrypt(val)
+        out[row.key] = val
+    return out
 
 
 # ---------------------------------------------------------------------------
