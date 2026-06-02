@@ -1202,9 +1202,8 @@ async def frontend(request: Request):
 META_SCOPES = ",".join([
     "ads_management", "ads_read", "pages_show_list",
     "pages_read_engagement", "pages_manage_ads", "pages_manage_posts",
-    "read_insights", "instagram_basic", "instagram_content_publish",
-    "instagram_manage_insights", "instagram_manage_contents",
-    "publish_video", "business_management", "attribution_read",
+    "read_insights", "instagram_content_publish",
+    "instagram_manage_insights", "business_management",
 ])
 
 @app.get("/auth/meta")
@@ -1692,9 +1691,7 @@ async def api_delete_meta_app(
 
 META_POSTING_SCOPES = ",".join([
     "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-    "instagram_basic", "instagram_content_publish",
-    "instagram_manage_insights", "instagram_manage_contents",
-    "publish_video",
+    "instagram_content_publish", "instagram_manage_insights",
 ])
 
 @app.get("/auth/meta/posting")
