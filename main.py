@@ -82,6 +82,43 @@ def _verify_password(pw: str, hashed: str) -> bool:
 
 _bg_tasks: list[asyncio.Task] = []
 
+async def _load_settings_from_db() -> None:
+    """Reload persisted API keys / config from the DB into the live settings.
+
+    On Render (ephemeral filesystem) the .env file is wiped on every redeploy,
+    so the DB is the durable source of truth. Values already present in the
+    environment / .env take precedence (env vars set in the Render dashboard
+    should win), so we only fill in keys that are currently empty.
+    """
+    try:
+        from database import load_app_settings
+        async for db in get_db():
+            stored = await load_app_settings(db)
+            break
+    except Exception as exc:
+        logger.error(f"Could not load settings from DB: {exc}")
+        return
+    if not stored:
+        return
+    applied = []
+    for key, value in stored.items():
+        if not value:
+            continue
+        # Don't override a value already provided via the environment / .env.
+        current = getattr(settings, key, "")
+        if current:
+            continue
+        if hasattr(settings, key):
+            setattr(settings, key, value)
+            applied.append(key)
+    if applied:
+        logger.info("Loaded %d setting(s) from DB: %s", len(applied), ", ".join(applied))
+        try:
+            agent._init_client()
+        except Exception as exc:
+            logger.warning("Could not re-init agent after DB settings load: %s", exc)
+
+
 async def _deferred_startup() -> None:
     """All seeding and CRM init — runs in background 3s after server starts."""
     await asyncio.sleep(3)
@@ -144,6 +181,12 @@ async def lifespan(app: FastAPI):
         await init_db()
     except Exception as _exc:
         logger.error(f"init_db error (non-fatal): {type(_exc).__name__}: {_exc}")
+    # Restore persisted API keys from the DB before serving requests, so the AI
+    # agent works immediately after a redeploy (Render wipes the .env file).
+    try:
+        await _load_settings_from_db()
+    except Exception as _exc:
+        logger.error(f"settings reload error (non-fatal): {type(_exc).__name__}: {_exc}")
     _bg_tasks.append(asyncio.create_task(_deferred_startup()))
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -475,8 +518,13 @@ async def setup_page():
     return HTMLResponse("<h1>Setup page not found</h1>", status_code=500)
 
 @app.post("/api/setup/save")
-async def setup_save(req: SetupSaveRequest):
-    """Write provided keys into the .env file and reload settings."""
+async def setup_save(req: SetupSaveRequest, db: AsyncSession = Depends(get_db)):
+    """Write provided keys into the .env file, persist them to the DB, and reload settings.
+
+    The DB copy is the durable source of truth: on platforms with an ephemeral
+    filesystem (Render), the .env file is wiped on every redeploy, so keys are
+    reloaded from the DB on startup.
+    """
     env_path = Path(".env")
     if not env_path.exists():
         env_path.write_text("", encoding="utf-8")
@@ -511,6 +559,15 @@ async def setup_save(req: SetupSaveRequest):
             lines = _set_key(lines, key, value)
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # Persist to the DB (durable across redeploys on ephemeral filesystems).
+    try:
+        from database import save_app_setting
+        for key, value in pairs.items():
+            await save_app_setting(key, value, db)
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Could not persist settings to DB: %s", exc)
 
     # Update the live settings object in-place so _is_setup_complete()
     # returns True immediately without needing a server restart.
@@ -547,8 +604,8 @@ async def setup_save(req: SetupSaveRequest):
 
 
 @app.delete("/api/setup/key/{provider}")
-async def clear_api_key(provider: str):
-    """Remove a single AI provider key from .env and live settings."""
+async def clear_api_key(provider: str, db: AsyncSession = Depends(get_db)):
+    """Remove a single AI provider key from .env, the DB, and live settings."""
     env_key_map = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "groq": "GROQ_API_KEY"}
     env_key = env_key_map.get(provider)
     if not env_key:
@@ -558,6 +615,13 @@ async def clear_api_key(provider: str):
         lines = [l for l in env_path.read_text(encoding="utf-8").splitlines()
                  if not (l.startswith(f"{env_key}=") or l.startswith(f"{env_key} ="))]
         env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Also remove the durable DB copy so it isn't restored on next redeploy.
+    try:
+        from database import delete_app_setting
+        await delete_app_setting(env_key, db)
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Could not delete setting %s from DB: %s", env_key, exc)
     if provider == "anthropic":
         settings.ANTHROPIC_API_KEY = ""
     elif provider == "openai":
