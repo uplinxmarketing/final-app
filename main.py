@@ -2707,7 +2707,9 @@ async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)
     result = await meta_api.get_pages(token)
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
-    return result["data"]
+    # get_pages returns {"success": True, "data": {"data": [...]}} — unwrap to list
+    raw = result["data"]
+    return raw["data"] if isinstance(raw, dict) else raw
 
 
 @app.get("/api/posting/instagram")
@@ -2717,7 +2719,8 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
     result = await meta_api.get_pages(token)
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
-    pages = result["data"]
+    raw = result["data"]
+    pages = raw["data"] if isinstance(raw, dict) else raw
     ig_accounts = []
     async with httpx.AsyncClient(timeout=15) as client:
         for page in pages:
@@ -2895,7 +2898,8 @@ async def api_posting_my_pages(request: Request, db: AsyncSession = Depends(get_
             token = await get_posting_token(request, db)
             pages_result = await meta_api.get_pages(token)
             if pages_result.get("success"):
-                pages = pages_result["data"]
+                raw = pages_result["data"]
+                pages = raw["data"] if isinstance(raw, dict) else raw
                 out = [{"id": p["id"], "name": p.get("name", ""), "platform": "facebook"} for p in pages]
                 async with httpx.AsyncClient(timeout=15) as client:
                     for p in pages:

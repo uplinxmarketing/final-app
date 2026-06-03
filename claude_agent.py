@@ -534,8 +534,10 @@ class ClaudeAgent:
                         ptoken = enc.decrypt(posting_acc.encrypted_long_token)
                         pages_result = await meta_api.get_pages(ptoken)
                         if pages_result.get("success"):
+                            raw_pages = pages_result["data"]
+                            page_list = raw_pages["data"] if isinstance(raw_pages, dict) else raw_pages
                             page_lines = []
-                            for p in pages_result["data"][:15]:
+                            for p in page_list[:15]:
                                 page_lines.append(f"  - Facebook Page: {p.get('name','?')} | ID: {p.get('id','?')}")
                             if page_lines:
                                 posting_lines.append("Available pages this account manages:")
