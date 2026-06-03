@@ -1203,6 +1203,7 @@ a{color:inherit;text-decoration:none}
                 <div style="font-size:12px;color:var(--text-dim)" id="meta-conn-info">Not connected</div>
               </div>
             </div>
+            <button id="meta-ads-disconnect-btn" onclick="disconnectMetaAds()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid var(--error,#ef4444);background:transparent;color:var(--error,#ef4444);font-size:11px;cursor:pointer">Disconnect</button>
           </div>
         </div>
         <!-- Ads apps with connect buttons -->
@@ -2738,8 +2739,16 @@ async function loadConnectionStatus() {
     const acc = meta.find(a=>a.is_current) || meta[0];
     document.getElementById('meta-conn-dot').classList.add('connected');
     document.getElementById('meta-conn-info').textContent = acc.user_name || acc.user_email || 'Connected';
-    document.getElementById('meta-conn-btn').textContent = 'Reconnect';
     state.metaConnected = true;
+    state.metaAccountId = acc.id;
+    const discBtn = document.getElementById('meta-ads-disconnect-btn');
+    if (discBtn) discBtn.style.display = 'block';
+  } else {
+    document.getElementById('meta-conn-dot').classList.remove('connected');
+    document.getElementById('meta-conn-info').textContent = 'Not connected';
+    state.metaAccountId = null;
+    const discBtn = document.getElementById('meta-ads-disconnect-btn');
+    if (discBtn) discBtn.style.display = 'none';
   }
   if (google && google.length) {
     const acc = google.find(a=>a.is_current) || google[0];
@@ -3739,6 +3748,18 @@ async function disconnectPostingAccount(id) {
   await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
   loadPostingAccountsList();
   loadPostingInterface();
+}
+
+async function disconnectMetaAds() {
+  const id = state.metaAccountId;
+  if (!id) return;
+  if (!confirm('Disconnect your Meta Ads account?')) return;
+  await fetch(`/api/accounts/meta/${id}`, {method:'DELETE'});
+  await fetch('/auth/logout', {method:'POST'});
+  state.metaConnected = false;
+  state.metaAccountId = null;
+  await loadConnectionStatus();
+  await updateStatusIndicators();
 }
 
 async function savePostingCredentials() {
