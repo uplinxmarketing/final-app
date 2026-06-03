@@ -2711,6 +2711,41 @@ async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)
             out["steps"]["me"] = f"status {rm.status_code}"
     except Exception as e:
         out["steps"]["me"] = f"Exception: {_tb.format_exc()}"
+    # Step 5: which OAuth flow is configured + app id (no secrets)
+    out["oauth_flow"] = "business_login (config_id)" if settings.META_POSTING_CONFIG_ID.strip() else "classic_scope"
+    out["app_id"] = settings.META_POSTING_APP_ID or "(none)"
+    # Step 6: business portfolios the token owner belongs to
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rb = await client.get(
+                f"{settings.meta_graph_base_url}/me/businesses",
+                params={"fields": "id,name", "access_token": token},
+            )
+            out["me_businesses"] = rb.json() if rb.status_code == 200 else {"status": rb.status_code, "body": rb.text}
+            out["steps"]["me_businesses"] = f"status {rb.status_code}"
+    except Exception as e:
+        out["steps"]["me_businesses"] = f"Exception: {_tb.format_exc()}"
+    # Step 7: token debug — granted scopes & whether token is valid/which app issued it
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rd = await client.get(
+                f"{settings.meta_graph_base_url}/debug_token",
+                params={"input_token": token, "access_token": token},
+            )
+            if rd.status_code == 200:
+                d = rd.json().get("data", {})
+                out["token_debug"] = {
+                    "app_id": d.get("app_id"),
+                    "type": d.get("type"),
+                    "is_valid": d.get("is_valid"),
+                    "scopes": d.get("scopes"),
+                    "granular_scopes": d.get("granular_scopes"),
+                }
+            else:
+                out["token_debug"] = {"status": rd.status_code, "body": rd.text}
+            out["steps"]["token_debug"] = f"status {rd.status_code}"
+    except Exception as e:
+        out["steps"]["token_debug"] = f"Exception: {_tb.format_exc()}"
     return out
 
 
