@@ -271,7 +271,7 @@ PUBLIC_PATHS = {"/health", "/", "/ads", "/auth/meta", "/auth/meta/callback",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
                 "/login", "/api/login", "/api/logout",
                 "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-                "/api/auth/emergency-reset"}
+                "/api/auth/emergency-reset", "/api/posting/debug"}
 
 
 def _login_token() -> str:
@@ -2650,24 +2650,53 @@ async def api_delete_campaign(campaign_id: str, request: Request, db: AsyncSessi
 @app.get("/api/posting/debug")
 async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)):
     """Diagnostic: show granted permissions and raw pages result for the posting token."""
+    import traceback as _tb
+    out: dict = {"steps": {}}
+    # Step 1: resolve token
+    token = None
     try:
         token = await get_posting_token(request, db)
+        out["steps"]["get_token"] = "ok"
+        out["token_prefix"] = token[:20] + "..." if token else None
     except HTTPException as e:
-        return {"step": "get_token", "error": e.detail}
-    out: dict = {}
-    async with httpx.AsyncClient(timeout=20) as client:
-        # Granted permissions
-        rp = await client.get(
-            f"{settings.meta_graph_base_url}/me/permissions",
-            params={"access_token": token},
-        )
-        out["permissions"] = rp.json() if rp.status_code == 200 else {"status": rp.status_code, "body": rp.text}
-        # Pages the user granted
-        ra = await client.get(
-            f"{settings.meta_graph_base_url}/me/accounts",
-            params={"fields": "id,name,category", "access_token": token},
-        )
-        out["me_accounts"] = ra.json() if ra.status_code == 200 else {"status": ra.status_code, "body": ra.text}
+        out["steps"]["get_token"] = f"HTTPException {e.status_code}: {e.detail}"
+        return out
+    except Exception as e:
+        out["steps"]["get_token"] = f"Exception: {_tb.format_exc()}"
+        return out
+    # Step 2: permissions
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rp = await client.get(
+                f"{settings.meta_graph_base_url}/me/permissions",
+                params={"access_token": token},
+            )
+            out["permissions"] = rp.json() if rp.status_code == 200 else {"status": rp.status_code, "body": rp.text}
+            out["steps"]["permissions"] = f"status {rp.status_code}"
+    except Exception as e:
+        out["steps"]["permissions"] = f"Exception: {_tb.format_exc()}"
+    # Step 3: /me/accounts
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            ra = await client.get(
+                f"{settings.meta_graph_base_url}/me/accounts",
+                params={"fields": "id,name,category,access_token", "access_token": token},
+            )
+            out["me_accounts"] = ra.json() if ra.status_code == 200 else {"status": ra.status_code, "body": ra.text}
+            out["steps"]["me_accounts"] = f"status {ra.status_code}"
+    except Exception as e:
+        out["steps"]["me_accounts"] = f"Exception: {_tb.format_exc()}"
+    # Step 4: /me (who is the token owner)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rm = await client.get(
+                f"{settings.meta_graph_base_url}/me",
+                params={"fields": "id,name", "access_token": token},
+            )
+            out["me"] = rm.json() if rm.status_code == 200 else {"status": rm.status_code, "body": rm.text}
+            out["steps"]["me"] = f"status {rm.status_code}"
+    except Exception as e:
+        out["steps"]["me"] = f"Exception: {_tb.format_exc()}"
     return out
 
 
