@@ -3088,16 +3088,13 @@ async function updateStatusIndicators() {
       }
     }
   } catch(e) {}
-  // Meta — in the posting interface check the posting account, otherwise the ads account
+  // Meta — the Ads Manager and Posting apps are SEPARATE apps with separate
+  // connections. Each interface reflects ONLY its own account type; never fall
+  // back to the other app, or one app would show green when only the other is
+  // connected.
   try {
     const endpoint = _activeInterface === 'posts' ? '/api/accounts/posting' : '/api/accounts/meta';
-    let accounts = await api('GET', endpoint).catch(()=>null);
-    // Fallback: if the primary endpoint has nothing, try the other so a connected
-    // account still lights the indicator green.
-    if (!accounts || !accounts.length) {
-      const other = _activeInterface === 'posts' ? '/api/accounts/meta' : '/api/accounts/posting';
-      accounts = await api('GET', other).catch(()=>null);
-    }
+    const accounts = await api('GET', endpoint).catch(()=>null);
     if (accounts && accounts.length) {
       const acc = accounts.find(a=>a.is_current) || accounts[0];
       document.getElementById('status-meta-dot').style.background = '#22c55e';
