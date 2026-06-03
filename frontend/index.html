@@ -3274,6 +3274,8 @@ function enterInterface(iface) {
   if (driveUp) driveUp.style.display = isAds ? '' : 'none';
   if (postsAcct) postsAcct.style.display = isAds ? 'none' : '';
   if (!isAds) loadPostingInterface();
+  // Refresh the Meta indicator now that _activeInterface reflects the new mode
+  updateStatusIndicators();
 }
 
 function switchInterface(iface) { enterInterface(iface); }
