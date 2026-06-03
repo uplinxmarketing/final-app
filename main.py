@@ -267,7 +267,7 @@ SESSION_COOKIE = "uplinx_session"
 LOGIN_COOKIE = "uplinx_login"
 PUBLIC_PATHS = {"/health", "/", "/ads", "/auth/meta", "/auth/meta/callback",
                 "/auth/meta/posting", "/auth/meta/posting/callback",
-                "/auth/google", "/auth/google/callback", "/setup",
+                "/auth/google", "/auth/google/callback", "/auth/done", "/setup",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
                 "/login", "/api/login", "/api/logout",
                 "/api/auth/login", "/api/auth/logout", "/api/auth/me",
@@ -1396,9 +1396,12 @@ async def auth_meta_callback(
         db.add(acc)
     await db.commit()
 
-    # Create signed session
-    session_token = create_session_token({"meta_user_id": uid})
-    redirect = RedirectResponse("/?connected=meta")
+    # Merge meta_user_id into existing session so user auth cookie is preserved
+    existing_token = request.cookies.get(SESSION_COOKIE)
+    existing_session = verify_session_token(existing_token) if existing_token else {}
+    session_data = {**existing_session, "meta_user_id": uid}
+    session_token = create_session_token(session_data)
+    redirect = RedirectResponse("/auth/done?type=meta")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
         max_age=28800, httponly=True, samesite="lax"
@@ -1518,6 +1521,23 @@ async def auth_google_callback(
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     return {"success": True}
+
+
+@app.get("/auth/done", response_class=HTMLResponse)
+async def auth_done(type: str = "meta"):
+    """OAuth completion page: closes popup and notifies opener, or redirects if no popup."""
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Connected</title></head>
+<body><script>
+if (window.opener && !window.opener.closed) {{
+  window.opener.postMessage({{oauthConnected: '{type}'}}, window.location.origin);
+  window.close();
+}} else {{
+  window.location.href = '/?connected={type}';
+}}
+</script><p style="font-family:sans-serif;text-align:center;margin-top:40px">Connected! You can close this tab.</p></body></html>
+""")
+
 
 # ── Shared request models ──────────────────────────────────────────────────────
 
@@ -1899,11 +1919,12 @@ async def auth_meta_posting_callback(
         db.add(acc)
     await db.commit()
 
-    # Merge into existing session so both ads + posting IDs coexist
-    existing = get_session(request)
-    session_data = {**dict(existing), "posting_user_id": uid}
+    # Merge posting_user_id into existing session so user auth cookie is preserved
+    existing_token = request.cookies.get(SESSION_COOKIE)
+    existing_session = verify_session_token(existing_token) if existing_token else {}
+    session_data = {**existing_session, "posting_user_id": uid}
     session_token = create_session_token(session_data)
-    redirect = RedirectResponse("/?connected=posting")
+    redirect = RedirectResponse("/auth/done?type=posting")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
         max_age=28800, httponly=True, samesite="lax"
