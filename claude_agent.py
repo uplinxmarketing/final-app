@@ -393,11 +393,10 @@ class ClaudeAgent:
 
         meta_uid = (session_data or {}).get("meta_user_id", "")
         google_uid = (session_data or {}).get("google_user_id", "")
+        posting_uid = (session_data or {}).get("posting_user_id", "")
 
-        # Fast-path: no Meta or Google account → use the lean prompt and return immediately.
-        # Skips BASE_SYSTEM_PROMPT, all DB queries, skills, and custom instructions.
-        # Drops input tokens from ~220 → ~30 for pure general-chat sessions.
-        if not meta_uid and not google_uid:
+        # Fast-path: no Meta, Google, or Posting account → use the lean prompt and return immediately.
+        if not meta_uid and not google_uid and not posting_uid:
             return _LEAN_SYSTEM_PROMPT
 
         parts: list[str] = [BASE_SYSTEM_PROMPT]
@@ -507,6 +506,31 @@ class ClaudeAgent:
                 "- read_google_sheet: read data from a Google Sheet\n"
                 "When a user provides any drive.google.com or docs.google.com URL, call the appropriate tool immediately."
             )
+
+        # ── 3c. Posting account ──────────────────────────────────────────────
+        if posting_uid:
+            try:
+                from database import ConnectedPostingAccount as _CPA
+                posting_res = await db.execute(
+                    select(_CPA).where(
+                        _CPA.facebook_user_id == posting_uid,
+                        _CPA.is_active == True,
+                    )
+                )
+                posting_acc = posting_res.scalar_one_or_none()
+                posting_lines = ["\n## Posting Account"]
+                if posting_acc:
+                    posting_lines.append(f"Connected posting account: {posting_acc.user_name or posting_uid}")
+                posting_lines.append(
+                    "This session is for content posting (Facebook Pages & Instagram), NOT ad campaigns. "
+                    "Do NOT ask for an ad account ID — it is not needed here. "
+                    "Help the user draft captions, schedule posts, create content, and manage their pages."
+                )
+                if ctx and ctx.selected_page_id:
+                    posting_lines.append(f"Currently selected page/account ID: {ctx.selected_page_id}")
+                parts.append("\n".join(posting_lines))
+            except Exception as exc:
+                logger.debug("Could not load posting account info: %s", exc)
 
         # ── 4. Skills ──────────────────────────────────────────────────────
         try:
