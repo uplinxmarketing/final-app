@@ -9,7 +9,7 @@ import hashlib
 import secrets
 import urllib.parse
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -326,6 +326,20 @@ def get_session(request: Request) -> dict:
     return getattr(request.state, "session", {})
 
 
+def _token_expired(token_expiry) -> bool:
+    """Timezone-safe expiry check.
+
+    Stored token_expiry may be timezone-aware (e.g. ``+00:00``) while
+    ``datetime.utcnow()`` is naive — comparing the two raises a TypeError.
+    Normalize both to aware UTC before comparing.
+    """
+    if not token_expiry:
+        return False
+    if token_expiry.tzinfo is None:
+        token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+    return token_expiry < datetime.now(timezone.utc)
+
+
 async def get_meta_token(request: Request, db: AsyncSession) -> str:
     """Decrypt and return the active Meta access token, refreshing if near expiry."""
     session = get_session(request)
@@ -341,7 +355,7 @@ async def get_meta_token(request: Request, db: AsyncSession) -> str:
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(401, "Meta account not found")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+    if _token_expired(acc.token_expiry):
         raise HTTPException(401, "Meta token expired — please reconnect")
     acc.last_used_at = datetime.utcnow()
     await db.commit()
@@ -364,7 +378,7 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(401, "Google account not found")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+    if _token_expired(acc.token_expiry):
         refresh = await google_api.refresh_access_token(
             encryption.decrypt(acc.encrypted_refresh_token),
             settings.GOOGLE_CLIENT_ID,
@@ -407,7 +421,7 @@ async def get_posting_token(request: Request, db: AsyncSession) -> str:
         acc = result.scalars().first()
     if not acc:
         raise HTTPException(401, "Posting account not connected")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+    if _token_expired(acc.token_expiry):
         raise HTTPException(401, "Posting token expired — please reconnect")
     acc.last_used_at = datetime.utcnow()
     await db.commit()
