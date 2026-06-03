@@ -526,6 +526,25 @@ class ClaudeAgent:
                     "Do NOT ask for an ad account ID — it is not needed here. "
                     "Help the user draft captions, schedule posts, create content, and manage their pages."
                 )
+                # List the actual Pages & Instagram accounts this account manages so
+                # the AI can reference them by name/ID instead of asking the user.
+                if posting_acc:
+                    try:
+                        enc = FernetEncryption()
+                        ptoken = enc.decrypt(posting_acc.encrypted_long_token)
+                        pages_result = await meta_api.get_pages(ptoken)
+                        if pages_result.get("success"):
+                            page_lines = []
+                            for p in pages_result["data"][:15]:
+                                page_lines.append(f"  - Facebook Page: {p.get('name','?')} | ID: {p.get('id','?')}")
+                            if page_lines:
+                                posting_lines.append("Available pages this account manages:")
+                                posting_lines.extend(page_lines)
+                                posting_lines.append(
+                                    "You CAN reference and use these pages directly — they are authorized for this account."
+                                )
+                    except Exception as exc:
+                        logger.debug("Could not pre-load posting pages: %s", exc)
                 if ctx and ctx.selected_page_id:
                     posting_lines.append(f"Currently selected page/account ID: {ctx.selected_page_id}")
                 parts.append("\n".join(posting_lines))

@@ -3088,11 +3088,18 @@ async function updateStatusIndicators() {
       }
     }
   } catch(e) {}
-  // Meta
+  // Meta — in the posting interface check the posting account, otherwise the ads account
   try {
-    const meta = await api('GET', '/api/accounts/meta').catch(()=>null);
-    if (meta && meta.length) {
-      const acc = meta.find(a=>a.is_current) || meta[0];
+    const endpoint = _activeInterface === 'posts' ? '/api/accounts/posting' : '/api/accounts/meta';
+    let accounts = await api('GET', endpoint).catch(()=>null);
+    // Fallback: if the primary endpoint has nothing, try the other so a connected
+    // account still lights the indicator green.
+    if (!accounts || !accounts.length) {
+      const other = _activeInterface === 'posts' ? '/api/accounts/meta' : '/api/accounts/posting';
+      accounts = await api('GET', other).catch(()=>null);
+    }
+    if (accounts && accounts.length) {
+      const acc = accounts.find(a=>a.is_current) || accounts[0];
       document.getElementById('status-meta-dot').style.background = '#22c55e';
       document.getElementById('status-meta-label').textContent = acc.user_name || 'Connected';
     } else {
@@ -3321,15 +3328,42 @@ function updatePostingAccountStatus(account) {
 async function loadMyPostingPages() {
   const listEl = document.getElementById('posts-client-list');
   if (!listEl) return;
+  listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Loading pages…</div>';
   try {
-    const pages = await fetch('/api/posting/my-pages').then(r => r.ok ? r.json() : []);
+    // Pull every source the user might have access to, in parallel:
+    //  - my-pages: admin-assigned pages (for restricted users) / all pages (admin)
+    //  - posting/pages + posting/instagram: live pages & IG the connected account manages
+    const [assigned, livePages, liveIg] = await Promise.all([
+      fetch('/api/posting/my-pages').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/posting/pages').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/posting/instagram').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]);
+
     _myPostingPagesMap = {};
-    if (!pages || !pages.length) {
-      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">No pages assigned yet.<br><span style="font-size:11px">Ask your admin to assign pages.</span></div>';
+    const byId = {};
+    const add = (p) => { if (p && p.id && !byId[p.id]) byId[p.id] = p; };
+
+    (Array.isArray(assigned) ? assigned : []).forEach(p => add({
+      id: p.id, name: p.name || p.id, platform: p.platform || 'facebook', page_id: p.page_id,
+    }));
+    (Array.isArray(livePages) ? livePages : []).forEach(p => add({
+      id: p.id, name: p.name || p.id, platform: 'facebook',
+    }));
+    (Array.isArray(liveIg) ? liveIg : []).forEach(a => add({
+      id: a.id, name: a.username ? '@' + a.username : (a.name || a.id), platform: 'instagram', page_id: a.page_id,
+    }));
+
+    const all = Object.values(byId);
+    if (!all.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">No pages found.<br><span style="font-size:11px">Connect a Facebook account that manages Pages, or ask your admin to assign pages, then click ↻.</span></div>';
       return;
     }
-    pages.forEach(p => { _myPostingPagesMap[p.id] = p; });
-    listEl.innerHTML = pages.map(p => {
+    all.forEach(p => { _myPostingPagesMap[p.id] = p; });
+
+    const fb = all.filter(p => p.platform !== 'instagram');
+    const ig = all.filter(p => p.platform === 'instagram');
+
+    const renderItem = (p) => {
       const icon = p.platform === 'instagram' ? '📷' : '📘';
       const isSelected = _selectedPostPage && _selectedPostPage.id === p.id;
       return `<div id="page-item-${p.id}" onclick="selectPostPageById('${p.id}')"
@@ -3338,9 +3372,14 @@ async function loadMyPostingPages() {
           <span style="font-size:14px;flex-shrink:0">${icon}</span>
           <span style="font-size:12px;font-weight:600;color:var(--text-primary);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name || p.id}</span>
         </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;padding-left:21px">${p.platform === 'instagram' ? 'Instagram' : 'Facebook Page'}</div>
       </div>`;
-    }).join('');
+    };
+    const sectionLabel = (t) => `<div style="font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-dim);padding:8px 8px 4px">${t}</div>`;
+
+    let html = '';
+    if (fb.length) html += sectionLabel('📘 Facebook Pages') + fb.map(renderItem).join('');
+    if (ig.length) html += sectionLabel('📷 Instagram') + ig.map(renderItem).join('');
+    listEl.innerHTML = html;
   } catch(e) {
     if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Error loading pages.</div>';
   }
