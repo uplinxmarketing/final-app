@@ -3754,7 +3754,19 @@ function openOAuthPopup(url) {
   const w = 600, h = 700;
   const left = Math.max(0, (screen.width - w) / 2);
   const top = Math.max(0, (screen.height - h) / 2);
-  window.open(url, 'oauth_popup', `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`);
+  const popup = window.open(url, 'oauth_popup', `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`);
+  if (!popup) { toast('Allow popups for this site and try again', 'error'); return; }
+  // Poll until popup closes, then refresh status (handles window.opener=null after cross-origin redirects)
+  const poll = setInterval(async () => {
+    if (popup.closed) {
+      clearInterval(poll);
+      await loadConnectionStatus();
+      await updateStatusIndicators();
+      loadConnectionsApps();
+      loadAccountDropdowns();
+      loadPostingInterface();
+    }
+  }, 500);
 }
 
 window.addEventListener('message', async (e) => {
