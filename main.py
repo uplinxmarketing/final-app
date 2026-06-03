@@ -2647,6 +2647,30 @@ async def api_delete_campaign(campaign_id: str, request: Request, db: AsyncSessi
 
 # ── Posting-specific endpoints ────────────────────────────────────────────────
 
+@app.get("/api/posting/debug")
+async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)):
+    """Diagnostic: show granted permissions and raw pages result for the posting token."""
+    try:
+        token = await get_posting_token(request, db)
+    except HTTPException as e:
+        return {"step": "get_token", "error": e.detail}
+    out: dict = {}
+    async with httpx.AsyncClient(timeout=20) as client:
+        # Granted permissions
+        rp = await client.get(
+            f"{settings.meta_graph_base_url}/me/permissions",
+            params={"access_token": token},
+        )
+        out["permissions"] = rp.json() if rp.status_code == 200 else {"status": rp.status_code, "body": rp.text}
+        # Pages the user granted
+        ra = await client.get(
+            f"{settings.meta_graph_base_url}/me/accounts",
+            params={"fields": "id,name,category", "access_token": token},
+        )
+        out["me_accounts"] = ra.json() if ra.status_code == 200 else {"status": ra.status_code, "body": ra.text}
+    return out
+
+
 @app.get("/api/posting/pages")
 async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)):
     """Get FB pages accessible via the Posting app token."""
