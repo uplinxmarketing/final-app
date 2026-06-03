@@ -378,20 +378,35 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
     return encryption.decrypt(acc.encrypted_access_token)
 
 async def get_posting_token(request: Request, db: AsyncSession) -> str:
-    """Decrypt and return the active Posting Meta access token."""
+    """Decrypt and return the active Posting Meta access token.
+
+    Prefers the posting account tied to the current session. If the session
+    doesn't carry a posting_user_id (e.g. connected in a popup/other tab, or a
+    fresh login after the account was already stored), fall back to the most
+    recently used active posting account — consistent with the app-wide,
+    non-session-scoped posting account listing.
+    """
     session = get_session(request)
     uid = session.get("posting_user_id")
-    if not uid:
-        raise HTTPException(401, "Posting account not connected")
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(
-            ConnectedPostingAccount.facebook_user_id == uid,
-            ConnectedPostingAccount.is_active == True,
+    acc = None
+    if uid:
+        result = await db.execute(
+            select(ConnectedPostingAccount).where(
+                ConnectedPostingAccount.facebook_user_id == uid,
+                ConnectedPostingAccount.is_active == True,
+            )
         )
-    )
-    acc = result.scalar_one_or_none()
+        acc = result.scalar_one_or_none()
+    if acc is None:
+        # Fallback: any active posting account (most recently created first).
+        result = await db.execute(
+            select(ConnectedPostingAccount)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        acc = result.scalars().first()
     if not acc:
-        raise HTTPException(401, "Posting account not found")
+        raise HTTPException(401, "Posting account not connected")
     if acc.token_expiry and acc.token_expiry < datetime.utcnow():
         raise HTTPException(401, "Posting token expired — please reconnect")
     acc.last_used_at = datetime.utcnow()
