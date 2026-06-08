@@ -313,9 +313,14 @@ async def login_guard(request: Request, call_next):
             or path.startswith("/frontend/")
             or path.startswith("/static/")):
         return await call_next(request)
-    token = request.cookies.get(LOGIN_COOKIE)
-    expected = _login_token()
-    if not token or not secrets.compare_digest(token, expected):
+    # Accept either the legacy login cookie (master password) OR a valid per-user
+    # session cookie (set by admin SSO login). This means users who log in via the
+    # admin panel don't also need to enter the master password.
+    login_token = request.cookies.get(LOGIN_COOKIE)
+    session_token = request.cookies.get(SESSION_COOKIE)
+    has_login_cookie = login_token and secrets.compare_digest(login_token, _login_token())
+    has_session = bool(verify_session_token(session_token) if session_token else None)
+    if not has_login_cookie and not has_session:
         if path.startswith("/api/"):
             return JSONResponse({"error": "Login required"}, status_code=403)
         return RedirectResponse("/login")
