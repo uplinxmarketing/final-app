@@ -756,6 +756,11 @@ class ScheduledPost(Base):
     #  page_id, instagram_id, posting_user_id, google_user_id, base_url}
     job_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Atomic-claim fields so multiple workers never publish the same row twice.
+    claimed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -775,6 +780,53 @@ class ScheduledPost(Base):
         )
 
 
+class PublishJob(Base):
+    """A bulk publish request processed asynchronously by a background worker.
+
+    Lets an employee submit 12–22 posts at once and walk away, while the server
+    works through them one item at a time. Multiple users' jobs queue up; each
+    job tracks live progress so every user's frontend can show what's happening
+    and whether they have to wait.
+    """
+
+    __tablename__ = "publish_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_by_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # queued → running → done / failed
+    status: Mapped[str] = mapped_column(String, nullable=False, default="queued", index=True)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    succeeded: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scheduled_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The list of post items to publish + per-item results (JSON).
+    items: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    results: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    # Context the worker needs to publish on the submitter's behalf.
+    posting_user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    google_user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    base_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    claimed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, index=True
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<PublishJob id={self.id} status={self.status!r} "
+            f"{self.completed}/{self.total}>"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Database initialisation
 # ---------------------------------------------------------------------------
@@ -791,6 +843,8 @@ async def init_db() -> None:
             "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS meta_app_db_id INTEGER",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS job_data JSON",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+            "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS claimed_by VARCHAR",
+            "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE",
         ]:
             try:
                 await conn.execute(_text(_stmt))

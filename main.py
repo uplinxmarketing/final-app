@@ -38,6 +38,7 @@ from database import (
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache,
     User, UserPageAssignment, UserClientAssignment,
+    PublishJob,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -62,6 +63,10 @@ from admin_router import router as admin_router, init_admin_db
 logger = setup_logging()
 encryption = FernetEncryption()
 agent = ClaudeAgent()
+
+# Unique id for this worker process — used to atomically claim queued work so
+# that with multiple server workers the same post/job is never processed twice.
+WORKER_ID = secrets.token_hex(4)
 
 # ── Password helpers ───────────────────────────────────────────────────────────
 
@@ -146,10 +151,15 @@ async def lifespan(app: FastAPI):
         await init_db()
     except Exception as _exc:
         logger.error(f"init_db error (non-fatal): {type(_exc).__name__}: {_exc}")
+    try:
+        await _recover_stale_jobs()
+    except Exception as _exc:
+        logger.error(f"stale job recovery error (non-fatal): {_exc}")
     _bg_tasks.append(asyncio.create_task(_deferred_startup()))
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
     _bg_tasks.append(asyncio.create_task(_scheduled_posts_loop()))
+    _bg_tasks.append(asyncio.create_task(_publish_jobs_loop()))
     logger.info("Uplinx Meta Manager started")
     yield
     for task in _bg_tasks:
@@ -210,15 +220,28 @@ async def _scheduled_posts_loop() -> None:
             async for db in get_db():
                 now = datetime.now(timezone.utc)
                 result = await db.execute(
-                    select(ScheduledPost).where(
+                    select(ScheduledPost.id).where(
                         ScheduledPost.status == "pending",
                         ScheduledPost.job_data.isnot(None),
                         ScheduledPost.scheduled_time <= now,
                     ).limit(10)
                 )
-                due = result.scalars().all()
-                for post in due:
-                    await _execute_scheduled_job(post, db)
+                due_ids = list(result.scalars().all())
+                for pid in due_ids:
+                    # Atomically claim the row: only the worker whose UPDATE flips
+                    # status pending→processing gets to publish it. This is safe
+                    # across multiple workers (single-statement atomic update).
+                    claim = await db.execute(
+                        update(ScheduledPost)
+                        .where(ScheduledPost.id == pid, ScheduledPost.status == "pending")
+                        .values(status="processing", claimed_by=WORKER_ID, claimed_at=now)
+                    )
+                    await db.commit()
+                    if claim.rowcount != 1:
+                        continue  # another worker claimed it first
+                    post = await db.get(ScheduledPost, pid)
+                    if post is not None:
+                        await _execute_scheduled_job(post, db)
                 # Housekeeping: drop expired media-proxy tokens.
                 try:
                     await media_bridge.purge_expired_tokens(db)
@@ -259,8 +282,11 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             raise RuntimeError(r.get("error", "publish failed"))
     except Exception as exc:
         post.error_message = str(exc)[:500]
-        if post.attempts >= 5:
-            post.status = "failed"
+        # Give up after 5 tries; otherwise return it to the queue for retry next
+        # cycle (clear the claim so any worker can pick it up again).
+        post.status = "failed" if post.attempts >= 5 else "pending"
+        post.claimed_by = None
+        post.claimed_at = None
         logger.warning("Scheduled post %s attempt %d failed: %s", post.id, post.attempts, exc)
     await db.commit()
 
@@ -318,6 +344,128 @@ async def _google_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
         acc.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=refresh.get("expires_in", 3600))
         await db.commit()
     return encryption.decrypt(acc.encrypted_access_token)
+
+
+# ── Bulk publish job worker ────────────────────────────────────────────────────
+
+async def _publish_jobs_loop() -> None:
+    """Process queued bulk-publish jobs one at a time.
+
+    Wakes frequently, atomically claims the oldest queued job (so with multiple
+    workers each job is handled by exactly one), and works through its posts one
+    by one — committing progress after every item so all watching frontends see
+    live status. Heavy work (video processing, IG polling) is serialised per
+    worker, which keeps Meta happy and makes "who has to wait" predictable.
+    """
+    while True:
+        await asyncio.sleep(3)
+        try:
+            async for db in get_db():
+                result = await db.execute(
+                    select(PublishJob.id)
+                    .where(PublishJob.status == "queued")
+                    .order_by(PublishJob.created_at)
+                    .limit(1)
+                )
+                jid = result.scalar_one_or_none()
+                if jid is None:
+                    break
+                claim = await db.execute(
+                    update(PublishJob)
+                    .where(PublishJob.id == jid, PublishJob.status == "queued")
+                    .values(status="running", claimed_by=WORKER_ID,
+                            started_at=datetime.now(timezone.utc))
+                )
+                await db.commit()
+                if claim.rowcount != 1:
+                    break  # another worker grabbed it
+                job = await db.get(PublishJob, jid)
+                if job is not None:
+                    await _process_publish_job(job, db)
+                break
+        except Exception as exc:
+            logger.warning("Publish jobs loop error: %s", exc)
+
+
+async def _recover_stale_jobs() -> None:
+    """On startup, requeue jobs left 'running' by a crashed/restarted worker.
+
+    Safe because items already completed are skipped on resume (we track
+    ``completed``). Only touches jobs idle for >15 min to avoid stealing work
+    from a live sibling worker.
+    """
+    try:
+        async for db in get_db():
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+            await db.execute(
+                update(PublishJob)
+                .where(PublishJob.status == "running",
+                       or_(PublishJob.started_at.is_(None), PublishJob.started_at < cutoff))
+                .values(status="queued", claimed_by=None)
+            )
+            # Likewise return any half-claimed scheduled posts to the queue.
+            await db.execute(
+                update(ScheduledPost)
+                .where(ScheduledPost.status == "processing",
+                       or_(ScheduledPost.claimed_at.is_(None), ScheduledPost.claimed_at < cutoff))
+                .values(status="pending", claimed_by=None, claimed_at=None)
+            )
+            await db.commit()
+            break
+    except Exception as exc:
+        logger.warning("Stale job recovery error: %s", exc)
+
+
+async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
+    """Publish every item in a job, one at a time, committing progress as it goes."""
+    items = [BulkPostItem(**it) for it in (job.items or [])]
+    results = list(job.results or [])
+    try:
+        posting_token = await _posting_token_for_uid(job.posting_user_id, db)
+        google_token = await _google_token_for_uid(job.google_user_id, db)
+    except Exception as exc:
+        job.status = "failed"
+        job.error = str(exc)[:500]
+        job.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+        return
+
+    now = datetime.now(timezone.utc)
+    for idx, item in enumerate(items):
+        if idx < (job.completed or 0):
+            continue  # resume: already done in a previous (interrupted) run
+        try:
+            scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
+            is_future = bool(scheduled_ts and scheduled_ts > int(now.timestamp()) + 60)
+            if item.platform == "instagram" and is_future:
+                sid = await _schedule_ig_job(
+                    item, scheduled_ts, job.posting_user_id, job.google_user_id, job.base_url or "", db
+                )
+                r = {"success": True, "scheduled": True, "scheduled_id": sid}
+            elif item.platform == "facebook":
+                r = await _publish_facebook_drive(item, posting_token, google_token)
+            elif item.platform == "instagram":
+                r = await _publish_instagram_drive(item, posting_token, job.google_user_id, job.base_url or "", db)
+            else:
+                r = {"success": False, "error": f"Unknown platform: {item.platform}"}
+        except Exception as exc:
+            logger.exception("Job %s item %d failed", job.id, idx)
+            r = {"success": False, "error": str(exc)}
+
+        results.append({"index": idx, **r})
+        job.results = list(results)   # new list object so the JSON column is marked dirty
+        job.completed = idx + 1
+        if r.get("success"):
+            job.succeeded = (job.succeeded or 0) + 1
+            if r.get("scheduled"):
+                job.scheduled_count = (job.scheduled_count or 0) + 1
+        else:
+            job.failed = (job.failed or 0) + 1
+        await db.commit()  # progress is now visible to every poller
+
+    job.status = "done"
+    job.finished_at = datetime.now(timezone.utc)
+    await db.commit()
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -2882,46 +3030,98 @@ async def api_bulk_publish_drive(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Bulk-publish posts, streaming each image/video straight from Google Drive.
+    """Queue a bulk publish job and return its id immediately.
 
-    No file is written to the server's disk. Facebook media is uploaded as raw
-    bytes; Instagram media is served through the short-lived ``/media`` proxy
-    that Meta fetches. Returns a per-item result so partial failures are visible.
+    The actual publishing happens in a background worker, one item at a time, so
+    an employee can submit 12–22 posts and walk away. Multiple users' jobs queue
+    up; poll ``GET /api/posting/jobs/{id}`` for live progress and queue position.
     """
-    user_token = await get_posting_token(request, db)
-    google_token = await get_google_token(request, db)
+    if not req.items:
+        raise HTTPException(400, "No posts to publish")
+    # Validate the connections up front so the user gets immediate feedback.
+    await get_posting_token(request, db)
+    await get_google_token(request, db)
     base_url = _public_base_url(request)
     session = get_session(request)
-    posting_uid = session.get("posting_user_id")
-    google_uid = session.get("google_user_id")
-    now = datetime.now(timezone.utc)
 
-    results = []
-    for idx, item in enumerate(req.items):
-        try:
-            scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
-            # Schedule >60s in the future. Facebook uses Meta's native scheduling
-            # (reliable, Meta-side). Instagram has no native scheduling, so we
-            # queue it and our background worker publishes at the due time.
-            is_future = bool(scheduled_ts and scheduled_ts > int(now.timestamp()) + 60)
-            if item.platform == "instagram" and is_future:
-                sid = await _schedule_ig_job(item, scheduled_ts, posting_uid, google_uid, base_url, db)
-                r = {"success": True, "scheduled": True, "scheduled_id": sid}
-            elif item.platform == "facebook":
-                r = await _publish_facebook_drive(item, user_token, google_token)
-            elif item.platform == "instagram":
-                r = await _publish_instagram_drive(item, user_token, google_uid, base_url, db)
-            else:
-                r = {"success": False, "error": f"Unknown platform: {item.platform}"}
-        except HTTPException as exc:
-            r = {"success": False, "error": exc.detail}
-        except Exception as exc:
-            logger.exception("Bulk publish item %d failed", idx)
-            r = {"success": False, "error": str(exc)}
-        results.append({"index": idx, **r})
+    job = PublishJob(
+        created_by=str(session.get("user_id") or ""),
+        created_by_name=session.get("username") or "",
+        status="queued",
+        total=len(req.items),
+        completed=0, succeeded=0, failed=0, scheduled_count=0,
+        items=[it.dict() for it in req.items],
+        results=[],
+        posting_user_id=session.get("posting_user_id"),
+        google_user_id=session.get("google_user_id"),
+        base_url=base_url,
+    )
+    db.add(job)
+    await db.flush()
+    position = await _job_queue_position(job, db)
+    return {
+        "job_id": job.id,
+        "queued": True,
+        "total": job.total,
+        "position": position,
+        "message": "Queued — publishing will start shortly." if position == 0
+                   else f"Queued behind {position} other job(s).",
+    }
 
-    ok = sum(1 for r in results if r.get("success"))
-    return {"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}
+
+async def _job_queue_position(job: PublishJob, db: AsyncSession) -> int:
+    """How many queued/running jobs are ahead of this one (0 = next/now)."""
+    result = await db.execute(
+        select(func.count()).select_from(PublishJob).where(
+            PublishJob.status.in_(["queued", "running"]),
+            PublishJob.created_at < job.created_at,
+        )
+    )
+    return int(result.scalar() or 0)
+
+
+def _job_public_view(job: PublishJob, position: int = 0) -> dict:
+    return {
+        "id": job.id,
+        "status": job.status,
+        "total": job.total,
+        "completed": job.completed,
+        "succeeded": job.succeeded,
+        "failed": job.failed,
+        "scheduled_count": job.scheduled_count,
+        "published_count": max(job.succeeded - job.scheduled_count, 0),
+        "position": position,
+        "created_by_name": job.created_by_name or "Someone",
+        "results": job.results or [],
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+@app.get("/api/posting/jobs/{job_id}")
+async def api_get_publish_job(job_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Live status of a bulk publish job (progress, queue position, per-item results)."""
+    job = await db.get(PublishJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    position = await _job_queue_position(job, db) if job.status == "queued" else 0
+    return _job_public_view(job, position)
+
+
+@app.get("/api/posting/jobs")
+async def api_list_active_jobs(request: Request, db: AsyncSession = Depends(get_db)):
+    """All in-flight jobs (queued/running) + recently finished — so every user
+    can see what the server is working on and whether they need to wait."""
+    result = await db.execute(
+        select(PublishJob)
+        .where(PublishJob.status.in_(["queued", "running"]))
+        .order_by(PublishJob.created_at)
+    )
+    active = result.scalars().all()
+    return {
+        "active": [_job_public_view(j) for j in active],
+        "count": len(active),
+    }
 
 
 async def _schedule_ig_job(

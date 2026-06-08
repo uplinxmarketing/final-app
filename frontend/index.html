@@ -855,6 +855,9 @@ a{color:inherit;text-decoration:none}
               </div>
             </div>
 
+            <!-- Server activity (all users' jobs) -->
+            <div id="bulk-activity-banner" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px"></div>
+
             <!-- Step 3: matched posts -->
             <div id="bulk-posts-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px"></div>
 
@@ -3871,6 +3874,7 @@ function initBulkComposer() {
     };
     sel.onchange();
   }
+  loadActiveJobsBanner();
 }
 
 async function bulkScanDrive() {
@@ -4028,34 +4032,90 @@ async function bulkPublishAll() {
   const missing = items.find(it => (it.platform === 'instagram' ? !it.instagram_id : !it.page_id));
   if (missing) { statusEl.textContent = 'Every post needs a target page/account.'; return; }
 
-  btn.disabled = true; statusEl.textContent = `Publishing ${items.length} post(s)… this can take a while for videos.`;
+  btn.disabled = true;
+  statusEl.textContent = 'Submitting…';
   try {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
-    if (!res) { statusEl.textContent = 'Publish failed.'; return; }
-    let scheduledCount = 0;
-    (res.results || []).forEach(r => {
-      const cell = document.getElementById(`bulk-result-${r.index}`);
-      if (r.scheduled) scheduledCount++;
-      if (cell) {
-        if (r.success && r.scheduled) {
-          cell.textContent = '🕒 Scheduled — will publish automatically';
-          cell.style.color = 'var(--text-secondary)';
-        } else if (r.success) {
-          cell.textContent = `✅ Published (${r.post_id || r.media_id || 'ok'})`;
-          cell.style.color = 'var(--success)';
-        } else {
-          cell.textContent = `❌ ${r.error || 'failed'}`;
-          cell.style.color = 'var(--accent)';
-        }
-      }
-    });
-    const publishedCount = res.succeeded - scheduledCount;
-    statusEl.textContent = `Done: ${publishedCount} published, ${scheduledCount} scheduled, ${res.failed} failed.`;
+    if (!res || !res.job_id) { statusEl.textContent = 'Submit failed.'; btn.disabled = false; return; }
+    _bulkJobId = res.job_id;
+    statusEl.textContent = res.message || 'Queued.';
+    bulkPollJob();   // start polling for live progress
   } catch(e) {
-    statusEl.textContent = 'Publish error: ' + (e.message || e);
-  } finally {
+    statusEl.textContent = 'Submit error: ' + (e.message || e);
     btn.disabled = false;
   }
+}
+
+let _bulkJobId = null;
+let _bulkPollTimer = null;
+
+function _renderJobResults(results) {
+  (results || []).forEach(r => {
+    const cell = document.getElementById(`bulk-result-${r.index}`);
+    if (!cell) return;
+    if (r.success && r.scheduled) {
+      cell.textContent = '🕒 Scheduled — will publish automatically';
+      cell.style.color = 'var(--text-secondary)';
+    } else if (r.success) {
+      cell.textContent = `✅ Published (${r.post_id || r.media_id || 'ok'})`;
+      cell.style.color = 'var(--success)';
+    } else {
+      cell.textContent = `❌ ${r.error || 'failed'}`;
+      cell.style.color = 'var(--accent)';
+    }
+  });
+}
+
+async function bulkPollJob() {
+  if (!_bulkJobId) return;
+  const statusEl = document.getElementById('bulk-publish-status');
+  const btn = document.getElementById('bulk-publish-btn');
+  try {
+    const job = await fetch(`/api/posting/jobs/${_bulkJobId}`).then(r => r.ok ? r.json() : null);
+    if (!job) { statusEl.textContent = 'Lost track of job.'; btn.disabled = false; return; }
+    _renderJobResults(job.results);
+    if (job.status === 'queued') {
+      statusEl.textContent = job.position > 0
+        ? `⏳ Waiting in queue — ${job.position} job(s) ahead of you. You can leave this open.`
+        : '⏳ Queued — starting any moment…';
+    } else if (job.status === 'running') {
+      statusEl.textContent = `🔄 Publishing ${job.completed} of ${job.total}… (${job.published_count} published, ${job.scheduled_count} scheduled, ${job.failed} failed)`;
+    } else if (job.status === 'done') {
+      statusEl.textContent = `✅ Done: ${job.published_count} published, ${job.scheduled_count} scheduled, ${job.failed} failed.`;
+      btn.disabled = false;
+      _bulkJobId = null;
+      loadActiveJobsBanner();
+      return;
+    } else if (job.status === 'failed') {
+      statusEl.textContent = `❌ Job failed: ${job.error || 'unknown error'}`;
+      btn.disabled = false;
+      _bulkJobId = null;
+      return;
+    }
+    _bulkPollTimer = setTimeout(bulkPollJob, 2000);
+    loadActiveJobsBanner();
+  } catch(e) {
+    _bulkPollTimer = setTimeout(bulkPollJob, 3000);
+  }
+}
+
+// Show what the server is working on across all users (so people know to wait).
+async function loadActiveJobsBanner() {
+  const el = document.getElementById('bulk-activity-banner');
+  if (!el) return;
+  try {
+    const data = await fetch('/api/posting/jobs').then(r => r.ok ? r.json() : null);
+    if (!data || !data.active || !data.active.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'block';
+    el.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin-bottom:6px">Server activity</div>' +
+      data.active.map(j => {
+        const who = escHtml(j.created_by_name || 'Someone');
+        const label = j.status === 'running'
+          ? `🔄 ${who} — publishing ${j.completed}/${j.total}`
+          : `⏳ ${who} — queued (${j.total} posts)`;
+        return `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0">${label}</div>`;
+      }).join('');
+  } catch(e) { /* silent */ }
 }
 
 async function loadPostsScheduled() {
