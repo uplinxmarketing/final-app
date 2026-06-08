@@ -2771,6 +2771,88 @@ async def api_bulk_publish_drive(
     return {"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}
 
 
+# ── Drive scan — list media + parse captions for the bulk composer ─────────────
+
+class DriveScanRequest(BaseModel):
+    folder_url: str
+    text_url: str = ""
+
+
+_CAPTION_SEPARATOR = re.compile(r"\n\s*(?:---+|===+|###+|\*\*\*+)\s*\n")
+
+
+def _split_caption_blocks(text: str) -> list[dict]:
+    """Split a captions doc into per-post blocks, separating trailing hashtags.
+
+    Blocks are separated by --- / === / ### / *** lines (or blank lines as a
+    fallback). Each block returns ``{"caption": ..., "hashtags": [...]}``.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    blocks = _CAPTION_SEPARATOR.split(text)
+    if len(blocks) <= 1:
+        # Fallback: split on blank lines
+        blocks = re.split(r"\n\s*\n", text)
+    out: list[dict] = []
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        # Collect hashtags but keep them in caption too (user can trim in UI)
+        tags = re.findall(r"#\w+", block)
+        out.append({"caption": block, "hashtags": tags})
+    return out
+
+
+@app.post("/api/posting/drive/scan")
+async def api_posting_drive_scan(
+    req: DriveScanRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """List image/video files in a Drive folder + parse a captions doc/sheet.
+
+    Returns media (sorted by name) and caption blocks so the frontend can
+    auto-match them and let the user adjust before bulk-publishing.
+    """
+    google_token = await get_google_token(request, db)
+    folder_id = google_api.extract_folder_id_from_url(req.folder_url) or req.folder_url.strip()
+    listing = await google_api.list_drive_folder(folder_id, google_token)
+    if not listing.get("success"):
+        raise HTTPException(502, listing.get("error") or "Could not list Drive folder")
+
+    media = [
+        {
+            "id": f["id"],
+            "name": f.get("name", ""),
+            "mime_type": f.get("mimeType", ""),
+            "size": f.get("size"),
+            "is_video": f.get("mimeType", "").startswith("video/"),
+        }
+        for f in listing["files"]
+        if f.get("mimeType", "").startswith(("image/", "video/"))
+    ]
+    media.sort(key=lambda m: m["name"].lower())
+
+    captions: list[dict] = []
+    if req.text_url.strip():
+        text_result = await google_api.read_by_url(req.text_url, google_token)
+        raw_text = ""
+        content = text_result.get("content")
+        if isinstance(content, str):
+            raw_text = content
+        elif isinstance(content, dict):
+            raw_text = content.get("text", "")
+        if not raw_text and text_result.get("rows"):
+            raw_text = "\n---\n".join(
+                " ".join(str(c) for c in row if c) for row in text_result["rows"]
+            )
+        captions = _split_caption_blocks(raw_text)
+
+    return {"media": media, "captions": captions}
+
+
 class PublishFacebookRequest(BaseModel):
     page_id: str
     caption: str = ""
