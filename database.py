@@ -265,6 +265,12 @@ class Client(Base):
     scheduled_posts: Mapped[list[ScheduledPost]] = relationship(
         "ScheduledPost", back_populates="client"
     )
+    posting_profiles: Mapped[list[ClientPostingProfile]] = relationship(
+        "ClientPostingProfile",
+        back_populates="client",
+        cascade="all, delete-orphan",
+        order_by="ClientPostingProfile.sort_order",
+    )
 
     def __repr__(self) -> str:
         return f"<Client id={self.id} name={self.name!r}>"
@@ -349,6 +355,38 @@ class ClientInstagramAccount(Base):
         return (
             f"<ClientInstagramAccount id={self.id} "
             f"instagram_username={self.instagram_username!r}>"
+        )
+
+
+class ClientPostingProfile(Base):
+    """Links a client to a specific Facebook Page + optional Instagram account for posting.
+
+    Each row represents one 'business location' under a client — a client can have
+    multiple profiles (e.g. multiple franchise locations or separate brands).
+    """
+
+    __tablename__ = "client_posting_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String, nullable=False, default="Main")
+    fb_page_id: Mapped[str] = mapped_column(String, nullable=False)
+    fb_page_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ig_account_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ig_username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    client: Mapped[Client] = relationship("Client", back_populates="posting_profiles")
+
+    def __repr__(self) -> str:
+        return (
+            f"<ClientPostingProfile id={self.id} client_id={self.client_id} "
+            f"fb_page_id={self.fb_page_id!r} label={self.label!r}>"
         )
 
 

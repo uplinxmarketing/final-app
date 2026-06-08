@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select, delete, update, func, or_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -33,7 +34,7 @@ from database import (
     init_db, get_db,
     ConnectedMetaAccount, ConnectedGoogleAccount, ConnectedPostingAccount,
     MetaApp,
-    Client, ClientAdAccount, ClientInstagramAccount,
+    Client, ClientAdAccount, ClientInstagramAccount, ClientPostingProfile,
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache,
     User, UserPageAssignment, UserClientAssignment,
@@ -2704,6 +2705,117 @@ async def api_posting_my_pages(request: Request, db: AsyncSession = Depends(get_
         {"id": r.page_id, "name": r.page_name or r.page_id, "platform": r.platform, "meta_app_db_id": r.meta_app_db_id}
         for r in rows
     ]
+
+
+def _serialize_posting_clients(clients: list) -> list:
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "color_tag": c.color_tag,
+            "profiles": [
+                {
+                    "id": p.id,
+                    "label": p.label,
+                    "fb_page_id": p.fb_page_id,
+                    "fb_page_name": p.fb_page_name or p.fb_page_id,
+                    "ig_account_id": p.ig_account_id,
+                    "ig_username": p.ig_username,
+                }
+                for p in (c.posting_profiles or [])
+            ],
+        }
+        for c in clients
+    ]
+
+
+@app.get("/api/posting/clients")
+async def api_posting_clients(request: Request, db: AsyncSession = Depends(get_db)):
+    """Clients with their posting profiles, scoped to the current user."""
+    session = get_session(request)
+    user_id = session.get("user_id")
+    role = session.get("user_role", "user")
+
+    if role == "admin":
+        result = await db.execute(
+            select(Client)
+            .options(selectinload(Client.posting_profiles))
+            .where(Client.is_archived == False)
+            .order_by(Client.sort_order, Client.name)
+        )
+        return _serialize_posting_clients(result.scalars().all())
+
+    if not user_id:
+        return []
+
+    result = await db.execute(
+        select(Client)
+        .join(UserClientAssignment, UserClientAssignment.client_id == Client.id)
+        .options(selectinload(Client.posting_profiles))
+        .where(UserClientAssignment.user_id == user_id, Client.is_archived == False)
+        .order_by(Client.sort_order, Client.name)
+    )
+    clients = result.scalars().all()
+    return _serialize_posting_clients([c for c in clients if c.posting_profiles])
+
+
+class PostingProfileRequest(BaseModel):
+    label: str = "Main"
+    fb_page_id: str
+    fb_page_name: str = ""
+    ig_account_id: str = ""
+    ig_username: str = ""
+
+
+@app.post("/api/posting/clients/{client_id}/profiles")
+async def api_add_posting_profile(
+    client_id: int,
+    req: PostingProfileRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: assign a Facebook Page (+ optional Instagram) to a client for posting."""
+    session = get_session(request)
+    if session.get("user_role") != "admin":
+        raise HTTPException(403, "Admin only")
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    profile = ClientPostingProfile(
+        client_id=client_id,
+        label=req.label or "Main",
+        fb_page_id=req.fb_page_id,
+        fb_page_name=req.fb_page_name or None,
+        ig_account_id=req.ig_account_id or None,
+        ig_username=req.ig_username or None,
+    )
+    db.add(profile)
+    await db.flush()
+    return {
+        "id": profile.id,
+        "label": profile.label,
+        "fb_page_id": profile.fb_page_id,
+        "fb_page_name": profile.fb_page_name,
+        "ig_account_id": profile.ig_account_id,
+        "ig_username": profile.ig_username,
+    }
+
+
+@app.delete("/api/posting/clients/profiles/{profile_id}")
+async def api_delete_posting_profile(
+    profile_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: remove a posting profile."""
+    session = get_session(request)
+    if session.get("user_role") != "admin":
+        raise HTTPException(403, "Admin only")
+    profile = await db.get(ClientPostingProfile, profile_id)
+    if not profile:
+        raise HTTPException(404, "Profile not found")
+    await db.delete(profile)
+    return {"success": True}
 
 
 @app.get("/api/posting/calendar")

@@ -578,11 +578,17 @@ a{color:inherit;text-decoration:none}
     <!-- Posts sidebar content -->
     <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
       <div style="padding:10px 12px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">CLIENTS &amp; PAGES</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">CLIENTS</div>
+          <div style="display:flex;gap:4px">
+            <button id="posting-manage-btn" onclick="openPostingManageModal()" title="Manage client pages (Admin)" style="display:none;background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">⚙</button>
+            <button onclick="loadPostingClients()" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
+          </div>
+        </div>
         <button onclick="openPostingConnectModal()" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Connect Account</button>
       </div>
-      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:6px">
-        <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading pages…</div>
+      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:4px 6px">
+        <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>
       </div>
     </div>
     <!-- Status indicators -->
@@ -1162,6 +1168,54 @@ a{color:inherit;text-decoration:none}
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('new-client-modal')">Cancel</button>
       <button class="btn-primary" id="create-client-btn" onclick="createClient()">Create Client</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Posting Clients Modal (Admin) -->
+<div class="modal-overlay" id="posting-manage-modal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title">⚙ Manage Posting Clients</div>
+      <button class="modal-close" onclick="closeModal('posting-manage-modal')">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Assign Facebook Pages and Instagram accounts to clients. Each row is a "business location" under a client.</p>
+      <!-- Add profile form -->
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:12px">Add Page Assignment</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">Client</label>
+            <select id="ppm-client-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px">
+              <option value="">— Select client —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">Label (business / location)</label>
+            <input id="ppm-label" placeholder="e.g. Downtown Location" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">Facebook Page</label>
+            <select id="ppm-page-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px">
+              <option value="">Loading pages…</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">Instagram Account (optional)</label>
+            <select id="ppm-ig-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px">
+              <option value="">None</option>
+            </select>
+          </div>
+        </div>
+        <button onclick="ppmAddProfile()" style="padding:7px 18px;border-radius:6px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer">+ Add Assignment</button>
+      </div>
+      <!-- Existing profiles -->
+      <div id="ppm-profiles-list">
+        <div style="font-size:12px;color:var(--text-dim)">Loading…</div>
+      </div>
     </div>
   </div>
 </div>
@@ -3194,6 +3248,7 @@ let _postingConnected = false;
 let _postingPages = [];
 let _postingIgAccounts = [];
 let _myPostingPagesMap = {};
+let _postingClients = [];
 let _selectedPostPage = null;
 let _postTab = 'calendar';
 let _calYear = new Date().getFullYear();
@@ -3236,7 +3291,7 @@ function enterInterface(iface) {
 function switchInterface(iface) { enterInterface(iface); }
 
 async function loadPostingInterface() {
-  loadMyPostingPages();
+  loadPostingClients();
   try {
     const accounts = await fetch('/api/accounts/posting').then(r => r.json());
     if (!Array.isArray(accounts) || accounts.length === 0) {
@@ -3282,32 +3337,113 @@ function updatePostingAccountStatus(account) {
   el.style.color = 'var(--text-primary)';
 }
 
-async function loadMyPostingPages() {
+async function loadPostingClients() {
   const listEl = document.getElementById('posts-client-list');
   if (!listEl) return;
+  listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>';
+
+  // Show ⚙ manage button for admins
+  const manageBtn = document.getElementById('posting-manage-btn');
+  const isAdminUser = window._currentUser && window._currentUser.role === 'admin';
+  if (manageBtn) manageBtn.style.display = isAdminUser ? '' : 'none';
+
   try {
-    const pages = await fetch('/api/posting/my-pages').then(r => r.ok ? r.json() : []);
-    _myPostingPagesMap = {};
-    if (!pages || !pages.length) {
-      listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">No pages assigned yet.<br><span style="font-size:11px">Ask your admin to assign pages.</span></div>';
-      return;
-    }
-    pages.forEach(p => { _myPostingPagesMap[p.id] = p; });
-    listEl.innerHTML = pages.map(p => {
-      const icon = p.platform === 'instagram' ? '📷' : '📘';
-      const isSelected = _selectedPostPage && _selectedPostPage.id === p.id;
-      return `<div id="page-item-${p.id}" onclick="selectPostPageById('${p.id}')"
-        style="padding:8px 10px;border-radius:7px;cursor:pointer;margin-bottom:2px;background:${isSelected ? 'rgba(220,38,38,0.1)' : 'transparent'};border:1px solid ${isSelected ? 'var(--accent)' : 'transparent'};transition:background 0.12s">
-        <div style="display:flex;align-items:center;gap:7px">
-          <span style="font-size:14px;flex-shrink:0">${icon}</span>
-          <span style="font-size:12px;font-weight:600;color:var(--text-primary);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name || p.id}</span>
-        </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;padding-left:21px">${p.platform === 'instagram' ? 'Instagram' : 'Facebook Page'}</div>
-      </div>`;
-    }).join('');
+    _postingClients = await fetch('/api/posting/clients').then(r => r.ok ? r.json() : []).catch(() => []);
+    renderPostingClientList();
   } catch(e) {
-    if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Error loading pages.</div>';
+    if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Error loading clients.</div>';
   }
+}
+
+function renderPostingClientList() {
+  const listEl = document.getElementById('posts-client-list');
+  if (!listEl) return;
+
+  if (!_postingClients.length) {
+    const isAdm = window._currentUser && window._currentUser.role === 'admin';
+    listEl.innerHTML = `<div style="font-size:12px;color:var(--text-dim);padding:8px">
+      No posting clients configured yet.<br>
+      <span style="font-size:11px">${isAdm ? 'Click ⚙ to assign pages to clients.' : 'Ask your admin to set up posting clients.'}</span>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+  for (const c of _postingClients) {
+    const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${c.color_tag||'#6c63ff'};display:inline-block;flex-shrink:0"></span>`;
+    html += `<div class="client-item">
+      <div class="client-header" id="pch-${c.id}" onclick="togglePostingClient(${c.id})">
+        ${dot}
+        <div class="client-name" style="flex:1;min-width:0">${c.name}</div>
+        <div class="client-chevron" id="pchev-${c.id}">▶</div>
+      </div>
+      <div class="client-children" id="pcc-${c.id}">`;
+
+    if (c.profiles && c.profiles.length) {
+      for (const p of c.profiles) {
+        const igPart = p.ig_account_id
+          ? `<div onclick="selectPostingProfile(${c.id},${p.id},'ig')" style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 14px;cursor:pointer;border-radius:5px;transition:background 0.12s" id="pp-ig-${p.id}" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+              <span style="font-size:12px">📷</span>
+              <span style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${p.ig_username || p.ig_account_id}</span>
+            </div>` : '';
+        html += `<div style="padding:2px 0">
+          <div onclick="selectPostingProfile(${c.id},${p.id},'fb')" style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 14px;cursor:pointer;border-radius:5px;transition:background 0.12s" id="pp-fb-${p.id}" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+            <span style="font-size:12px">📘</span>
+            <div style="min-width:0">
+              <div style="font-size:11px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.label}</div>
+              <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.fb_page_name}</div>
+            </div>
+          </div>
+          ${igPart}
+        </div>`;
+      }
+    } else {
+      html += `<div style="font-size:11px;color:var(--text-dim);padding:5px 10px">No pages assigned</div>`;
+    }
+    html += `</div></div>`;
+  }
+  listEl.innerHTML = html;
+}
+
+function togglePostingClient(clientId) {
+  const ch = document.getElementById(`pcc-${clientId}`);
+  const chev = document.getElementById(`pchev-${clientId}`);
+  if (!ch) return;
+  const isOpen = ch.classList.contains('open');
+  ch.classList.toggle('open', !isOpen);
+  chev.classList.toggle('open', !isOpen);
+}
+
+function selectPostingProfile(clientId, profileId, platform) {
+  const client = _postingClients.find(c => c.id === clientId);
+  const profile = client && client.profiles.find(p => p.id === profileId);
+  if (!profile) return;
+
+  // Clear previous highlight
+  document.querySelectorAll('[id^="pp-fb-"],[id^="pp-ig-"]').forEach(el => {
+    el.style.background = 'transparent';
+    el.style.outline = '';
+  });
+
+  let pageObj;
+  if (platform === 'ig' && profile.ig_account_id) {
+    pageObj = { id: profile.ig_account_id, name: `@${profile.ig_username || profile.ig_account_id}`, platform: 'instagram', page_id: profile.fb_page_id };
+    const el = document.getElementById(`pp-ig-${profileId}`);
+    if (el) { el.style.background = 'rgba(220,38,38,0.1)'; el.style.outline = '1px solid var(--accent)'; }
+    // Ensure IG account is in _postingIgAccounts so compose dropdown works
+    if (!_postingIgAccounts.find(a => a.id === profile.ig_account_id)) {
+      _postingIgAccounts.push({ id: profile.ig_account_id, username: profile.ig_username || '', name: profile.ig_username || profile.ig_account_id, page_id: profile.fb_page_id });
+    }
+  } else {
+    pageObj = { id: profile.fb_page_id, name: profile.fb_page_name || profile.label, platform: 'facebook' };
+    const el = document.getElementById(`pp-fb-${profileId}`);
+    if (el) { el.style.background = 'rgba(220,38,38,0.1)'; el.style.outline = '1px solid var(--accent)'; }
+    // Ensure FB page is in _postingPages so compose dropdown works
+    if (!_postingPages.find(p => p.id === profile.fb_page_id)) {
+      _postingPages.push({ id: profile.fb_page_id, name: profile.fb_page_name || profile.label });
+    }
+  }
+  selectPostPage(pageObj);
 }
 
 function selectPostPageById(id) {
@@ -3390,7 +3526,7 @@ async function loadPostingPagesAndIG() {
     _postingIgAccounts = Array.isArray(igAccounts) ? igAccounts : [];
     renderPostingsSidebar();
     populatePostTargetSelect();
-    await loadMyPostingPages();
+    await loadPostingClients();
   } catch(e) { console.warn('loadPostingPagesAndIG:', e); }
 }
 
@@ -3660,6 +3796,117 @@ function openPostingConnectModal() {
   loadPostingAccountsList();
   loadConnectionsApps();
   openModal('posting-connect-modal');
+}
+
+// ── Posting Client Manager (Admin) ──────────────────────────────────────────
+
+let _ppmAllClients = [];
+let _ppmPages = [];
+let _ppmIg = [];
+
+async function openPostingManageModal() {
+  openModal('posting-manage-modal');
+  await Promise.all([ppmLoadClients(), ppmLoadLivePages()]);
+  ppmRenderProfiles();
+}
+
+async function ppmLoadClients() {
+  try {
+    const clients = await fetch('/api/clients').then(r => r.ok ? r.json() : []).catch(() => []);
+    _ppmAllClients = Array.isArray(clients) ? clients : [];
+    const sel = document.getElementById('ppm-client-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select client —</option>' +
+      _ppmAllClients.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+  } catch(e) {}
+}
+
+async function ppmLoadLivePages() {
+  try {
+    const [pages, igAccounts] = await Promise.all([
+      fetch('/api/posting/pages').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/posting/instagram').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]);
+    _ppmPages = Array.isArray(pages) ? pages : [];
+    _ppmIg = Array.isArray(igAccounts) ? igAccounts : [];
+
+    const pageSel = document.getElementById('ppm-page-select');
+    if (pageSel) {
+      pageSel.innerHTML = _ppmPages.length
+        ? _ppmPages.map(p => `<option value="${p.id}" data-name="${escHtml(p.name||p.id)}">${escHtml(p.name||p.id)}</option>`).join('')
+        : '<option value="">No pages found — connect account first</option>';
+    }
+    const igSel = document.getElementById('ppm-ig-select');
+    if (igSel) {
+      igSel.innerHTML = '<option value="">None</option>' +
+        _ppmIg.map(a => `<option value="${a.id}" data-username="${escHtml(a.username||'')}" data-page="${a.page_id||''}">${escHtml('@'+(a.username||a.id))}</option>`).join('');
+    }
+  } catch(e) {}
+}
+
+function ppmRenderProfiles() {
+  const el = document.getElementById('ppm-profiles-list');
+  if (!el) return;
+  if (!_postingClients || !_postingClients.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No profiles configured yet.</div>';
+    return;
+  }
+  let html = '';
+  for (const c of _postingClients) {
+    if (!c.profiles.length) continue;
+    html += `<div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">${escHtml(c.name)}</div>`;
+    for (const p of c.profiles) {
+      const ig = p.ig_username ? ` · 📷 @${escHtml(p.ig_username)}` : '';
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:4px">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${escHtml(p.label)}</div>
+          <div style="font-size:11px;color:var(--text-dim)">📘 ${escHtml(p.fb_page_name||p.fb_page_id)}${ig}</div>
+        </div>
+        <button onclick="ppmDeleteProfile(${p.id})" style="padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Remove</button>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  el.innerHTML = html || '<div style="font-size:12px;color:var(--text-dim)">No profiles configured yet.</div>';
+}
+
+async function ppmAddProfile() {
+  const clientId = document.getElementById('ppm-client-select').value;
+  const label = document.getElementById('ppm-label').value.trim();
+  const pageSel = document.getElementById('ppm-page-select');
+  const fb_page_id = pageSel.value;
+  const fb_page_name = pageSel.selectedOptions[0]?.dataset?.name || '';
+  const igSel = document.getElementById('ppm-ig-select');
+  const ig_account_id = igSel.value;
+  const ig_username = igSel.selectedOptions[0]?.dataset?.username || '';
+
+  if (!clientId) { alert('Select a client.'); return; }
+  if (!fb_page_id) { alert('Select a Facebook Page.'); return; }
+
+  try {
+    const res = await api('POST', `/api/posting/clients/${clientId}/profiles`, {
+      label: label || 'Main',
+      fb_page_id,
+      fb_page_name,
+      ig_account_id: ig_account_id || '',
+      ig_username: ig_username || '',
+    });
+    if (res) {
+      document.getElementById('ppm-label').value = '';
+      await loadPostingClients();
+      ppmRenderProfiles();
+    }
+  } catch(e) { alert('Error adding profile: ' + e.message); }
+}
+
+async function ppmDeleteProfile(profileId) {
+  if (!confirm('Remove this page assignment?')) return;
+  try {
+    await api('DELETE', `/api/posting/clients/profiles/${profileId}`);
+    await loadPostingClients();
+    ppmRenderProfiles();
+  } catch(e) { alert('Error removing profile.'); }
 }
 
 async function loadPostingAccountsList() {
