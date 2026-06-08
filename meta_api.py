@@ -610,18 +610,40 @@ async def poll_video_ready(
     return {"success": False, "error": f"Video {video_id} not ready after {timeout_seconds}s"}
 
 
+async def get_video_thumbnail(token: str, video_id: str) -> Optional[str]:
+    """Return a thumbnail URL for a processed video (used as the creative cover)."""
+    result = await _api_request(
+        "GET",
+        f"{BASE_URL}/{video_id}/thumbnails",
+        params={"fields": "uri,is_preferred", "access_token": token},
+    )
+    if not result.get("success"):
+        return None
+    thumbs = (result["data"] or {}).get("data", []) if isinstance(result["data"], dict) else []
+    if not thumbs:
+        return None
+    # Prefer Meta's preferred thumbnail, else the first.
+    preferred = next((t for t in thumbs if t.get("is_preferred")), thumbs[0])
+    return preferred.get("uri")
+
+
 async def create_video_creative(
     token: str,
     ad_account_id: str,
     page_id: str,
     video_id: str,
-    image_hash: str,
     headline: str,
     message: str,
     link: str,
     cta_type: str = "LEARN_MORE",
+    image_hash: str = "",
+    image_url: str = "",
 ) -> dict[str, Any]:
-    """Create a video ad creative. ``image_hash`` is the thumbnail/cover image."""
+    """Create a video ad creative.
+
+    A cover image is required by Meta — pass either an ``image_hash`` (already
+    uploaded) or an ``image_url`` (e.g. the video's auto-generated thumbnail).
+    """
     url = f"{BASE_URL}/act_{ad_account_id}/adcreatives"
     video_data: dict[str, Any] = {
         "video_id": video_id,
@@ -631,6 +653,8 @@ async def create_video_creative(
     }
     if image_hash:
         video_data["image_hash"] = image_hash
+    elif image_url:
+        video_data["image_url"] = image_url
     object_story_spec = {"page_id": page_id, "video_data": video_data}
     return await _api_request(
         "POST",

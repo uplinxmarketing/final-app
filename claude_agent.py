@@ -1641,4 +1641,52 @@ class ClaudeAgent:
                     "required": ["images_drive_url", "text_drive_url", "ad_set_id", "page_id", "destination_url"],
                 },
             },
+            {
+                "name": "upload_video_ads_from_drive",
+                "description": (
+                    "Upload VIDEO ads directly from Google Drive. Streams each video straight "
+                    "from Drive to Meta (no disk usage), waits for Meta to finish processing, "
+                    "then builds a video creative + ad using the video's auto-generated thumbnail "
+                    "as the cover image. "
+                    "videos_drive_url must be a Google Drive folder of videos (.mp4/.mov/etc.) or "
+                    "a single video file URL. "
+                    "text_drive_url must be a Google Doc/Sheet with ad copy (same format as "
+                    "upload_ads_from_drive). One ad is created per video, matched to copy in order. "
+                    "Requires both Meta and Google accounts to be connected."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "videos_drive_url": {
+                            "type": "string",
+                            "description": "Google Drive folder URL containing videos, or a single video file URL.",
+                        },
+                        "text_drive_url": {
+                            "type": "string",
+                            "description": "Google Doc, Sheet, or Drive file URL with ad copy text.",
+                        },
+                        "ad_set_id": {
+                            "type": "string",
+                            "description": "Meta ad set ID to upload ads into.",
+                        },
+                        "page_id": {
+                            "type": "string",
+                            "description": "Facebook Page ID for the ad creatives.",
+                        },
+                        "destination_url": {
+                            "type": "string",
+                            "description": "Landing page URL used as the ad destination.",
+                        },
+                        "ad_account_id": {
+                            "type": "string",
+                            "description": "Meta ad account ID (e.g. 'act_123456'). Omit to use active context.",
+                        },
+                        "cta_type": {
+                            "type": "string",
+                            "description": "Call-to-action button type. Defaults to LEARN_MORE.",
+                        },
+                    },
+                    "required": ["videos_drive_url", "text_drive_url", "ad_set_id", "page_id", "destination_url"],
+                },
+            },
         ]

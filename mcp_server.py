@@ -43,7 +43,13 @@ async def get_meta_token_for_session(session_id: str) -> Optional[str]:
 
 
 async def get_google_token_for_session(session_id: str) -> Optional[str]:
-    """Look up and decrypt the Google token for the given google_user_id."""
+    """Decrypt the Google token for this session.
+
+    The agent dispatches tools with ``session_id`` set to the *Meta* user id, so
+    a direct match on ``google_user_id`` usually won't exist. Fall back to the
+    most recently created active Google account so Drive uploads work for the
+    connected user.
+    """
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
         result = await db.execute(
@@ -53,6 +59,14 @@ async def get_google_token_for_session(session_id: str) -> Optional[str]:
             )
         )
         acc = result.scalar_one_or_none()
+        if not acc:
+            result = await db.execute(
+                select(ConnectedGoogleAccount)
+                .where(ConnectedGoogleAccount.is_active == True)
+                .order_by(ConnectedGoogleAccount.created_at.desc())
+                .limit(1)
+            )
+            acc = result.scalar_one_or_none()
         if acc:
             return encryption.decrypt(acc.encrypted_access_token)
     return None
@@ -297,7 +311,7 @@ async def upload_single_ad(
             if not upload_r.get("success"):
                 results.append(f"Error uploading {placement_label}: {upload_r.get('error')}")
                 continue
-            image_hash = upload_r["data"]
+            image_hash = upload_r["data"]["hash"]
             await store_image_cache(sha256, p.name, image_hash, ad_account_id)
 
         creative_r = await meta_api.create_ad_creative(
@@ -672,6 +686,7 @@ async def match_post_story_pairs(session_id: str, folder_path: str) -> str:
 # ── Google Drive upload helpers ────────────────────────────────────────────────
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"}
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".webm", ".mkv"}
 
 
 def _parse_ad_copies(text_result: dict, default_dest_url: str, default_cta: str) -> list[dict]:
@@ -873,6 +888,102 @@ async def upload_ads_from_drive(
     # 5. Cleanup
     for tmp in temp_paths:
         Path(tmp).unlink(missing_ok=True)
+
+    return "\n\n".join(results)
+
+
+@mcp.tool()
+async def upload_video_ads_from_drive(
+    session_id: str,
+    videos_drive_url: str,
+    text_drive_url: str,
+    ad_set_id: str,
+    page_id: str,
+    destination_url: str,
+    ad_account_id: Optional[str] = None,
+    cta_type: str = "LEARN_MORE",
+) -> str:
+    """Upload VIDEO ads from Google Drive — streams each .mp4 straight from Drive
+    to Meta (no disk). videos_drive_url: a Drive folder (or single file) of videos.
+    text_drive_url: Doc/Sheet with ad copy (headline, body per ad). Polls Meta until
+    each video is processed, then builds a video creative + ad using the video's
+    auto-generated thumbnail as the cover image."""
+    meta_token = await get_meta_token_for_session(session_id)
+    if not meta_token:
+        return "Error: Meta account not connected."
+    if not ad_account_id:
+        return "Error: ad_account_id is required."
+    google_token = await get_google_token_for_session(session_id)
+    if not google_token:
+        return "Error: Google account not connected. Connect Google Drive in Settings first."
+
+    # 1. Ad copy
+    text_result = await google_api.read_by_url(text_drive_url, google_token)
+    ad_copies = _parse_ad_copies(text_result, destination_url, cta_type) if text_result.get("success") else []
+
+    # 2. Collect video file IDs from Drive
+    video_entries: list[tuple[str, str]] = []  # (file_id, name)
+    folder_id = google_api.extract_folder_id_from_url(videos_drive_url)
+    if folder_id:
+        list_result = await google_api.list_drive_folder(folder_id, google_token)
+        if not list_result.get("success"):
+            return f"Error listing Drive folder: {list_result.get('error')}"
+        for f in list_result.get("files", []):
+            name = f.get("name", "")
+            if Path(name).suffix.lower() in _VIDEO_EXTENSIONS:
+                video_entries.append((f["id"], name))
+        video_entries.sort(key=lambda e: e[1].lower())
+    else:
+        file_id = google_api.extract_file_id_from_url(videos_drive_url)
+        if not file_id:
+            return "Error: Could not extract a file or folder ID from the videos Drive URL."
+        meta_r = await google_api.get_file_metadata(file_id, google_token)
+        if not meta_r.get("success"):
+            return f"Error accessing Drive file: {meta_r.get('error')}"
+        video_entries.append((file_id, meta_r.get("name", "video.mp4")))
+
+    if not video_entries:
+        return "No video files found at the specified Google Drive location."
+
+    results = [f"Found {len(video_entries)} video(s). Uploading…"]
+    for i, (file_id, file_name) in enumerate(video_entries):
+        copy = ad_copies[i % len(ad_copies)] if ad_copies else {
+            "headline": f"Ad {i + 1}", "primary_text": "",
+            "destination_url": destination_url, "cta_type": cta_type,
+        }
+        # Stream bytes from Drive (memory only) → Meta video library
+        dl = await google_api.download_drive_file(file_id, google_token)
+        if not dl.get("success"):
+            results.append(f"{file_name}: Drive download failed — {dl.get('error')}")
+            continue
+        up = await meta_api.upload_video_bytes(meta_token, ad_account_id, dl["bytes"], filename=file_name)
+        if not up.get("success"):
+            results.append(f"{file_name}: video upload failed — {up.get('error')}")
+            continue
+        video_id = up["data"]["video_id"]
+
+        # Wait for Meta to finish processing before it can be used in a creative
+        ready = await meta_api.poll_video_ready(meta_token, video_id)
+        if not ready.get("success"):
+            results.append(f"{file_name}: {ready.get('error')}")
+            continue
+
+        thumb_url = await meta_api.get_video_thumbnail(meta_token, video_id)
+        creative_r = await meta_api.create_video_creative(
+            meta_token, ad_account_id, page_id, video_id,
+            copy["headline"], copy["primary_text"], copy["destination_url"],
+            copy["cta_type"], image_url=thumb_url or "",
+        )
+        if not creative_r.get("success"):
+            results.append(f"{file_name}: creative failed — {creative_r.get('error')}")
+            continue
+        creative_id = creative_r["data"].get("id", "")
+        ad_name = Path(file_name).stem
+        ad_r = await meta_api.create_ad(meta_token, ad_account_id, ad_set_id, creative_id, ad_name, "ACTIVE")
+        if ad_r.get("success"):
+            results.append(f"{file_name}: video ad created — {ad_r['data'].get('id')}")
+        else:
+            results.append(f"{file_name}: ad failed — {ad_r.get('error')}")
 
     return "\n\n".join(results)
 
