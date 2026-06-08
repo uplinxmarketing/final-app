@@ -271,7 +271,7 @@ PUBLIC_PATHS = {"/health", "/", "/ads", "/auth/meta", "/auth/meta/callback",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
                 "/login", "/api/login", "/api/logout",
                 "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-                "/api/auth/emergency-reset", "/api/posting/debug"}
+                "/api/auth/emergency-reset", "/api/posting/debug", "/privacy"}
 
 
 def _login_token() -> str:
@@ -736,6 +736,12 @@ async def setup_redirect_uris(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page():
+    p = Path("frontend/privacy.html")
+    return HTMLResponse(p.read_text(encoding="utf-8") if p.exists() else "<h1>Privacy Policy</h1>")
 
 
 @app.get("/login", response_class=HTMLResponse)
