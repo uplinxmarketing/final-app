@@ -696,6 +696,37 @@ class UserClientAssignment(Base):
         return f"<UserClientAssignment id={self.id} user_id={self.user_id} client_id={self.client_id}>"
 
 
+class MediaProxyToken(Base):
+    """A short-lived public token mapping to a Google Drive file.
+
+    Instagram publishing requires a public URL Meta fetches itself. We mint a
+    token that points at a Drive file (by id) and the Google account that can
+    read it (by user id) — never the access token itself. The ``/media/{token}``
+    endpoint resolves a fresh Google token at fetch time and streams the bytes,
+    so nothing is written to disk and no secret is stored. DB-backed so it works
+    across multiple server workers.
+    """
+
+    __tablename__ = "media_proxy_tokens"
+
+    token: Mapped[str] = mapped_column(String, primary_key=True)
+    drive_file_id: Mapped[str] = mapped_column(String, nullable=False)
+    google_user_id: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="application/octet-stream"
+    )
+    filename: Mapped[str] = mapped_column(String, nullable=False, default="media")
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<MediaProxyToken token={self.token[:8]}… file={self.drive_file_id!r}>"
+
+
 class ScheduledPost(Base):
     """A social media post scheduled for future publication."""
 

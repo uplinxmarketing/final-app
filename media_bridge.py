@@ -9,89 +9,86 @@ streams media straight from Google Drive into Meta:
   to Meta, and discard them immediately — nothing is written to disk.
 
 * For Instagram, Meta's publishing API only accepts a *public URL it fetches
-  itself*. We expose a short-lived, tokenised proxy endpoint (``/media/{token}``)
-  that streams the Drive file through on demand. Meta fetches it once, then the
-  token expires. Still nothing on disk.
-
-The ephemeral token store is in-memory (single-worker deployment). Tokens are
-short-lived because Meta fetches IG media within seconds of container creation.
+  itself*. We mint a short-lived token (stored in the DB so it works across
+  multiple server workers) that points at a Drive file id + the Google account
+  that can read it — never the access token itself. The ``/media/{token}``
+  endpoint resolves a fresh Google token at fetch time and streams the bytes
+  through on demand. Meta fetches it once; the token expires on its own. Still
+  nothing on disk, and no secret stored.
 """
 
 from __future__ import annotations
 
 import logging
 import secrets
-import time
-from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Optional
 
 import httpx
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import MediaProxyToken
 
 logger = logging.getLogger("uplinx")
 
-# How long a media proxy token stays valid (seconds). Meta fetches IG media
-# within seconds, but we allow a generous window for retries / slow fetches.
+# How long a media proxy token stays valid. Meta fetches IG media within
+# seconds, but we allow a generous window for retries / slow fetches / video
+# processing.
 TOKEN_TTL_SECONDS = 1800  # 30 minutes
 
 GOOGLE_DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 
 
-@dataclass
-class _MediaToken:
-    drive_file_id: str
-    google_token: str
-    mime_type: str
-    filename: str
-    expires_at: float
-
-
-# token -> _MediaToken
-_TOKEN_STORE: dict[str, _MediaToken] = {}
-
-
-def _purge_expired() -> None:
-    """Drop expired tokens so the in-memory store never grows unbounded."""
-    now = time.time()
-    expired = [t for t, m in _TOKEN_STORE.items() if m.expires_at < now]
-    for t in expired:
-        _TOKEN_STORE.pop(t, None)
-
-
-def mint_media_token(
+async def mint_media_token(
+    db: AsyncSession,
     drive_file_id: str,
-    google_token: str,
+    google_user_id: str,
     mime_type: str = "application/octet-stream",
     filename: str = "media",
     ttl_seconds: int = TOKEN_TTL_SECONDS,
 ) -> str:
     """Register a Drive file for public proxy access and return an opaque token."""
-    _purge_expired()
     token = secrets.token_urlsafe(24)
-    _TOKEN_STORE[token] = _MediaToken(
+    row = MediaProxyToken(
+        token=token,
         drive_file_id=drive_file_id,
-        google_token=google_token,
+        google_user_id=google_user_id or "",
         mime_type=mime_type or "application/octet-stream",
         filename=filename or "media",
-        expires_at=time.time() + ttl_seconds,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
     )
+    db.add(row)
+    await db.flush()
     return token
 
 
-def resolve_media_token(token: str) -> Optional[_MediaToken]:
+async def resolve_media_token(db: AsyncSession, token: str) -> Optional[MediaProxyToken]:
     """Return the mapping for a token, or None if missing/expired."""
-    _purge_expired()
-    m = _TOKEN_STORE.get(token)
-    if m is None:
+    row = await db.get(MediaProxyToken, token)
+    if row is None:
         return None
-    if m.expires_at < time.time():
-        _TOKEN_STORE.pop(token, None)
+    expires_at = row.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < datetime.now(timezone.utc):
         return None
-    return m
+    return row
 
 
-def revoke_media_token(token: str) -> None:
+async def revoke_media_token(db: AsyncSession, token: str) -> None:
     """Explicitly drop a token (e.g. once publishing is confirmed)."""
-    _TOKEN_STORE.pop(token, None)
+    await db.execute(delete(MediaProxyToken).where(MediaProxyToken.token == token))
+
+
+async def purge_expired_tokens(db: AsyncSession) -> int:
+    """Delete expired tokens so the table never grows unbounded. Returns count."""
+    result = await db.execute(
+        delete(MediaProxyToken).where(
+            MediaProxyToken.expires_at < datetime.now(timezone.utc)
+        )
+    )
+    return result.rowcount or 0
 
 
 async def stream_drive_file(
@@ -111,4 +108,3 @@ async def stream_drive_file(
             response.raise_for_status()
             async for chunk in response.aiter_bytes(chunk_size):
                 yield chunk
-

@@ -219,6 +219,12 @@ async def _scheduled_posts_loop() -> None:
                 due = result.scalars().all()
                 for post in due:
                     await _execute_scheduled_job(post, db)
+                # Housekeeping: drop expired media-proxy tokens.
+                try:
+                    await media_bridge.purge_expired_tokens(db)
+                    await db.commit()
+                except Exception:
+                    pass
                 break
         except Exception as exc:
             logger.warning("Scheduled posts loop error: %s", exc)
@@ -230,7 +236,10 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
     post.attempts = (post.attempts or 0) + 1
     try:
         posting_token = await _posting_token_for_uid(job.get("posting_user_id"), db)
-        google_token = await _google_token_for_uid(job.get("google_user_id"), db)
+        google_uid = job.get("google_user_id")
+        # Validate (and refresh) the Google token now so the media proxy can
+        # resolve it when Meta fetches; raises if the account can't be used.
+        await _google_token_for_uid(google_uid, db)
         item = BulkPostItem(
             platform="instagram",
             instagram_id=job.get("instagram_id", ""),
@@ -240,7 +249,7 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             media=[DriveMediaItem(**m) for m in job.get("media", [])],
             media_type=job.get("media_type", "IMAGE"),
         )
-        r = await _publish_instagram_drive(item, posting_token, google_token, job.get("base_url", ""))
+        r = await _publish_instagram_drive(item, posting_token, google_uid, job.get("base_url", ""), db)
         if r.get("success"):
             post.status = "published"
             post.meta_post_id = r.get("media_id")
@@ -2633,16 +2642,22 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
 async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
     """Stream a Google Drive file through to whoever fetches this URL (e.g. Meta).
 
-    Public + tokenised. The token maps to a Drive file id and a Google access
-    token; we stream the bytes in chunks so large videos never sit fully in
-    memory and nothing is written to disk. Used for Instagram publishing, where
-    Meta requires a public URL it can fetch itself.
+    Public + tokenised. The token maps (in the DB, so it works across workers) to
+    a Drive file id and the Google account that can read it. We resolve a fresh
+    Google token at fetch time and stream the bytes in chunks, so large videos
+    never sit fully in memory and nothing is written to disk. Used for Instagram
+    publishing, where Meta requires a public URL it can fetch itself.
     """
-    mapping = media_bridge.resolve_media_token(token)
+    mapping = await media_bridge.resolve_media_token(db, token)
     if mapping is None:
         raise HTTPException(404, "Media link expired or not found")
+    try:
+        google_token = await _google_token_for_uid(mapping.google_user_id, db)
+    except Exception as exc:
+        logger.warning("media_proxy could not resolve Google token: %s", exc)
+        raise HTTPException(502, "Could not access source media")
     return StreamingResponse(
-        media_bridge.stream_drive_file(mapping.drive_file_id, mapping.google_token),
+        media_bridge.stream_drive_file(mapping.drive_file_id, google_token),
         media_type=mapping.mime_type,
         headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
     )
@@ -2759,18 +2774,23 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
 
 
 async def _publish_instagram_drive(
-    item: BulkPostItem, user_token: str, google_token: str, base_url: str
+    item: BulkPostItem, user_token: str, google_uid: str, base_url: str, db: AsyncSession
 ) -> dict:
     if not item.instagram_id:
         return {"success": False, "error": "instagram_id required for instagram"}
     if not item.media:
         return {"success": False, "error": "no media provided"}
+    if not google_uid:
+        return {"success": False, "error": "Google Drive must be connected"}
     caption = _compose_caption(item.caption, item.hashtags)
     base = settings.meta_graph_base_url
     minted: list[str] = []
 
-    def _mint(m: DriveMediaItem) -> str:
-        tok = media_bridge.mint_media_token(m.drive_file_id, google_token, m.mime_type, m.filename)
+    async def _mint(m: DriveMediaItem) -> str:
+        tok = await media_bridge.mint_media_token(db, m.drive_file_id, google_uid, m.mime_type, m.filename)
+        # Commit immediately so the public /media endpoint (a separate request,
+        # possibly on another worker) can resolve the token when Meta fetches it.
+        await db.commit()
         minted.append(tok)
         return f"{base_url}/media/{tok}"
 
@@ -2778,7 +2798,7 @@ async def _publish_instagram_drive(
         # Single image / reel / story
         if len(item.media) == 1:
             m = item.media[0]
-            public_url = _mint(m)
+            public_url = await _mint(m)
             container: dict = {"access_token": user_token}
             if caption:
                 container["caption"] = caption
@@ -2801,7 +2821,7 @@ async def _publish_instagram_drive(
         child_ids: list[str] = []
         async with httpx.AsyncClient(timeout=120) as client:
             for m in item.media:
-                public_url = _mint(m)
+                public_url = await _mint(m)
                 child_payload = {"access_token": user_token, "is_carousel_item": "true"}
                 if (m.mime_type or "").startswith("video"):
                     child_payload["media_type"] = "VIDEO"
@@ -2825,8 +2845,13 @@ async def _publish_instagram_drive(
         return await _ig_publish_container(item.instagram_id, pr.json().get("id"), user_token, base)
     finally:
         # Tokens can be revoked after publish completes; IG has already fetched.
-        for tok in minted:
-            media_bridge.revoke_media_token(tok)
+        if minted:
+            try:
+                for tok in minted:
+                    await media_bridge.revoke_media_token(db, tok)
+                await db.commit()
+            except Exception:
+                pass  # TTL purge will clean these up anyway
 
 
 async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: str) -> dict:
@@ -2885,7 +2910,7 @@ async def api_bulk_publish_drive(
             elif item.platform == "facebook":
                 r = await _publish_facebook_drive(item, user_token, google_token)
             elif item.platform == "instagram":
-                r = await _publish_instagram_drive(item, user_token, google_token, base_url)
+                r = await _publish_instagram_drive(item, user_token, google_uid, base_url, db)
             else:
                 r = {"success": False, "error": f"Unknown platform: {item.platform}"}
         except HTTPException as exc:
