@@ -625,10 +625,14 @@ async def admin_login(req: LoginReq, request: Request, response: Response, db: A
         _verify_pw(req.password, "pbkdf2:sha256:260000$x$x")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Check lockout
-    if staff.locked_until and staff.locked_until > now:
-        remaining = int((staff.locked_until - now).total_seconds() / 60) + 1
-        raise HTTPException(status_code=429, detail=f"Account locked. Try again in {remaining} minute(s).")
+    # Check lockout — normalize timezone before comparing (locked_until is tz-aware)
+    if staff.locked_until:
+        lu = staff.locked_until
+        if lu.tzinfo is None:
+            lu = lu.replace(tzinfo=timezone.utc)
+        if lu > now:
+            remaining = int((lu - now).total_seconds() / 60) + 1
+            raise HTTPException(status_code=429, detail=f"Account locked. Try again in {remaining} minute(s).")
 
     if not staff.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled. Contact your administrator.")
