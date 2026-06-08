@@ -719,6 +719,12 @@ class ScheduledPost(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     meta_post_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Self-published Drive jobs (e.g. Instagram, which has no native scheduling).
+    # Holds everything the background worker needs to publish at the due time:
+    # {media:[{drive_file_id,mime_type,filename}], hashtags:[...], media_type,
+    #  page_id, instagram_id, posting_user_id, google_user_id, base_url}
+    job_data: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -752,6 +758,8 @@ async def init_db() -> None:
         for _stmt in [
             "ALTER TABLE connected_meta_accounts ADD COLUMN IF NOT EXISTS meta_app_db_id INTEGER",
             "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS meta_app_db_id INTEGER",
+            "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS job_data JSON",
+            "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         ]:
             try:
                 await conn.execute(_text(_stmt))

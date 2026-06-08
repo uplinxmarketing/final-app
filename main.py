@@ -149,6 +149,7 @@ async def lifespan(app: FastAPI):
     _bg_tasks.append(asyncio.create_task(_deferred_startup()))
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
+    _bg_tasks.append(asyncio.create_task(_scheduled_posts_loop()))
     logger.info("Uplinx Meta Manager started")
     yield
     for task in _bg_tasks:
@@ -193,6 +194,121 @@ async def _token_refresh_loop() -> None:
                         logger.info("Refreshed token for %s", acc.facebook_user_id)
         except Exception as exc:
             logger.warning("Token refresh loop error: %s", exc)
+
+
+async def _scheduled_posts_loop() -> None:
+    """Publish self-scheduled Drive posts (e.g. Instagram) once they're due.
+
+    Instagram has no native scheduling, so future-dated IG posts are queued in
+    ``scheduled_posts`` with a ``job_data`` payload. This worker wakes every
+    minute, picks up due rows, and publishes them by streaming the media from
+    Drive — nothing is written to disk.
+    """
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async for db in get_db():
+                now = datetime.now(timezone.utc)
+                result = await db.execute(
+                    select(ScheduledPost).where(
+                        ScheduledPost.status == "pending",
+                        ScheduledPost.job_data.isnot(None),
+                        ScheduledPost.scheduled_time <= now,
+                    ).limit(10)
+                )
+                due = result.scalars().all()
+                for post in due:
+                    await _execute_scheduled_job(post, db)
+                break
+        except Exception as exc:
+            logger.warning("Scheduled posts loop error: %s", exc)
+
+
+async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
+    """Publish a single due scheduled post, updating its status in place."""
+    job = post.job_data or {}
+    post.attempts = (post.attempts or 0) + 1
+    try:
+        posting_token = await _posting_token_for_uid(job.get("posting_user_id"), db)
+        google_token = await _google_token_for_uid(job.get("google_user_id"), db)
+        item = BulkPostItem(
+            platform="instagram",
+            instagram_id=job.get("instagram_id", ""),
+            page_id=job.get("page_id", ""),
+            caption=post.caption or "",   # caption already includes hashtags
+            hashtags=[],
+            media=[DriveMediaItem(**m) for m in job.get("media", [])],
+            media_type=job.get("media_type", "IMAGE"),
+        )
+        r = await _publish_instagram_drive(item, posting_token, google_token, job.get("base_url", ""))
+        if r.get("success"):
+            post.status = "published"
+            post.meta_post_id = r.get("media_id")
+            post.published_at = datetime.now(timezone.utc)
+            post.error_message = None
+        else:
+            raise RuntimeError(r.get("error", "publish failed"))
+    except Exception as exc:
+        post.error_message = str(exc)[:500]
+        if post.attempts >= 5:
+            post.status = "failed"
+        logger.warning("Scheduled post %s attempt %d failed: %s", post.id, post.attempts, exc)
+    await db.commit()
+
+
+async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
+    """Fetch a posting account's token by facebook_user_id (no Request needed)."""
+    if not uid:
+        raise RuntimeError("no posting account on scheduled job")
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.facebook_user_id == uid,
+            ConnectedPostingAccount.is_active == True,
+        )
+    )
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise RuntimeError("posting account not found")
+    exp = acc.token_expiry
+    if exp is not None:
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            raise RuntimeError("posting token expired — reconnect to resume scheduled posts")
+    return encryption.decrypt(acc.encrypted_long_token)
+
+
+async def _google_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
+    """Fetch (refreshing if needed) a Google account's token by google_user_id."""
+    if not uid:
+        raise RuntimeError("no Google account on scheduled job")
+    result = await db.execute(
+        select(ConnectedGoogleAccount).where(
+            ConnectedGoogleAccount.google_user_id == uid,
+            ConnectedGoogleAccount.is_active == True,
+        )
+    )
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise RuntimeError("Google account not found")
+    exp = acc.token_expiry
+    expired = False
+    if exp is not None:
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        expired = exp < datetime.now(timezone.utc)
+    if expired:
+        refresh = await google_api.refresh_access_token(
+            encryption.decrypt(acc.encrypted_refresh_token),
+            settings.GOOGLE_CLIENT_ID,
+            settings.GOOGLE_CLIENT_SECRET,
+        )
+        if not refresh.get("success"):
+            raise RuntimeError("Google token expired — reconnect to resume scheduled posts")
+        acc.encrypted_access_token = encryption.encrypt(refresh["access_token"])
+        acc.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=refresh.get("expires_in", 3600))
+        await db.commit()
+    return encryption.decrypt(acc.encrypted_access_token)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -2750,11 +2866,23 @@ async def api_bulk_publish_drive(
     user_token = await get_posting_token(request, db)
     google_token = await get_google_token(request, db)
     base_url = _public_base_url(request)
+    session = get_session(request)
+    posting_uid = session.get("posting_user_id")
+    google_uid = session.get("google_user_id")
+    now = datetime.now(timezone.utc)
 
     results = []
     for idx, item in enumerate(req.items):
         try:
-            if item.platform == "facebook":
+            scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
+            # Schedule >60s in the future. Facebook uses Meta's native scheduling
+            # (reliable, Meta-side). Instagram has no native scheduling, so we
+            # queue it and our background worker publishes at the due time.
+            is_future = bool(scheduled_ts and scheduled_ts > int(now.timestamp()) + 60)
+            if item.platform == "instagram" and is_future:
+                sid = await _schedule_ig_job(item, scheduled_ts, posting_uid, google_uid, base_url, db)
+                r = {"success": True, "scheduled": True, "scheduled_id": sid}
+            elif item.platform == "facebook":
                 r = await _publish_facebook_drive(item, user_token, google_token)
             elif item.platform == "instagram":
                 r = await _publish_instagram_drive(item, user_token, google_token, base_url)
@@ -2769,6 +2897,42 @@ async def api_bulk_publish_drive(
 
     ok = sum(1 for r in results if r.get("success"))
     return {"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}
+
+
+async def _schedule_ig_job(
+    item: BulkPostItem,
+    scheduled_ts: int,
+    posting_uid: Optional[str],
+    google_uid: Optional[str],
+    base_url: str,
+    db: AsyncSession,
+) -> int:
+    """Queue an Instagram post for self-scheduled publishing. Returns row id."""
+    if not google_uid:
+        raise HTTPException(400, "Google Drive must be connected to schedule Drive media")
+    job = {
+        "media": [m.dict() for m in item.media],
+        "hashtags": item.hashtags,
+        "media_type": item.media_type,
+        "instagram_id": item.instagram_id,
+        "page_id": item.page_id,
+        "posting_user_id": posting_uid,
+        "google_user_id": google_uid,
+        "base_url": base_url,
+    }
+    row = ScheduledPost(
+        platform="instagram",
+        instagram_id=item.instagram_id,
+        caption=_compose_caption(item.caption, item.hashtags),
+        media_type=item.media_type,
+        scheduled_time=datetime.fromtimestamp(scheduled_ts, tz=timezone.utc),
+        timezone="UTC",
+        status="pending",
+        job_data=job,
+    )
+    db.add(row)
+    await db.flush()
+    return row.id
 
 
 # ── Drive scan — list media + parse captions for the bulk composer ─────────────

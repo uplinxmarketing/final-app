@@ -4032,14 +4032,25 @@ async function bulkPublishAll() {
   try {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res) { statusEl.textContent = 'Publish failed.'; return; }
+    let scheduledCount = 0;
     (res.results || []).forEach(r => {
       const cell = document.getElementById(`bulk-result-${r.index}`);
+      if (r.scheduled) scheduledCount++;
       if (cell) {
-        cell.textContent = r.success ? `✅ Published (${r.post_id || r.media_id || 'ok'})` : `❌ ${r.error || 'failed'}`;
-        cell.style.color = r.success ? 'var(--success)' : 'var(--accent)';
+        if (r.success && r.scheduled) {
+          cell.textContent = '🕒 Scheduled — will publish automatically';
+          cell.style.color = 'var(--text-secondary)';
+        } else if (r.success) {
+          cell.textContent = `✅ Published (${r.post_id || r.media_id || 'ok'})`;
+          cell.style.color = 'var(--success)';
+        } else {
+          cell.textContent = `❌ ${r.error || 'failed'}`;
+          cell.style.color = 'var(--accent)';
+        }
       }
     });
-    statusEl.textContent = `Done: ${res.succeeded} succeeded, ${res.failed} failed.`;
+    const publishedCount = res.succeeded - scheduledCount;
+    statusEl.textContent = `Done: ${publishedCount} published, ${scheduledCount} scheduled, ${res.failed} failed.`;
   } catch(e) {
     statusEl.textContent = 'Publish error: ' + (e.message || e);
   } finally {
