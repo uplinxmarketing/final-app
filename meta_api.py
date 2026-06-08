@@ -516,6 +516,206 @@ async def upload_image(
         }
 
 
+async def upload_image_bytes(
+    token: str,
+    ad_account_id: str,
+    image_bytes: bytes,
+    filename: str = "image.jpg",
+) -> dict[str, Any]:
+    """Upload in-memory image bytes to an ad account and return its hash.
+
+    Identical to :func:`upload_image` but takes raw bytes (e.g. streamed from
+    Google Drive) instead of a local file path — nothing touches disk.
+    """
+    url = f"{BASE_URL}/act_{ad_account_id}/adimages"
+    result = await _api_request(
+        "POST",
+        url,
+        data={"access_token": token},
+        files={"filename": (filename, image_bytes, "application/octet-stream")},
+    )
+    if not result["success"]:
+        return result
+    try:
+        images: dict[str, Any] = result["data"].get("images", {})
+        first_image = next(iter(images.values()))
+        return {"success": True, "data": {"hash": first_image["hash"], "raw": result["data"]}}
+    except (StopIteration, KeyError, TypeError) as exc:
+        return {"success": False, "error": f"Could not extract image hash: {exc}"}
+
+
+# ---------------------------------------------------------------------------
+# Video upload (ads) — graph-video host + status polling
+# ---------------------------------------------------------------------------
+
+VIDEO_BASE_URL = "https://graph-video.facebook.com/v21.0"
+
+
+async def upload_video_bytes(
+    token: str,
+    ad_account_id: str,
+    video_bytes: bytes,
+    filename: str = "video.mp4",
+    name: str = "",
+) -> dict[str, Any]:
+    """Upload in-memory video bytes to an ad account's video library.
+
+    POSTs to ``graph-video.facebook.com/act_{account}/advideos`` and returns the
+    new ``video_id``. The video is not yet processed — call
+    :func:`poll_video_ready` before using it in a creative.
+    """
+    url = f"{VIDEO_BASE_URL}/act_{ad_account_id}/advideos"
+    data = {"access_token": token}
+    if name:
+        data["name"] = name
+    # graph-video uploads can be large; use a longer timeout than the default.
+    result = await _api_request(
+        "POST",
+        url,
+        retries=2,
+        data=data,
+        files={"source": (filename, video_bytes, "application/octet-stream")},
+        timeout=300.0,
+    )
+    if not result["success"]:
+        return result
+    vid = result["data"].get("id") if isinstance(result["data"], dict) else None
+    if not vid:
+        return {"success": False, "error": "No video id returned from Meta"}
+    return {"success": True, "data": {"video_id": vid, "raw": result["data"]}}
+
+
+async def poll_video_ready(
+    token: str,
+    video_id: str,
+    timeout_seconds: int = 600,
+    interval_seconds: int = 5,
+) -> dict[str, Any]:
+    """Poll ``/{video_id}?fields=status`` until processing is ready or times out."""
+    url = f"{BASE_URL}/{video_id}"
+    waited = 0
+    while waited < timeout_seconds:
+        result = await _api_request(
+            "GET", url, params={"fields": "status", "access_token": token}
+        )
+        if result["success"]:
+            status = (result["data"] or {}).get("status", {})
+            video_status = status.get("video_status")
+            if video_status == "ready":
+                return {"success": True, "data": {"video_id": video_id, "status": "ready"}}
+            if video_status == "error":
+                return {"success": False, "error": f"Video processing failed: {status}"}
+        await asyncio.sleep(interval_seconds)
+        waited += interval_seconds
+    return {"success": False, "error": f"Video {video_id} not ready after {timeout_seconds}s"}
+
+
+async def create_video_creative(
+    token: str,
+    ad_account_id: str,
+    page_id: str,
+    video_id: str,
+    image_hash: str,
+    headline: str,
+    message: str,
+    link: str,
+    cta_type: str = "LEARN_MORE",
+) -> dict[str, Any]:
+    """Create a video ad creative. ``image_hash`` is the thumbnail/cover image."""
+    url = f"{BASE_URL}/act_{ad_account_id}/adcreatives"
+    video_data: dict[str, Any] = {
+        "video_id": video_id,
+        "message": message,
+        "title": headline,
+        "call_to_action": {"type": cta_type, "value": {"link": link}},
+    }
+    if image_hash:
+        video_data["image_hash"] = image_hash
+    object_story_spec = {"page_id": page_id, "video_data": video_data}
+    return await _api_request(
+        "POST",
+        url,
+        data={"object_story_spec": json.dumps(object_story_spec), "access_token": token},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page posting — upload bytes directly (Facebook)
+# ---------------------------------------------------------------------------
+
+async def publish_page_photo_bytes(
+    page_token: str,
+    page_id: str,
+    image_bytes: bytes,
+    caption: str = "",
+    filename: str = "photo.jpg",
+    published: bool = True,
+    scheduled_publish_time: Optional[int] = None,
+    no_story: bool = False,
+) -> dict[str, Any]:
+    """Publish (or schedule) a Facebook Page photo by uploading raw bytes.
+
+    Uses the ``source`` multipart field so Meta receives the file directly —
+    no public URL needed and nothing written to our disk.
+    """
+    url = f"{BASE_URL}/{page_id}/photos"
+    data: dict[str, Any] = {"caption": caption, "access_token": page_token}
+    if not published or scheduled_publish_time:
+        data["published"] = "false"
+    if scheduled_publish_time:
+        data["scheduled_publish_time"] = str(scheduled_publish_time)
+    if no_story:
+        data["no_story"] = "true"
+    return await _api_request(
+        "POST",
+        url,
+        data=data,
+        files={"source": (filename, image_bytes, "application/octet-stream")},
+    )
+
+
+async def upload_unpublished_page_photo_bytes(
+    page_token: str,
+    page_id: str,
+    image_bytes: bytes,
+    filename: str = "photo.jpg",
+) -> dict[str, Any]:
+    """Upload an unpublished Page photo and return its ``id`` (for carousels).
+
+    The returned media id is attached to a feed post via ``attached_media``.
+    """
+    url = f"{BASE_URL}/{page_id}/photos"
+    result = await _api_request(
+        "POST",
+        url,
+        data={"published": "false", "access_token": page_token},
+        files={"source": (filename, image_bytes, "application/octet-stream")},
+    )
+    if not result["success"]:
+        return result
+    media_id = result["data"].get("id") if isinstance(result["data"], dict) else None
+    if not media_id:
+        return {"success": False, "error": "No media id returned"}
+    return {"success": True, "data": {"media_id": media_id}}
+
+
+async def publish_page_carousel(
+    page_token: str,
+    page_id: str,
+    media_ids: list[str],
+    caption: str = "",
+    scheduled_publish_time: Optional[int] = None,
+) -> dict[str, Any]:
+    """Publish a multi-photo Page feed post from already-uploaded media ids."""
+    url = f"{BASE_URL}/{page_id}/feed"
+    data: dict[str, Any] = {"message": caption, "access_token": page_token}
+    data["attached_media"] = json.dumps([{"media_fbid": mid} for mid in media_ids])
+    if scheduled_publish_time:
+        data["published"] = "false"
+        data["scheduled_publish_time"] = str(scheduled_publish_time)
+    return await _api_request("POST", url, data=data)
+
+
 async def create_ad_creative(
     token: str,
     ad_account_id: str,

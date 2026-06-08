@@ -48,6 +48,7 @@ from security import (
 )
 import meta_api
 import google_api
+import media_bridge
 from file_processor import process_uploaded_file, cleanup_old_uploads
 from skills_manager import (
     initialize_default_skills, initialize_default_quick_commands,
@@ -242,6 +243,7 @@ async def session_middleware(request: Request, call_next):
     if (request.url.path in PUBLIC_PATHS
             or request.url.path.startswith("/static")
             or request.url.path.startswith("/frontend")
+            or request.url.path.startswith("/media/")    # public media proxy (Meta fetches IG media)
             or request.url.path.startswith("/admin")    # admin has its own auth
             or request.url.path.startswith("/api/setup")
             or request.url.path.startswith("/api/auth/")):   # all auth endpoints are public
@@ -269,6 +271,7 @@ async def login_guard(request: Request, call_next):
             or path.startswith("/api/auth/")   # per-user auth endpoints
             or path.startswith("/admin")        # admin has its own auth system
             or path.startswith("/frontend/")
+            or path.startswith("/media/")       # public media proxy (Meta fetches IG media)
             or path.startswith("/static/")):
         return await call_next(request)
     token = request.cookies.get(LOGIN_COOKIE)
@@ -2506,6 +2509,266 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
                         "page_name": page.get("name", ""),
                     })
     return ig_accounts
+
+
+# ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
+
+@app.get("/media/{token}")
+async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
+    """Stream a Google Drive file through to whoever fetches this URL (e.g. Meta).
+
+    Public + tokenised. The token maps to a Drive file id and a Google access
+    token; we stream the bytes in chunks so large videos never sit fully in
+    memory and nothing is written to disk. Used for Instagram publishing, where
+    Meta requires a public URL it can fetch itself.
+    """
+    mapping = media_bridge.resolve_media_token(token)
+    if mapping is None:
+        raise HTTPException(404, "Media link expired or not found")
+    return StreamingResponse(
+        media_bridge.stream_drive_file(mapping.drive_file_id, mapping.google_token),
+        media_type=mapping.mime_type,
+        headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
+    )
+
+
+# ── Bulk Drive → Meta posting ──────────────────────────────────────────────────
+
+def _public_base_url(request: Request) -> str:
+    """Best-effort public base URL for building media-proxy links Meta can reach."""
+    configured = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    # Honour proxy headers (Render terminates TLS upstream).
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}"
+
+
+async def _get_page_token(user_token: str, page_id: str) -> str:
+    """Exchange the user posting token for a page-scoped token."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{settings.meta_graph_base_url}/{page_id}",
+            params={"fields": "access_token", "access_token": user_token},
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, "Could not retrieve page token — check page permissions")
+    return r.json().get("access_token", user_token)
+
+
+def _parse_scheduled_ts(scheduled_time: Optional[str]) -> Optional[int]:
+    if not scheduled_time:
+        return None
+    try:
+        dt = datetime.fromisoformat(scheduled_time.replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except Exception:
+        raise HTTPException(400, "Invalid scheduled_time — use ISO 8601 format")
+
+
+class DriveMediaItem(BaseModel):
+    drive_file_id: str
+    mime_type: str = "application/octet-stream"
+    filename: str = "media"
+
+
+class BulkPostItem(BaseModel):
+    platform: str                       # "facebook" or "instagram"
+    page_id: str = ""                   # FB page id (required for facebook)
+    instagram_id: str = ""              # IG business id (required for instagram)
+    caption: str = ""
+    hashtags: list[str] = []            # appended to caption
+    media: list[DriveMediaItem] = []    # 1 = single, >1 = carousel
+    media_type: str = "IMAGE"           # IMAGE | REELS | VIDEO | STORIES
+    scheduled_time: Optional[str] = None
+
+
+class BulkPublishRequest(BaseModel):
+    items: list[BulkPostItem]
+
+
+def _compose_caption(caption: str, hashtags: list[str]) -> str:
+    tags = " ".join(h if h.startswith("#") else f"#{h}" for h in hashtags if h.strip())
+    if tags and caption:
+        return f"{caption}\n\n{tags}"
+    return caption or tags
+
+
+async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_token: str) -> dict:
+    if not item.page_id:
+        return {"success": False, "error": "page_id required for facebook"}
+    if not item.media:
+        return {"success": False, "error": "no media provided"}
+    page_token = await _get_page_token(user_token, item.page_id)
+    caption = _compose_caption(item.caption, item.hashtags)
+    scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
+
+    # Single photo
+    if len(item.media) == 1 and item.media_type == "IMAGE":
+        m = item.media[0]
+        dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+        if not dl.get("success"):
+            return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+        res = await meta_api.publish_page_photo_bytes(
+            page_token, item.page_id, dl["bytes"], caption=caption,
+            filename=m.filename, scheduled_publish_time=scheduled_ts,
+        )
+        if not res["success"]:
+            return res
+        return {"success": True, "post_id": res["data"].get("post_id") or res["data"].get("id")}
+
+    # Carousel (multiple photos)
+    if item.media_type == "IMAGE":
+        media_ids: list[str] = []
+        for m in item.media:
+            dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+            if not dl.get("success"):
+                return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+            up = await meta_api.upload_unpublished_page_photo_bytes(
+                page_token, item.page_id, dl["bytes"], filename=m.filename
+            )
+            if not up["success"]:
+                return up
+            media_ids.append(up["data"]["media_id"])
+        res = await meta_api.publish_page_carousel(
+            page_token, item.page_id, media_ids, caption=caption,
+            scheduled_publish_time=scheduled_ts,
+        )
+        if not res["success"]:
+            return res
+        return {"success": True, "post_id": res["data"].get("id")}
+
+    return {"success": False, "error": f"Unsupported facebook media_type: {item.media_type}"}
+
+
+async def _publish_instagram_drive(
+    item: BulkPostItem, user_token: str, google_token: str, base_url: str
+) -> dict:
+    if not item.instagram_id:
+        return {"success": False, "error": "instagram_id required for instagram"}
+    if not item.media:
+        return {"success": False, "error": "no media provided"}
+    caption = _compose_caption(item.caption, item.hashtags)
+    base = settings.meta_graph_base_url
+    minted: list[str] = []
+
+    def _mint(m: DriveMediaItem) -> str:
+        tok = media_bridge.mint_media_token(m.drive_file_id, google_token, m.mime_type, m.filename)
+        minted.append(tok)
+        return f"{base_url}/media/{tok}"
+
+    try:
+        # Single image / reel / story
+        if len(item.media) == 1:
+            m = item.media[0]
+            public_url = _mint(m)
+            container: dict = {"access_token": user_token}
+            if caption:
+                container["caption"] = caption
+            if item.media_type == "REELS":
+                container["media_type"] = "REELS"
+                container["video_url"] = public_url
+            elif item.media_type == "STORIES":
+                container["media_type"] = "STORIES"
+                container["image_url"] = public_url
+            else:
+                container["image_url"] = public_url
+            async with httpx.AsyncClient(timeout=60) as client:
+                cr = await client.post(f"{base}/{item.instagram_id}/media", data=container)
+            if cr.status_code not in (200, 201):
+                return {"success": False, "error": cr.json().get("error", {}).get("message", "container failed")}
+            creation_id = cr.json().get("id")
+            return await _ig_publish_container(item.instagram_id, creation_id, user_token, base)
+
+        # Carousel
+        child_ids: list[str] = []
+        async with httpx.AsyncClient(timeout=120) as client:
+            for m in item.media:
+                public_url = _mint(m)
+                child_payload = {"access_token": user_token, "is_carousel_item": "true"}
+                if (m.mime_type or "").startswith("video"):
+                    child_payload["media_type"] = "VIDEO"
+                    child_payload["video_url"] = public_url
+                else:
+                    child_payload["image_url"] = public_url
+                cr = await client.post(f"{base}/{item.instagram_id}/media", data=child_payload)
+                if cr.status_code not in (200, 201):
+                    return {"success": False, "error": cr.json().get("error", {}).get("message", "carousel child failed")}
+                child_ids.append(cr.json().get("id"))
+            parent_payload = {
+                "access_token": user_token,
+                "media_type": "CAROUSEL",
+                "children": ",".join(child_ids),
+            }
+            if caption:
+                parent_payload["caption"] = caption
+            pr = await client.post(f"{base}/{item.instagram_id}/media", data=parent_payload)
+        if pr.status_code not in (200, 201):
+            return {"success": False, "error": pr.json().get("error", {}).get("message", "carousel parent failed")}
+        return await _ig_publish_container(item.instagram_id, pr.json().get("id"), user_token, base)
+    finally:
+        # Tokens can be revoked after publish completes; IG has already fetched.
+        for tok in minted:
+            media_bridge.revoke_media_token(tok)
+
+
+async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: str) -> dict:
+    if not creation_id:
+        return {"success": False, "error": "no creation_id from container step"}
+    # Poll container status — video/carousel need processing before publish.
+    async with httpx.AsyncClient(timeout=30) as client:
+        for _ in range(30):
+            sr = await client.get(
+                f"{base}/{creation_id}",
+                params={"fields": "status_code", "access_token": token},
+            )
+            if sr.status_code == 200 and sr.json().get("status_code") == "FINISHED":
+                break
+            await asyncio.sleep(3)
+        pub = await client.post(
+            f"{base}/{ig_id}/media_publish",
+            data={"creation_id": creation_id, "access_token": token},
+        )
+    if pub.status_code not in (200, 201):
+        return {"success": False, "error": pub.json().get("error", {}).get("message", "publish failed")}
+    return {"success": True, "media_id": pub.json().get("id")}
+
+
+@app.post("/api/posting/bulk/drive")
+async def api_bulk_publish_drive(
+    req: BulkPublishRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-publish posts, streaming each image/video straight from Google Drive.
+
+    No file is written to the server's disk. Facebook media is uploaded as raw
+    bytes; Instagram media is served through the short-lived ``/media`` proxy
+    that Meta fetches. Returns a per-item result so partial failures are visible.
+    """
+    user_token = await get_posting_token(request, db)
+    google_token = await get_google_token(request, db)
+    base_url = _public_base_url(request)
+
+    results = []
+    for idx, item in enumerate(req.items):
+        try:
+            if item.platform == "facebook":
+                r = await _publish_facebook_drive(item, user_token, google_token)
+            elif item.platform == "instagram":
+                r = await _publish_instagram_drive(item, user_token, google_token, base_url)
+            else:
+                r = {"success": False, "error": f"Unknown platform: {item.platform}"}
+        except HTTPException as exc:
+            r = {"success": False, "error": exc.detail}
+        except Exception as exc:
+            logger.exception("Bulk publish item %d failed", idx)
+            r = {"success": False, "error": str(exc)}
+        results.append({"index": idx, **r})
+
+    ok = sum(1 for r in results if r.get("success"))
+    return {"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}
 
 
 class PublishFacebookRequest(BaseModel):
