@@ -653,17 +653,12 @@ a{color:inherit;text-decoration:none}
         <h2>Uplinx Meta Manager</h2>
         <p>Select a conversation or create a new one to start managing your Meta campaigns with AI.</p>
 
-        <!-- Big post action buttons -->
-        <div style="display:flex;gap:12px;justify-content:center;margin-top:20px;flex-wrap:wrap">
-          <button onclick="enterInterface('posting');setTimeout(()=>switchPostsTab('bulk'),400)" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 28px;border-radius:14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(220,38,38,0.3);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(220,38,38,0.4)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.3)'">
-            <span style="font-size:28px">📤</span>
-            <span style="font-size:14px;font-weight:700;letter-spacing:.3px">Upload Posts</span>
-            <span style="font-size:11px;opacity:.85">Bulk publish from Drive</span>
-          </button>
-          <button onclick="enterInterface('posting');setTimeout(()=>switchPostsTab('calendar'),400)" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 28px;border-radius:14px;background:var(--bg-secondary);color:var(--text-primary);border:2px solid var(--border);cursor:pointer;font-family:inherit;transition:transform .15s,border-color .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='var(--accent)';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.15)'" onmouseout="this.style.transform='';this.style.borderColor='var(--border)';this.style.boxShadow=''">
-            <span style="font-size:28px">📅</span>
-            <span style="font-size:14px;font-weight:700;letter-spacing:.3px">Schedule Posts</span>
-            <span style="font-size:11px;color:var(--text-secondary)">View &amp; manage calendar</span>
+        <!-- Big post action button -->
+        <div style="display:flex;justify-content:center;margin-top:20px">
+          <button onclick="openQuickUploadPopup()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 40px;border-radius:14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(220,38,38,0.3);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(220,38,38,0.4)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.3)'">
+            <span style="font-size:32px">📤</span>
+            <span style="font-size:15px;font-weight:700;letter-spacing:.3px">Upload Posts</span>
+            <span style="font-size:12px;opacity:.85">Bulk publish from Google Drive</span>
           </button>
         </div>
 
@@ -1593,6 +1588,91 @@ a{color:inherit;text-decoration:none}
 
 <!-- Toast notification -->
 <div class="toast" id="toast"></div>
+
+<!-- Quick Upload Posts Popup -->
+<div class="modal-overlay" id="quick-upload-popup">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-header">
+      <div class="modal-title">📤 Upload Posts</div>
+      <button class="modal-close" onclick="closeModal('quick-upload-popup')">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Step 1: Links -->
+      <div id="qup-step1">
+        <p style="font-size:14px;color:var(--text-secondary);margin:0 0 20px;line-height:1.6">Paste your Google Drive folder link below. We'll scan it, match your images with captions, and publish everything to your page — automatically.</p>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">📁 Drive folder link</label>
+          <input type="text" id="qup-folder-url" placeholder="https://drive.google.com/drive/folders/…"
+            style="width:100%;background:var(--bg-primary);border:2px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+            onkeydown="if(event.key==='Enter')qupScan()">
+        </div>
+
+        <div style="margin-bottom:20px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">📝 Captions document <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-dim)">(optional — Google Doc or Sheet)</span></label>
+          <input type="text" id="qup-text-url" placeholder="https://docs.google.com/…"
+            style="width:100%;background:var(--bg-primary);border:2px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+            onkeydown="if(event.key==='Enter')qupScan()">
+        </div>
+
+        <button onclick="qupScan()" id="qup-scan-btn"
+          style="width:100%;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">
+          🔍 Scan Folder
+        </button>
+        <div id="qup-scan-status" style="font-size:13px;color:var(--text-dim);margin-top:10px;min-height:20px;text-align:center"></div>
+      </div>
+
+      <!-- Step 2: Settings + Preview -->
+      <div id="qup-step2" style="display:none">
+
+        <div id="qup-found-banner" style="background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:14px;font-weight:600;color:var(--accent)"></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Post to</label>
+            <select id="qup-target" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--text-primary);font-size:13px"></select>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Schedule</label>
+            <select id="qup-schedule-mode" onchange="qupToggleSchedule(this.value)" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--text-primary);font-size:13px">
+              <option value="now">Post immediately</option>
+              <option value="later">Schedule for later</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="qup-schedule-details" style="display:none;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">First post at</label>
+              <input type="datetime-local" id="qup-schedule-start" style="width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text-primary);font-size:13px">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Hours between posts</label>
+              <input type="number" id="qup-interval" value="24" min="1" style="width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text-primary);font-size:13px">
+            </div>
+          </div>
+        </div>
+
+        <div id="qup-posts-list" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+
+        <button onclick="qupPublish()" id="qup-publish-btn"
+          style="width:100%;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">
+          🚀 Publish All Posts
+        </button>
+        <div id="qup-publish-status" style="font-size:13px;color:var(--text-dim);margin-top:10px;min-height:20px;text-align:center"></div>
+
+        <button onclick="qupBack()" style="margin-top:8px;padding:9px;width:100%;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">
+          ← Change folder
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 <!-- Admin Panel Modal -->
 <div class="modal-overlay" id="admin-panel-modal">
@@ -4184,6 +4264,174 @@ async function bulkPollJob() {
     _bulkPollTimer = setTimeout(bulkPollJob, 3000);
   }
 }
+
+// ─── Quick Upload Popup ──────────────────────────────────────────────────────
+
+let _qupMedia = [], _qupCaptions = [], _qupPosts = [], _qupTargets = [], _qupJobId = null, _qupPollTimer = null;
+
+function openQuickUploadPopup() {
+  // Reset to step 1
+  document.getElementById('qup-step1').style.display = 'block';
+  document.getElementById('qup-step2').style.display = 'none';
+  document.getElementById('qup-scan-status').textContent = '';
+  document.getElementById('qup-scan-btn').disabled = false;
+  document.getElementById('qup-publish-status').textContent = '';
+  document.getElementById('qup-schedule-mode').value = 'now';
+  document.getElementById('qup-schedule-details').style.display = 'none';
+  // Populate target pages from connected accounts
+  _qupTargets = [];
+  (_postingPages||[]).forEach(p => _qupTargets.push({id:p.id, name:p.name||p.id, platform:'facebook'}));
+  (_postingIgAccounts||[]).forEach(a => _qupTargets.push({id:a.id, name:'@'+(a.username||a.name||a.id), platform:'instagram', page_id:a.page_id}));
+  (_postingClients||[]).forEach(c=>(c.profiles||[]).forEach(p=>{
+    if(p.fb_page_id && !_qupTargets.find(t=>t.id===p.fb_page_id)) _qupTargets.push({id:p.fb_page_id, name:p.fb_page_name||p.label, platform:'facebook'});
+    if(p.ig_account_id && !_qupTargets.find(t=>t.id===p.ig_account_id)) _qupTargets.push({id:p.ig_account_id, name:'@'+(p.ig_username||p.ig_account_id), platform:'instagram', page_id:p.fb_page_id});
+  }));
+  const sel = document.getElementById('qup-target');
+  sel.innerHTML = _qupTargets.length
+    ? _qupTargets.map(t=>`<option value="${t.id}">${t.platform==='instagram'?'📷 ':'📘 '}${escHtml(t.name)}</option>`).join('')
+    : '<option value="">No pages — connect an account first</option>';
+  openModal('quick-upload-popup');
+}
+
+function qupToggleSchedule(val) {
+  document.getElementById('qup-schedule-details').style.display = val==='later' ? 'block' : 'none';
+}
+
+async function qupScan() {
+  const folderUrl = document.getElementById('qup-folder-url').value.trim();
+  const textUrl = document.getElementById('qup-text-url').value.trim();
+  const status = document.getElementById('qup-scan-status');
+  if (!folderUrl) { status.textContent = 'Please enter your Drive folder link.'; return; }
+  const btn = document.getElementById('qup-scan-btn');
+  btn.disabled = true;
+  status.textContent = '🔍 Scanning your folder…';
+  try {
+    const res = await api('POST', '/api/posting/drive/scan', {folder_url:folderUrl, text_url:textUrl});
+    if (!res) { status.textContent = 'Scan failed — check your Drive link and try again.'; btn.disabled=false; return; }
+    _qupMedia = res.media || [];
+    _qupCaptions = res.captions || [];
+    if (!_qupMedia.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
+    _qupPosts = _qupMedia.map((m,i) => {
+      const cap = _qupCaptions[i] || {};
+      return {
+        caption: cap.caption || '',
+        hashtags: cap.hashtags || [],
+        media: [m],
+        media_type: m.is_video ? 'REELS' : 'IMAGE',
+      };
+    });
+    document.getElementById('qup-found-banner').textContent =
+      `✅ Found ${_qupMedia.length} file${_qupMedia.length!==1?'s':''} · ${_qupCaptions.length} caption${_qupCaptions.length!==1?'s':''} matched`;
+    qupRenderPosts();
+    document.getElementById('qup-step1').style.display = 'none';
+    document.getElementById('qup-step2').style.display = 'block';
+  } catch(e) {
+    status.textContent = 'Error: ' + (e.message||e);
+    btn.disabled = false;
+  }
+}
+
+function qupRenderPosts() {
+  const list = document.getElementById('qup-posts-list');
+  list.innerHTML = _qupPosts.map((p,i) => `
+    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
+      <div style="font-size:20px;line-height:1;padding-top:2px;flex-shrink:0">${p.media_type==='REELS'?'🎬':'🖼️'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.media[0].name)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.caption?escHtml(p.caption.substring(0,90))+(p.caption.length>90?'…':''):'<em style="color:var(--text-dim)">No caption</em>'}</div>
+      </div>
+      <div id="qup-result-${i}" style="font-size:11px;color:var(--text-dim);white-space:nowrap;flex-shrink:0"></div>
+    </div>
+  `).join('');
+}
+
+function qupBack() {
+  document.getElementById('qup-step1').style.display = 'block';
+  document.getElementById('qup-step2').style.display = 'none';
+  document.getElementById('qup-scan-btn').disabled = false;
+  document.getElementById('qup-scan-status').textContent = '';
+}
+
+async function qupPublish() {
+  if (!_qupPosts.length) return;
+  const targetId = document.getElementById('qup-target').value;
+  const target = _qupTargets.find(t=>t.id===targetId);
+  const status = document.getElementById('qup-publish-status');
+  if (!target) { status.textContent = 'Please select a page to post to.'; return; }
+
+  const scheduleMode = document.getElementById('qup-schedule-mode').value;
+  let scheduledTimes = [];
+  if (scheduleMode === 'later') {
+    const start = document.getElementById('qup-schedule-start').value;
+    const hrs = parseFloat(document.getElementById('qup-interval').value) || 24;
+    if (!start) { status.textContent = 'Please set a start time for scheduling.'; return; }
+    const t = new Date(start).getTime();
+    scheduledTimes = _qupPosts.map((_,i) => new Date(t + i*hrs*3600*1000).toISOString());
+  }
+
+  const items = _qupPosts.map((p,i) => {
+    const item = {
+      platform: target.platform,
+      caption: p.caption,
+      hashtags: p.hashtags,
+      media_type: p.media_type,
+      scheduled_time: scheduledTimes[i] || null,
+      media: p.media.map(m=>({drive_file_id:m.id, mime_type:m.mime_type, filename:m.name})),
+    };
+    if (target.platform === 'instagram') item.instagram_id = targetId;
+    else item.page_id = targetId;
+    return item;
+  });
+
+  const btn = document.getElementById('qup-publish-btn');
+  btn.disabled = true;
+  status.textContent = 'Submitting…';
+  try {
+    const res = await api('POST', '/api/posting/bulk/drive', {items});
+    if (!res || !res.job_id) { status.textContent = 'Submit failed — please try again.'; btn.disabled=false; return; }
+    _qupJobId = res.job_id;
+    status.textContent = res.message || 'Posts queued!';
+    qupPollJob();
+  } catch(e) {
+    status.textContent = 'Error: ' + (e.message||e);
+    btn.disabled = false;
+  }
+}
+
+async function qupPollJob() {
+  if (!_qupJobId) return;
+  const status = document.getElementById('qup-publish-status');
+  const btn = document.getElementById('qup-publish-btn');
+  try {
+    const job = await fetch(`/api/posting/jobs/${_qupJobId}`).then(r=>r.ok?r.json():null);
+    if (!job) { status.textContent = 'Lost track of job.'; btn.disabled=false; return; }
+    (job.results||[]).forEach(r => {
+      const cell = document.getElementById(`qup-result-${r.index}`);
+      if (!cell) return;
+      if (r.success && r.scheduled) { cell.textContent='🕒 Scheduled'; cell.style.color='var(--text-secondary)'; }
+      else if (r.success) { cell.textContent='✅ Done'; cell.style.color='var(--success,#22c55e)'; }
+      else { cell.textContent='❌ Failed'; cell.style.color='var(--accent)'; }
+    });
+    if (job.status === 'queued') {
+      status.textContent = job.position > 0
+        ? `⏳ ${job.position} job(s) ahead of you — you can close this window`
+        : '⏳ Starting soon…';
+    } else if (job.status === 'running') {
+      status.textContent = `🔄 Publishing ${job.completed} of ${job.total}…`;
+    } else if (job.status === 'done') {
+      status.textContent = `✅ All done! ${job.published_count} published${job.scheduled_count?' · '+job.scheduled_count+' scheduled':''}${job.failed?' · '+job.failed+' failed':''}`;
+      btn.disabled = false; _qupJobId = null; return;
+    } else if (job.status === 'failed') {
+      status.textContent = `❌ ${job.error || 'Job failed'}`;
+      btn.disabled = false; _qupJobId = null; return;
+    }
+    _qupPollTimer = setTimeout(qupPollJob, 2000);
+  } catch(e) {
+    _qupPollTimer = setTimeout(qupPollJob, 3000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Show what the server is working on across all users (so people know to wait).
 async function loadActiveJobsBanner() {
