@@ -577,17 +577,17 @@ a{color:inherit;text-decoration:none}
 
     <!-- Posts sidebar content -->
     <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
-      <div style="padding:10px 12px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">CLIENTS</div>
+      <div style="padding:12px 12px 10px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">MY CLIENTS</div>
           <div style="display:flex;gap:4px">
-            <button id="posting-manage-btn" onclick="openPostingManageModal()" title="Manage client pages (Admin)" style="display:none;background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">⚙</button>
-            <button onclick="loadPostingClients()" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
+            <button id="posting-manage-btn" onclick="openPostingManageModal()" title="Manage client pages (Admin)" style="display:none;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">⚙</button>
+            <button onclick="loadPostingClients()" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
           </div>
         </div>
-        <button onclick="openPostingConnectModal()" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Connect Account</button>
+        <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
       </div>
-      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:4px 6px">
+      <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:8px">
         <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>
       </div>
     </div>
@@ -645,7 +645,23 @@ a{color:inherit;text-decoration:none}
         </div>
         <h2>Uplinx Meta Manager</h2>
         <p>Select a conversation or create a new one to start managing your Meta campaigns with AI.</p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:12px">
+
+        <!-- Big post action buttons -->
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:20px;flex-wrap:wrap">
+          <button onclick="enterInterface('posting');setTimeout(()=>switchPostsTab('bulk'),400)" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 28px;border-radius:14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(220,38,38,0.3);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(220,38,38,0.4)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.3)'">
+            <span style="font-size:28px">📤</span>
+            <span style="font-size:14px;font-weight:700;letter-spacing:.3px">Upload Posts</span>
+            <span style="font-size:11px;opacity:.85">Bulk publish from Drive</span>
+          </button>
+          <button onclick="enterInterface('posting');setTimeout(()=>switchPostsTab('calendar'),400)" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 28px;border-radius:14px;background:var(--bg-secondary);color:var(--text-primary);border:2px solid var(--border);cursor:pointer;font-family:inherit;transition:transform .15s,border-color .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='var(--accent)';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.15)'" onmouseout="this.style.transform='';this.style.borderColor='var(--border)';this.style.boxShadow=''">
+            <span style="font-size:28px">📅</span>
+            <span style="font-size:14px;font-weight:700;letter-spacing:.3px">Schedule Posts</span>
+            <span style="font-size:11px;color:var(--text-secondary)">View &amp; manage calendar</span>
+          </button>
+        </div>
+
+        <!-- AI quick prompts -->
+        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px">
           <span onclick="quickPrompt('Show campaign performance for this week')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">📊 Campaign performance</span>
           <span onclick="quickPrompt('Create a new campaign')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">🚀 New campaign</span>
           <span onclick="quickPrompt('Upload and pair creative assets')" style="cursor:pointer;padding:7px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';this.style.background='var(--accent-soft)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)';this.style.background='var(--bg-secondary)'">🖼️ Upload creatives</span>
@@ -679,21 +695,25 @@ a{color:inherit;text-decoration:none}
     <div id="posts-workspace" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
 
       <!-- Always-visible header with tab buttons -->
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-primary);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span id="posts-selected-page-icon" style="font-size:18px">📘</span>
-          <div>
-            <div id="posts-selected-page-name" style="font-size:14px;font-weight:700;color:var(--text-primary)">Posts Manager</div>
-            <div id="posts-account-label" style="font-size:11px;color:var(--text-dim)">—</div>
+      <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-primary);flex-shrink:0">
+        <!-- Page identity row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="posts-selected-page-icon" style="font-size:22px">📘</span>
+            <div>
+              <div id="posts-selected-page-name" style="font-size:15px;font-weight:700;color:var(--text-primary)">Posts Manager</div>
+              <div id="posts-account-label" style="font-size:11px;color:var(--text-dim)">Select a client from the sidebar</div>
+            </div>
           </div>
+          <button onclick="openPostingConnectModal()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'" title="Manage accounts">⚙️ Accounts</button>
         </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button id="ptab-btn-calendar" onclick="switchPostsTab('calendar')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">📅 Calendar</button>
-          <button id="ptab-btn-compose" onclick="switchPostsTab('compose')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">✏️ Compose</button>
-          <button id="ptab-btn-bulk" onclick="switchPostsTab('bulk')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">📦 Bulk</button>
-          <button id="ptab-btn-feed" onclick="switchPostsTab('feed')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">📰 Feed</button>
-          <button id="ptab-btn-chat" onclick="switchPostsTab('chat')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">💬 AI Chat</button>
-          <button onclick="openPostingConnectModal()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer" title="Manage accounts">⚙️</button>
+        <!-- Tab buttons row -->
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button id="ptab-btn-calendar" onclick="switchPostsTab('calendar')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--accent);background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:var(--transition)">📅 <span>Calendar</span></button>
+          <button id="ptab-btn-compose" onclick="switchPostsTab('compose')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">✏️ <span>Compose</span></button>
+          <button id="ptab-btn-bulk" onclick="switchPostsTab('bulk')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">📤 <span>Upload Posts</span></button>
+          <button id="ptab-btn-feed" onclick="switchPostsTab('feed')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">📰 <span>Feed</span></button>
+          <button id="ptab-btn-chat" onclick="switchPostsTab('chat')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">💬 <span>AI Chat</span></button>
         </div>
       </div>
 
@@ -731,10 +751,14 @@ a{color:inherit;text-decoration:none}
         </div>
 
         <!-- State: connected, no page selected -->
-        <div id="posts-no-page-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:12px;text-align:center;padding:40px">
-          <div style="font-size:40px">📋</div>
-          <div style="font-size:16px;font-weight:600;color:var(--text-primary)">Select a Page</div>
-          <div style="font-size:13px;color:var(--text-secondary);max-width:300px;line-height:1.5">Choose a Facebook Page or Instagram account from the sidebar to view the calendar and compose posts.</div>
+        <div id="posts-no-page-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:16px;text-align:center;padding:40px">
+          <div style="font-size:52px">👈</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text-primary)">Pick a client first</div>
+          <div style="font-size:14px;color:var(--text-secondary);max-width:340px;line-height:1.6">Choose a client from the left sidebar, then tap their Facebook Page or Instagram account to start managing posts.</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px">
+            <button onclick="switchPostsTab('bulk')" style="padding:10px 22px;border-radius:10px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:700">📤 Upload Posts anyway</button>
+            <button onclick="switchPostsTab('chat')" style="padding:10px 22px;border-radius:10px;background:var(--bg-secondary);color:var(--text-secondary);border:2px solid var(--border);cursor:pointer;font-size:13px;font-weight:600">💬 Ask AI for help</button>
+          </div>
         </div>
 
         <!-- Tab: Calendar -->
@@ -803,8 +827,8 @@ a{color:inherit;text-decoration:none}
         <!-- Tab: Bulk (Drive → Meta) -->
         <div id="posts-tab-bulk" style="display:none;flex:1;overflow-y:auto;padding:20px">
           <div style="max-width:860px;margin:0 auto">
-            <div style="margin-bottom:6px;font-size:16px;font-weight:700;color:var(--text-primary)">📦 Bulk publish from Google Drive</div>
-            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 16px;line-height:1.5">Point at a Drive folder of images/videos and (optionally) a captions doc. Files stream straight from Drive to Meta — nothing is stored on the server. Match each post, then publish or schedule the whole batch.</p>
+            <div style="margin-bottom:6px;font-size:18px;font-weight:700;color:var(--text-primary)">📤 Upload Posts from Google Drive</div>
+            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 20px;line-height:1.6">Paste your Google Drive folder link below. The app will read your images and videos, match them with your captions, and post them — one by one — straight to Facebook and Instagram. Nothing is saved on our server.</p>
 
             <!-- Step 1: sources -->
             <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px">
@@ -3431,44 +3455,61 @@ function renderPostingClientList() {
 
   if (!_postingClients.length) {
     const isAdm = window._currentUser && window._currentUser.role === 'admin';
-    listEl.innerHTML = `<div style="font-size:12px;color:var(--text-dim);padding:8px">
-      No posting clients configured yet.<br>
-      <span style="font-size:11px">${isAdm ? 'Click ⚙ to assign pages to clients.' : 'Ask your admin to set up posting clients.'}</span>
+    listEl.innerHTML = `<div style="text-align:center;padding:24px 12px">
+      <div style="font-size:36px;margin-bottom:10px">🏢</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No clients yet</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">${isAdm ? 'Click ⚙ above to assign Facebook Pages and Instagram accounts to clients.' : 'Ask your admin to set up your posting clients.'}</div>
     </div>`;
     return;
   }
 
   let html = '';
   for (const c of _postingClients) {
-    const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${c.color_tag||'#6c63ff'};display:inline-block;flex-shrink:0"></span>`;
-    html += `<div class="client-item">
-      <div class="client-header" id="pch-${c.id}" onclick="togglePostingClient(${c.id})">
-        ${dot}
-        <div class="client-name" style="flex:1;min-width:0">${c.name}</div>
-        <div class="client-chevron" id="pchev-${c.id}">▶</div>
-      </div>
-      <div class="client-children" id="pcc-${c.id}">`;
+    const colorDot = `<span style="width:10px;height:10px;border-radius:50%;background:${c.color_tag||'#6c63ff'};display:inline-block;flex-shrink:0"></span>`;
+    const hasProfiles = c.profiles && c.profiles.length;
 
-    if (c.profiles && c.profiles.length) {
+    html += `<div style="margin-bottom:6px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--bg-primary)">
+      <div id="pch-${c.id}" onclick="togglePostingClient(${c.id})" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;transition:background .12s;user-select:none" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+        ${colorDot}
+        <div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</div>
+        <div id="pchev-${c.id}" style="font-size:11px;color:var(--text-dim);transition:transform .15s;flex-shrink:0">▶</div>
+      </div>
+      <div class="client-children" id="pcc-${c.id}" style="border-top:1px solid var(--border)">`;
+
+    if (hasProfiles) {
+      const multiProfile = c.profiles.length > 1;
       for (const p of c.profiles) {
-        const igPart = p.ig_account_id
-          ? `<div onclick="selectPostingProfile(${c.id},${p.id},'ig')" style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 14px;cursor:pointer;border-radius:5px;transition:background 0.12s" id="pp-ig-${p.id}" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
-              <span style="font-size:12px">📷</span>
-              <span style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${p.ig_username || p.ig_account_id}</span>
-            </div>` : '';
-        html += `<div style="padding:2px 0">
-          <div onclick="selectPostingProfile(${c.id},${p.id},'fb')" style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 14px;cursor:pointer;border-radius:5px;transition:background 0.12s" id="pp-fb-${p.id}" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
-            <span style="font-size:12px">📘</span>
-            <div style="min-width:0">
-              <div style="font-size:11px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.label}</div>
-              <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.fb_page_name}</div>
-            </div>
+        // Business sub-header only when client has multiple profiles
+        if (multiProfile) {
+          html += `<div style="padding:6px 12px 2px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim);background:var(--bg-secondary)">${p.label}</div>`;
+        }
+        // Facebook Page row
+        html += `<div onclick="selectPostingProfile(${c.id},${p.id},'fb')" id="pp-fb-${p.id}"
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;border-bottom:1px solid var(--bg-secondary)"
+          onmouseover="this.style.background='var(--bg-hover)'" onmouseout="if(!this.classList.contains('psel'))this.style.background='transparent'">
+          <span style="font-size:18px;flex-shrink:0">📘</span>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.fb_page_name || p.label}</div>
+            <div style="font-size:10px;color:var(--text-dim)">Facebook Page</div>
           </div>
-          ${igPart}
+          <span style="font-size:11px;color:var(--text-dim);flex-shrink:0">›</span>
         </div>`;
+        // Instagram row (only if assigned)
+        if (p.ig_account_id) {
+          html += `<div onclick="selectPostingProfile(${c.id},${p.id},'ig')" id="pp-ig-${p.id}"
+            style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;border-bottom:1px solid var(--bg-secondary)"
+            onmouseover="this.style.background='var(--bg-hover)'" onmouseout="if(!this.classList.contains('psel'))this.style.background='transparent'">
+            <span style="font-size:18px;flex-shrink:0">📷</span>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${p.ig_username || p.ig_account_id}</div>
+              <div style="font-size:10px;color:var(--text-dim)">Instagram</div>
+            </div>
+            <span style="font-size:11px;color:var(--text-dim);flex-shrink:0">›</span>
+          </div>`;
+        }
       }
     } else {
-      html += `<div style="font-size:11px;color:var(--text-dim);padding:5px 10px">No pages assigned</div>`;
+      html += `<div style="padding:12px 14px;font-size:12px;color:var(--text-dim);text-align:center">No pages assigned yet</div>`;
     }
     html += `</div></div>`;
   }
@@ -3481,7 +3522,7 @@ function togglePostingClient(clientId) {
   if (!ch) return;
   const isOpen = ch.classList.contains('open');
   ch.classList.toggle('open', !isOpen);
-  chev.classList.toggle('open', !isOpen);
+  if (chev) chev.style.transform = isOpen ? '' : 'rotate(90deg)';
 }
 
 function selectPostingProfile(clientId, profileId, platform) {
@@ -3491,24 +3532,23 @@ function selectPostingProfile(clientId, profileId, platform) {
 
   // Clear previous highlight
   document.querySelectorAll('[id^="pp-fb-"],[id^="pp-ig-"]').forEach(el => {
+    el.classList.remove('psel');
     el.style.background = 'transparent';
-    el.style.outline = '';
+    el.style.borderLeft = '';
   });
 
   let pageObj;
   if (platform === 'ig' && profile.ig_account_id) {
     pageObj = { id: profile.ig_account_id, name: `@${profile.ig_username || profile.ig_account_id}`, platform: 'instagram', page_id: profile.fb_page_id };
     const el = document.getElementById(`pp-ig-${profileId}`);
-    if (el) { el.style.background = 'rgba(220,38,38,0.1)'; el.style.outline = '1px solid var(--accent)'; }
-    // Ensure IG account is in _postingIgAccounts so compose dropdown works
+    if (el) { el.classList.add('psel'); el.style.background = 'rgba(220,38,38,0.08)'; el.style.borderLeft = '3px solid var(--accent)'; }
     if (!_postingIgAccounts.find(a => a.id === profile.ig_account_id)) {
       _postingIgAccounts.push({ id: profile.ig_account_id, username: profile.ig_username || '', name: profile.ig_username || profile.ig_account_id, page_id: profile.fb_page_id });
     }
   } else {
     pageObj = { id: profile.fb_page_id, name: profile.fb_page_name || profile.label, platform: 'facebook' };
     const el = document.getElementById(`pp-fb-${profileId}`);
-    if (el) { el.style.background = 'rgba(220,38,38,0.1)'; el.style.outline = '1px solid var(--accent)'; }
-    // Ensure FB page is in _postingPages so compose dropdown works
+    if (el) { el.classList.add('psel'); el.style.background = 'rgba(220,38,38,0.08)'; el.style.borderLeft = '3px solid var(--accent)'; }
     if (!_postingPages.find(p => p.id === profile.fb_page_id)) {
       _postingPages.push({ id: profile.fb_page_id, name: profile.fb_page_name || profile.label });
     }
