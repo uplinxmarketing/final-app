@@ -837,6 +837,7 @@ a{color:inherit;text-decoration:none}
             </div>
             <div style="margin-bottom:14px">
               <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
+              <input type="text" id="posts-target-search" class="select-search" oninput="filterSelect(this)" placeholder="🔍 Search by name…" style="display:none;width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">
               <select id="posts-target-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px">
                 <option value="">— Select —</option>
               </select>
@@ -3946,11 +3947,28 @@ function renderPostingsSidebar() {
     : '<div style="font-size:11px;color:var(--text-dim)">No IG accounts found</div>';
 }
 
+// Search box that filters a native <select>'s options. Returns '' for short
+// lists so we don't clutter selectors with only a few accounts.
+function _selectSearchHtml(count) {
+  if (!count || count < 6) return '';
+  return `<input type="text" class="select-search" oninput="filterSelect(this)" placeholder="🔍 Search by name…" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">`;
+}
+// Hide options of the sibling <select> that don't match the typed text.
+function filterSelect(input) {
+  const sel = input.parentElement.querySelector('select');
+  if (!sel) return;
+  const q = input.value.trim().toLowerCase();
+  Array.from(sel.options).forEach(o => { if (o.value) o.hidden = !!q && !o.text.toLowerCase().includes(q); });
+}
+
 function populatePostTargetSelect() {
   const sel = document.getElementById('posts-target-select');
   if (!sel) return;
   sel.innerHTML = '';
   const source = _postPlatform === 'facebook' ? _postingPages : _postingIgAccounts;
+  // Show the compose search box only when there are enough accounts to warrant it.
+  const search = document.getElementById('posts-target-search');
+  if (search) { search.style.display = source.length >= 6 ? '' : 'none'; search.value = ''; }
   if (!source.length) { sel.innerHTML = '<option value="">No accounts found</option>'; return; }
   source.forEach(p => {
     const o = document.createElement('option');
@@ -4950,17 +4968,23 @@ function _uwShowTargets() {
 
   const fbBlock = fbPages.length ? `
     <label style="${labelStyle};display:flex;align-items:center;gap:5px">${fbIcon(13)} Facebook Page</label>
-    <select class="uw-fb-sel" onchange="uwTargetSelChange(this,'facebook');_uwPreviewSel(this,'facebook')" style="${selStyle};margin-bottom:12px">
-      <option value="" data-pic="">— Select a Facebook Page —</option>
-      ${fbPages.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
-    </select>` : '';
+    <div style="margin-bottom:12px">
+      ${_selectSearchHtml(fbPages.length)}
+      <select class="uw-fb-sel" onchange="uwTargetSelChange(this,'facebook');_uwPreviewSel(this,'facebook')" style="${selStyle}">
+        <option value="" data-pic="">— Select a Facebook Page —</option>
+        ${fbPages.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
+      </select>
+    </div>` : '';
 
   const igBlock = igAccts.length ? `
     <label style="${labelStyle};display:flex;align-items:center;gap:5px">${igIcon(13)} Instagram Account</label>
-    <select class="uw-ig-sel" onchange="uwTargetSelChange(this,'instagram');_uwPreviewSel(this,'instagram')" style="${selStyle};margin-bottom:12px">
-      <option value="" data-pic="">— Select an Instagram account —</option>
-      ${igAccts.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
-    </select>` : '';
+    <div style="margin-bottom:12px">
+      ${_selectSearchHtml(igAccts.length)}
+      <select class="uw-ig-sel" onchange="uwTargetSelChange(this,'instagram');_uwPreviewSel(this,'instagram')" style="${selStyle}">
+        <option value="" data-pic="">— Select an Instagram account —</option>
+        ${igAccts.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
+      </select>
+    </div>` : '';
 
   _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a client to fill both automatically, or choose a Facebook Page and/or Instagram account — you can select <b>both</b> to post to both at once.</div>
