@@ -69,6 +69,16 @@ a{color:inherit;text-decoration:none}
 .sidebar-nav{display:flex;flex-direction:column;gap:2px}
 .sidebar-nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);color:var(--text-secondary);font-size:13px;cursor:pointer;transition:var(--transition)}
 .sidebar-nav-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+/* Posts left-column nav buttons */
+.ptab-nav-btn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 12px;border-radius:9px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;text-align:left;transition:var(--transition)}
+.ptab-nav-btn:hover{border-color:var(--accent);color:var(--accent)}
+/* Slide toggle switch */
+.ui-switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0}
+.ui-switch input{opacity:0;width:0;height:0;position:absolute}
+.ui-switch-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.2s}
+.ui-switch-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+.ui-switch input:checked+.ui-switch-slider{background:var(--accent)}
+.ui-switch input:checked+.ui-switch-slider:before{transform:translateX(16px)}
 .sidebar-new-conv{margin:8px 12px 4px;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius);background:var(--accent);color:#fff;font-size:13px;font-weight:500;transition:var(--transition);justify-content:center}
 .sidebar-new-conv:hover{background:var(--accent-hover)}
 
@@ -587,6 +597,22 @@ a{color:inherit;text-decoration:none}
         </div>
         <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
       </div>
+      <!-- Posts navigation (moved from workspace toolbar) -->
+      <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+        <button id="ptab-btn-calendar" class="ptab-nav-btn" onclick="switchPostsTab('calendar')" style="border-color:var(--accent);background:var(--accent);color:#fff" onmouseout="if(_postTab!=='calendar'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📅 <span>Calendar</span></button>
+        <button id="ptab-btn-compose" class="ptab-nav-btn" onclick="switchPostsTab('compose')" onmouseout="if(_postTab!=='compose'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">✏️ <span>Compose</span></button>
+        <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="switchPostsTab('bulk')" onmouseout="if(_postTab!=='bulk'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload Posts</span></button>
+        <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
+        <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="switchPostsTab('chat')" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
+        <!-- Admin-only: slide toggle to hide/open the right column (workspace) -->
+        <div id="posts-workspace-toggle-wrap" style="display:none;align-items:center;justify-content:space-between;padding:9px 4px 2px;margin-top:5px;border-top:1px solid var(--border)">
+          <span style="font-size:12px;color:var(--text-secondary);font-weight:600">🖥️ Workspace</span>
+          <label class="ui-switch" title="Show or hide the workspace panel">
+            <input type="checkbox" id="posts-workspace-toggle" checked onchange="togglePostsWorkspace(this.checked)">
+            <span class="ui-switch-slider"></span>
+          </label>
+        </div>
+      </div>
       <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:8px">
         <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>
       </div>
@@ -708,14 +734,6 @@ a{color:inherit;text-decoration:none}
             </div>
           </div>
           <button onclick="openPostingConnectModal()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'" title="Manage accounts">⚙️ Accounts</button>
-        </div>
-        <!-- Tab buttons row -->
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <button id="ptab-btn-calendar" onclick="switchPostsTab('calendar')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--accent);background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:var(--transition)">📅 <span>Calendar</span></button>
-          <button id="ptab-btn-compose" onclick="switchPostsTab('compose')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">✏️ <span>Compose</span></button>
-          <button id="ptab-btn-bulk" onclick="switchPostsTab('bulk')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">📤 <span>Upload Posts</span></button>
-          <button id="ptab-btn-feed" onclick="switchPostsTab('feed')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">📰 <span>Feed</span></button>
-          <button id="ptab-btn-chat" onclick="switchPostsTab('chat')" style="display:flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;border:2px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="if(this.style.background==='transparent')this.style.borderColor='var(--border)',this.style.color='var(--text-secondary)'">💬 <span>AI Chat</span></button>
         </div>
       </div>
 
@@ -3569,6 +3587,8 @@ function enterInterface(iface) {
   const postsMain = document.getElementById('posts-main');
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
   if (postsMain) { postsMain.style.display = isAds ? 'none' : 'flex'; }
+  // Keep the admin workspace toggle in sync (workspace is shown on entry)
+  if (!isAds) { const wsT = document.getElementById('posts-workspace-toggle'); if (wsT) wsT.checked = true; }
   // Right panel: visible in both modes, but toggle which sections appear
   const aside = document.getElementById('context-panel');
   if (aside) aside.style.display = '';
@@ -3651,6 +3671,9 @@ async function loadPostingClients() {
   const manageBtn = document.getElementById('posting-manage-btn');
   const isAdminUser = window._currentUser && window._currentUser.role === 'admin';
   if (manageBtn) manageBtn.style.display = isAdminUser ? '' : 'none';
+  // Workspace hide/open toggle is an admin-only control
+  const wsToggleWrap = document.getElementById('posts-workspace-toggle-wrap');
+  if (wsToggleWrap) wsToggleWrap.style.display = isAdminUser ? 'flex' : 'none';
 
   try {
     _postingClients = await fetch('/api/posting/clients').then(r => r.ok ? r.json() : []).catch(() => []);
@@ -3846,6 +3869,12 @@ function switchPostsTab(tab) {
       else if (tab === 'bulk') initBulkComposer();
     }
   }
+}
+
+// Admin-only: slide-toggle to hide/open the right column (workspace panel).
+function togglePostsWorkspace(show) {
+  const main = document.getElementById('posts-main');
+  if (main) main.style.display = show ? 'flex' : 'none';
 }
 
 async function loadPostingPagesAndIG() {
