@@ -5578,15 +5578,102 @@ async function uwBuildPreview(btn) {
         captions = r.captions || [];
       }
     }
-    // 3) Match by index
-    _uw.posts = media.map((m,i) => {
-      const cap = captions[i] || {};
-      return { caption: cap.caption||'', hashtags: cap.hashtags||[], media:m, media_type: m.is_video?'REELS':'IMAGE', _sched:null };
-    });
-    status.textContent = `Found ${media.length} file(s).`;
+    // 3) Group into posts (carousels by filename) + match captions in order.
+    _uw.mediaPool = media;
+    _uw.posts = _uwGroupPosts(media, captions);
+    const carCount = _uw.posts.filter(p => p.mediaList.length > 1).length;
+    status.textContent = `${_uw.posts.length} post(s)` + (carCount ? `, ${carCount} carousel(s)` : '') + ` from ${media.length} file(s).`;
     btn.disabled = false;
     _uwRenderPreview();
   } catch(e) { status.textContent = 'Error: '+(e.message||e); btn.disabled=false; }
+}
+
+// Parse a filename for carousel grouping. "carousel 2 1" → carousel #2, image 1;
+// "post 3" → single post #3. Tolerant of carrousel/carousell spellings.
+function _uwParseName(name) {
+  const base = String(name||'').replace(/\.[a-z0-9]+$/i,'').toLowerCase();
+  const m = base.match(/carr?ou?sell?/);
+  if (m) {
+    const after = base.slice(m.index + m[0].length);
+    const before = base.slice(0, m.index);
+    const na = (after.match(/\d+/g)||[]).map(Number);
+    const nb = (before.match(/\d+/g)||[]).map(Number);
+    let cid = 1, order = 0;
+    if (na.length >= 2)      { cid = na[0]; order = na[1]; }
+    else if (na.length === 1 && nb.length) { cid = na[0]; order = nb[nb.length-1]; }
+    else if (na.length === 1){ cid = na[0]; order = 0; }
+    else if (nb.length >= 2) { cid = nb[0]; order = nb[1]; }
+    else if (nb.length === 1){ cid = nb[0]; order = 0; }
+    return { carousel:true, cid, order };
+  }
+  const pm = base.match(/post\s*[_-]?\s*(\d+)/);
+  return { carousel:false, postNum: pm ? Number(pm[1]) : null };
+}
+
+// Detect a leading "post N" / "carousel N" label in a caption block.
+function _uwCaptionLabel(text) {
+  const first = String(text||'').trim().split('\n')[0].toLowerCase();
+  let m = first.match(/carr?ou?sell?\s*[_#-]?\s*(\d+)/);
+  if (m) return 'carousel'+Number(m[1]);
+  m = first.match(/post\s*[_#-]?\s*(\d+)/);
+  if (m) return 'post'+Number(m[1]);
+  return null;
+}
+
+// Build ordered posts: carousel files grouped by id (sorted by image order),
+// singles on their own. Captions are matched to posts by "post N"/"carousel N"
+// label when present, otherwise in document order.
+function _uwGroupPosts(media, captions) {
+  const carousels = {};
+  const groups = [];
+  media.forEach((m, idx) => {
+    const info = _uwParseName(m.name || '');
+    if (info.carousel) {
+      if (!carousels[info.cid]) { carousels[info.cid] = []; groups.push({ kind:'car', cid:info.cid, firstIdx:idx, items:carousels[info.cid] }); }
+      carousels[info.cid].push({ m, order:info.order, idx });
+    } else {
+      groups.push({ kind:'single', postNum:info.postNum, firstIdx:idx, items:[{ m, order:0, idx }] });
+    }
+  });
+  groups.sort((a,b) => a.firstIdx - b.firstIdx);
+  const posts = groups.map(g => {
+    g.items.sort((a,b) => (a.order - b.order) || (a.idx - b.idx));
+    const mediaList = g.items.map(x => x.m);
+    const isReel = mediaList.length === 1 && mediaList[0].is_video;
+    return {
+      mediaList, media_type: isReel ? 'REELS' : 'IMAGE', caption:'', hashtags:[], _sched:null,
+      _label: g.kind === 'car' ? ('carousel'+g.cid) : (g.postNum != null ? ('post'+g.postNum) : null),
+    };
+  });
+  // 1) label-based caption matching
+  const caps = captions || [];
+  const used = new Array(caps.length).fill(false);
+  posts.forEach(p => {
+    if (!p._label) return;
+    for (let k=0; k<caps.length; k++) {
+      if (used[k]) continue;
+      if (_uwCaptionLabel(caps[k].caption) === p._label) { p.caption = caps[k].caption||''; p.hashtags = caps[k].hashtags||[]; used[k]=true; break; }
+    }
+  });
+  // 2) remaining posts get remaining captions in order
+  let ci = 0;
+  posts.forEach(p => {
+    if (p.caption) return;
+    while (ci < caps.length && used[ci]) ci++;
+    if (ci < caps.length) { p.caption = caps[ci].caption||''; p.hashtags = caps[ci].hashtags||[]; used[ci]=true; ci++; }
+  });
+  posts.forEach(p => { delete p._label; });
+  return posts;
+}
+
+function _uwMediaKey(m) { return m.local_file_id ? ('local:'+m.local_file_id) : ('drive:'+m.id); }
+function _uwPostType(p) {
+  if (p.mediaList.length > 1) return { icon:'🖼️', label:`Carousel · ${p.mediaList.length} images` };
+  if (p.mediaList[0] && p.mediaList[0].is_video) return { icon:'🎬', label:'Reel' };
+  return { icon:'📷', label:'Image' };
+}
+function _uwRecountType() {
+  _uw.posts.forEach(p => { p.media_type = (p.mediaList.length === 1 && p.mediaList[0] && p.mediaList[0].is_video) ? 'REELS' : 'IMAGE'; });
 }
 
 function _uwRenderPreview() {
@@ -5637,25 +5724,93 @@ function uwCancel(btn) {
 
 function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
-  wrap.innerHTML = _uw.posts.map((p,i) => {
-    const m = p.media;
-    const thumbSrc = m.local_file_id
-      ? `/api/posting/local/preview/${m.local_file_id}`
-      : `/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mime_type||'image/jpeg')}`;
-    const thumb = m.is_video
-      ? `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🎬</div>`
-      : `<img src="${thumbSrc}" loading="lazy" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--bg-primary)" onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0',textContent:'🖼️'}))">`;
-    return `<div style="display:flex;gap:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px;align-items:flex-start">
-      ${thumb}
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${escHtml(m.name)}</div>
-        <textarea oninput="uwEditCaption(${i}, this.value)" placeholder="Write a caption…" rows="2" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px;line-height:1.4;resize:vertical;font-family:inherit;outline:none;margin-bottom:4px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
-        <div class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">⚡ Posts immediately</div>
-      </div>
-      <div class="uw-res-${i}" style="font-size:11px;white-space:nowrap;flex-shrink:0;color:var(--text-dim)"></div>
-    </div>`;
-  }).join('');
+  wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardHtml(p,i)).join('');
   uwRecalcDates();
+}
+
+function _uwThumbSrc(m) {
+  return m.local_file_id
+    ? `/api/posting/local/preview/${m.local_file_id}`
+    : `/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mime_type||'image/jpeg')}`;
+}
+
+// One draggable carousel thumbnail with a remove ✕.
+function _uwThumbHtml(m, i, j) {
+  const inner = m.is_video
+    ? `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:22px">🎬</div>`
+    : `<img src="${_uwThumbSrc(m)}" loading="lazy" style="width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--bg-secondary);pointer-events:none" onerror="this.replaceWith(Object.assign(document.createElement('div'),{textContent:'🖼️',style:'width:56px;height:56px;border-radius:8px;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:20px'}))">`;
+  return `<div class="uw-thumb" draggable="true" data-i="${i}" data-j="${j}"
+      ondragstart="uwCarDragStart(event,${i},${j})" ondragover="uwCarDragOver(event)" ondrop="uwCarDrop(event,${i},${j})" ondragend="uwCarDragEnd(event)"
+      title="Drag to reorder" style="position:relative;flex:0 0 auto;cursor:grab">
+    ${inner}
+    <span style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;border-radius:4px;padding:0 4px;pointer-events:none">${j+1}</span>
+    <button onclick="uwCarRemove(${i},${j})" title="Remove image" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;border:2px solid var(--bg-primary);font-size:10px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
+  </div>`;
+}
+
+function _uwPostCardHtml(p, i) {
+  const t = _uwPostType(p);
+  const thumbs = p.mediaList.map((m,j) => _uwThumbHtml(m,i,j)).join('');
+  return `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-primary)">${t.icon} ${t.label}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px">
+        <span class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">⚡ Posts immediately</span>
+        <span class="uw-res-${i}" style="font-size:11px;color:var(--text-dim)"></span>
+      </span>
+    </div>
+    <div class="uw-strip" style="display:flex;gap:7px;overflow-x:auto;padding:6px 2px;align-items:center">
+      ${thumbs}
+      <button onclick="uwCarAddOpen(${i})" title="Add an image to this post" style="flex:0 0 auto;width:56px;height:56px;border-radius:8px;border:1px dashed var(--border);background:var(--bg-secondary);color:var(--text-dim);font-size:22px;cursor:pointer">＋</button>
+    </div>
+    <div class="uw-add-pool-${i}" style="display:none;margin-top:6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:8px"></div>
+    <textarea oninput="uwEditCaption(${i}, this.value)" placeholder="Write a caption…" rows="2" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px;line-height:1.4;resize:vertical;font-family:inherit;outline:none;margin-top:8px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
+  </div>`;
+}
+
+// ── Carousel editing: reorder (drag), remove, add ───────────────────────────
+let _uwDrag = null;
+function uwCarDragStart(e,i,j){ _uwDrag={i,j}; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',j);}catch(_){} }
+function uwCarDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; }
+function uwCarDragEnd(){ _uwDrag=null; }
+function uwCarDrop(e,i,j){
+  e.preventDefault();
+  if (!_uwDrag || _uwDrag.i !== i || _uwDrag.j === j) { _uwDrag=null; return; }
+  const list = _uw.posts[i].mediaList;
+  const [moved] = list.splice(_uwDrag.j, 1);
+  list.splice(j, 0, moved);
+  _uwDrag = null;
+  _uwRenderCards();
+}
+function uwCarRemove(i,j){
+  const p = _uw.posts[i]; if (!p) return;
+  p.mediaList.splice(j,1);
+  if (!p.mediaList.length) _uw.posts.splice(i,1);
+  _uwRecountType();
+  if (!_uw.posts.length) { uwCancel(_uw.previewCard.querySelector('.uw-preview button')); return; }
+  _uwRenderCards();
+}
+function uwCarAddOpen(i){
+  const pool = _uw.previewCard.querySelector('.uw-add-pool-'+i);
+  if (!pool) return;
+  if (pool.style.display !== 'none') { pool.style.display='none'; return; }
+  const used = new Set(_uw.posts[i].mediaList.map(_uwMediaKey));
+  const avail = (_uw.mediaPool||[]).filter(m => !used.has(_uwMediaKey(m)));
+  pool.innerHTML = `<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Tap a file to add it to this post:</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${
+      avail.length ? avail.map(m => {
+        const k = _uwMediaKey(m);
+        const inner = m.is_video
+          ? `<div style="width:48px;height:48px;border-radius:6px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:18px">🎬</div>`
+          : `<img src="${_uwThumbSrc(m)}" loading="lazy" style="width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--bg-primary)">`;
+        return `<div onclick="uwCarAddPick(${i},'${k}')" title="${escHtml(m.name||'')}" style="cursor:pointer">${inner}</div>`;
+      }).join('') : '<div style="font-size:12px;color:var(--text-dim)">All files are already used in other posts.</div>'
+    }</div>`;
+  pool.style.display='';
+}
+function uwCarAddPick(i, key){
+  const m = (_uw.mediaPool||[]).find(x => _uwMediaKey(x) === key);
+  if (m) { _uw.posts[i].mediaList.push(m); _uwRecountType(); _uwRenderCards(); }
 }
 
 // Inline caption editing in the preview — works for both Drive and device
@@ -5706,16 +5861,16 @@ async function uwPublish(btn) {
     status.textContent = 'Set a start time, or switch to "Post immediately".'; return;
   }
   // One item per (post × target) — posting to both FB and IG creates two items.
+  // A post's media array may hold multiple files (carousel).
   const items = [];
   _uw.posts.forEach(p => {
-    const m = p.media;
-    const mediaItem = m.local_file_id
+    const mediaArr = p.mediaList.map(m => m.local_file_id
       ? { local_file_id: m.local_file_id, mime_type: m.mime_type, filename: m.name }
-      : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name };
+      : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name });
     targets.forEach(t => {
       const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
         scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
-        media:[mediaItem] };
+        media: mediaArr };
       if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
       items.push(item);
     });
