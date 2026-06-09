@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/auto-push-main.sh\"",
+            "timeout": 120,
+            "statusMessage": "Pushing work to main…"
+          }
+        ]
+      }
+    ]
+  }
+}
