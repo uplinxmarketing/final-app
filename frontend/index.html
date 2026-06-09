@@ -5591,27 +5591,48 @@ async function uwBuildPreview(btn) {
 
 function _uwRenderPreview() {
   const destLabel = (_uw.targets||[_uw.target]).map(t => escHtml(t.name)).join(' + ');
-  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image and caption, then publish.</div>
+  _uw.scheduleMode = 'later'; // default to scheduling — that's the common case
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image and caption, set the schedule, then publish.</div>
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview">
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
         <select class="uw-sched-mode" onchange="uwSchedChange(this)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px">
+          <option value="later" selected>🕒 Schedule</option>
           <option value="now">⚡ Post immediately</option>
-          <option value="later">🕒 Schedule</option>
         </select>
-        <span class="uw-sched-fields" style="display:none;gap:8px;align-items:center">
-          <input type="datetime-local" class="uw-sched-start" onchange="uwRecalcDates()" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
+        <span class="uw-sched-fields" style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="datetime-local" class="uw-sched-start" value="${_uwDefaultSchedStart()}" onchange="uwRecalcDates()" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
           <span style="font-size:12px;color:var(--text-secondary)">every</span>
           <input type="number" class="uw-sched-int" value="24" min="1" onchange="uwRecalcDates()" style="width:56px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
           <span style="font-size:12px;color:var(--text-secondary)">hours</span>
         </span>
       </div>
       <div class="uw-cards" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow-y:auto"></div>
-      <button onclick="uwPublish(this)" style="margin-top:14px;width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button onclick="uwPublish(this)" style="flex:1;min-width:180px;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
+        <button onclick="uwCancel(this)" style="padding:12px 18px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">✕ Cancel</button>
+      </div>
       <div class="uw-pub-status" style="font-size:12px;color:var(--text-dim);margin-top:8px;text-align:center"></div>
     </div>`);
   _uw.previewCard = card;
   _uwRenderCards();
+}
+
+// Sensible default schedule start — next full hour.
+function _uwDefaultSchedStart() {
+  const d = new Date(Date.now() + 60*60*1000);
+  d.setMinutes(0,0,0);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Abort the upload — discard this preview and offer a fresh start.
+function uwCancel(btn) {
+  const card = btn.closest('.msg');
+  if (card) card.remove();
+  _uw.posts = []; _uw.previewCard = null;
+  _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Okay, cancelled — nothing was published.</div>
+    <button onclick="startUploadWizard()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
 }
 
 function _uwRenderCards() {
