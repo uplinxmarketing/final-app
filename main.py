@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import hashlib
+import re
 import secrets
 import urllib.parse
 from contextlib import asynccontextmanager
