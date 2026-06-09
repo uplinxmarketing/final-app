@@ -3824,11 +3824,8 @@ function selectPostPageById(id) {
 
 function selectPostPage(page) {
   _selectedPostPage = page;
-  const icon = page.platform === 'instagram' ? '📷' : '📘';
-  const iconEl = document.getElementById('posts-selected-page-icon');
-  const nameEl = document.getElementById('posts-selected-page-name');
-  if (iconEl) iconEl.textContent = icon;
-  if (nameEl) nameEl.textContent = page.name || page.id;
+  // Header keeps a generic title — individual pages are picked per-tab
+  // (calendar/feed/wizard), so we don't surface an auto-selected page here.
   document.querySelectorAll('[id^="page-item-"]').forEach(el => {
     const isThis = el.id === `page-item-${page.id}`;
     el.style.background = isThis ? 'rgba(220,38,38,0.1)' : 'transparent';
