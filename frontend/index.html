@@ -3551,6 +3551,9 @@ function igIcon(size = 16) {
   const id = 'ig' + Math.random().toString(36).slice(2, 7);
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:middle;flex-shrink:0"><defs><radialGradient id="${id}" cx="0.3" cy="1" r="1"><stop offset="0" stop-color="#fdf497"/><stop offset="0.05" stop-color="#fdf497"/><stop offset="0.45" stop-color="#fd5949"/><stop offset="0.6" stop-color="#d6249f"/><stop offset="0.9" stop-color="#285AEB"/></radialGradient></defs><path fill="url(#${id})" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16zM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.31-1.46.72-2.13 1.38C1.35 2.68.94 3.35.63 4.14.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.79.72 1.46 1.38 2.13.67.66 1.34 1.07 2.13 1.38.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.31 1.46-.72 2.13-1.38.66-.67 1.07-1.34 1.38-2.13.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.31-.79-.72-1.46-1.38-2.13C21.32 1.35 20.65.94 19.86.63 19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84zM12 16a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm6.41-10.85a1.44 1.44 0 1 0 1.44 1.44 1.44 1.44 0 0 0-1.44-1.44z"/></svg>`;
 }
+function gdriveIcon(size = 16) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 87.3 78" style="vertical-align:middle;flex-shrink:0"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>`;
+}
 function platformIcon(platform, size = 16) {
   return platform === 'instagram' ? igIcon(size) : fbIcon(size);
 }
@@ -4906,75 +4909,115 @@ function uwPickTargets(targets) {
   _uw.targets = targets;
   _uw.target = targets[0]; // primary, for any single-target display
   _uw.localMedia = []; // reset local uploads for this step
+  _uw.deviceCaptions = null; // parsed captions from a device file
+  _uw.imgSrc = 'drive';
+  _uw.capSrc = 'drive';
   const label = targets.map(t => `${t.platform==='instagram'?'📷':'📘'} ${t.name}`).join(' + ');
   _appendPostsMsg('user', `Post to ${label}`);
-  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(label)}</b>. Choose how to add your content:</div>
+  // Small segmented toggle: each option is a pill; the active one is filled.
+  const seg = (group, opts) => `<div style="display:inline-flex;gap:4px;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:3px">${
+    opts.map((o,idx) => `<button type="button" class="uw-seg uw-seg-${group}" data-val="${o.val}" onclick="uw${group==='img'?'Img':'Cap'}Src(this,'${o.val}')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:7px;border:none;background:${idx===0?'var(--accent)':'transparent'};color:${idx===0?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;cursor:pointer">${o.icon} ${o.text}</button>`).join('')
+  }</div>`;
+  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(label)}</b>. Choose where your images and captions come from — you can mix and match (e.g. images from your device, captions from Drive).</div>
     <div class="uw-step">
 
-      <!-- Tab switcher -->
-      <div style="display:flex;gap:6px;margin-bottom:12px">
-        <button class="uw-src-tab uw-src-active" data-src="drive" onclick="uwSrcTab(this,'drive')" style="padding:7px 14px;border-radius:20px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">📁 Google Drive</button>
-        <button class="uw-src-tab" data-src="device" onclick="uwSrcTab(this,'device')" style="padding:7px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">💻 My Device</button>
+      <!-- IMAGES SECTION -->
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-bottom:6px">🖼️ Images / creatives ${seg('img',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'My Device'}])}</label>
+      <!-- images: drive -->
+      <div class="uw-img-drive" style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+        <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+        <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="display:inline-flex;align-items:center;gap:6px;padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">${gdriveIcon(15)} Browse</button>
       </div>
-
-      <!-- DRIVE PANEL -->
-      <div class="uw-src-panel" data-panel="drive">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Images / creatives — Drive folder</label>
-        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
-          <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">🗂️ Browse Drive</button>
-        </div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
-          <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
-        </div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-        <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <button onclick="uwScan(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan &amp; preview</button>
-          <button onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
-          <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
-        </div>
-      </div>
-
-      <!-- DEVICE PANEL (hidden by default) -->
-      <div class="uw-src-panel" data-panel="device" style="display:none">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">💻 Upload images / videos from your device</label>
-        <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:10px;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-          <div style="font-size:28px;margin-bottom:6px">📂</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Click to choose files, or drag &amp; drop</div>
+      <!-- images: device -->
+      <div class="uw-img-device" style="display:none;margin-bottom:12px">
+        <div style="border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="font-size:26px;margin-bottom:6px">📂</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Click to choose images / videos, or drag &amp; drop</div>
           <div style="font-size:11px;color:var(--text-dim)">JPG, PNG, GIF, WEBP, MP4, MOV — up to ${window._maxUploadMb||50} MB each</div>
           <input type="file" multiple accept="image/*,video/*" onchange="uwDeviceFilePicked(this)" style="display:none">
         </div>
-        <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional — paste Google Docs link)</span></label>
-        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
-          <input type="text" class="uw-text-device" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
+        <div class="uw-device-status" style="font-size:12px;color:var(--text-dim);margin-top:6px"></div>
+        <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+      </div>
+
+      <!-- CAPTIONS SECTION -->
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-bottom:6px">📝 Captions / text <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span> ${seg('cap',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'My Device'},{val:'none',icon:'🚫',text:'None'}])}</label>
+      <!-- captions: drive -->
+      <div class="uw-cap-drive" style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+        <input type="text" class="uw-text" placeholder="https://docs.google.com/… (Doc or Sheet)" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+        <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="display:inline-flex;align-items:center;gap:6px;padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">${gdriveIcon(15)} Browse</button>
+      </div>
+      <!-- captions: device -->
+      <div class="uw-cap-device" style="display:none;margin-bottom:12px">
+        <div style="border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="font-size:24px;margin-bottom:5px">📄</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Upload a captions file from your device</div>
+          <div style="font-size:11px;color:var(--text-dim)">TXT, CSV, Word (.docx), Excel (.xlsx) or PDF · separate posts with a blank line or <code>---</code></div>
+          <input type="file" accept=".txt,.md,.csv,.tsv,.docx,.xlsx,.pdf" onchange="uwCaptionFilePicked(this)" style="display:none">
         </div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-        <textarea class="uw-instructions-device" rows="2" placeholder="e.g. add a friendly tone, append #sale…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <button onclick="uwDevicePreview(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
-          <span class="uw-device-status" style="font-size:12px;color:var(--text-dim)"></span>
-        </div>
+        <div class="uw-cap-file-status" style="font-size:12px;color:var(--text-dim);margin-top:6px"></div>
+      </div>
+
+      <!-- INSTRUCTIONS + ACTIONS -->
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+      <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button onclick="uwBuildPreview(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
+        <button class="uw-ai-btn" onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
+        <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
       </div>
 
     </div>`);
 }
 
-function uwSrcTab(btn, src) {
+// Toggle the image source (Drive folder vs. device upload).
+function uwImgSrc(btn, val) {
   const step = btn.closest('.uw-step');
-  step.querySelectorAll('.uw-src-tab').forEach(b => {
-    const active = b.dataset.src === src;
+  _uw.imgSrc = val;
+  step.querySelectorAll('.uw-seg-img').forEach(b => {
+    const active = b.dataset.val === val;
     b.style.background = active ? 'var(--accent)' : 'transparent';
     b.style.color = active ? '#fff' : 'var(--text-secondary)';
-    b.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
   });
-  step.querySelectorAll('.uw-src-panel').forEach(p => {
-    p.style.display = p.dataset.panel === src ? '' : 'none';
+  step.querySelector('.uw-img-drive').style.display = val === 'drive' ? 'flex' : 'none';
+  step.querySelector('.uw-img-device').style.display = val === 'device' ? 'block' : 'none';
+  // AI handoff only works with Drive-hosted images (the agent can't see device files).
+  const aiBtn = step.querySelector('.uw-ai-btn');
+  if (aiBtn) aiBtn.style.display = val === 'drive' ? '' : 'none';
+}
+
+// Toggle the caption source (Drive doc vs. device file vs. none).
+function uwCapSrc(btn, val) {
+  const step = btn.closest('.uw-step');
+  _uw.capSrc = val;
+  step.querySelectorAll('.uw-seg-cap').forEach(b => {
+    const active = b.dataset.val === val;
+    b.style.background = active ? 'var(--accent)' : 'transparent';
+    b.style.color = active ? '#fff' : 'var(--text-secondary)';
   });
+  step.querySelector('.uw-cap-drive').style.display = val === 'drive' ? 'flex' : 'none';
+  step.querySelector('.uw-cap-device').style.display = val === 'device' ? 'block' : 'none';
+}
+
+// Upload + parse a captions file from the device into caption blocks.
+async function uwCaptionFilePicked(input) {
+  const step = input.closest('.uw-step');
+  const status = step.querySelector('.uw-cap-file-status');
+  const file = (input.files || [])[0];
+  if (!file) return;
+  status.textContent = `⏳ Reading ${file.name}…`;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/posting/upload/captions', { method:'POST', body:fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _uw.deviceCaptions = data.captions || [];
+    status.innerHTML = `✅ <b>${escHtml(file.name)}</b> — ${_uw.deviceCaptions.length} caption block(s) found`;
+  } catch(e) {
+    _uw.deviceCaptions = null;
+    status.textContent = 'Could not read file: ' + (e.message || e);
+  }
 }
 
 function uwConnectDriveAndBrowse(btn) {
@@ -5030,7 +5073,7 @@ function uwBrowseCaptionsDoc(btn, inputId) {
   _captionDocTargetInput = inputId
     ? document.getElementById(inputId)
     : (btn.parentElement && btn.parentElement.querySelector('input[type="text"]'))
-      || (_uwDriveStep && (_uwDriveStep.querySelector('.uw-text') || _uwDriveStep.querySelector('.uw-text-device')));
+      || (_uwDriveStep && _uwDriveStep.querySelector('.uw-text'));
   if (!_uw || typeof _uw !== 'object') _uw = {};
   _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'', captionMode:true };
   _openDrivePicker(true);
@@ -5295,29 +5338,6 @@ async function uwDeviceFilePicked(input) {
   }
 }
 
-async function uwDevicePreview(btn) {
-  const step = btn.closest('.uw-step');
-  const status = step.querySelector('.uw-device-status');
-  if (!_uw.localMedia || !_uw.localMedia.length) { status.textContent = 'Select files first.'; return; }
-  const textUrl = step.querySelector('.uw-text-device').value.trim();
-  _uw.instructions = step.querySelector('.uw-instructions-device').value.trim();
-  btn.disabled = true; status.textContent = '⏳ Processing…';
-  let captions = [];
-  if (textUrl) {
-    try {
-      const r = await api('POST', '/api/posting/drive/scan', { folder_url: textUrl, text_url: textUrl });
-      captions = r.captions || [];
-    } catch(_) {}
-  }
-  _uw.posts = _uw.localMedia.map((m, i) => {
-    const cap = captions[i] || {};
-    return { caption: cap.caption||'', hashtags: cap.hashtags||[], media: m, media_type: m.is_video?'REELS':'IMAGE', _sched: null };
-  });
-  status.textContent = `Found ${_uw.posts.length} file(s).`;
-  btn.disabled = false;
-  _uwRenderPreview();
-}
-
 // Hand the whole job to the conversational agent (it has Drive + posting tools).
 function uwAiHandle(btn) {
   const step = btn.closest('.uw-step');
@@ -5336,22 +5356,44 @@ function uwAiHandle(btn) {
   sendPostsMessage();
 }
 
-async function uwScan(btn) {
+// Unified preview builder — gathers media + captions from whatever sources the
+// user picked (Drive folder / device upload) and matches captions by index.
+async function uwBuildPreview(btn) {
   const step = btn.closest('.uw-step');
-  const folder = step.querySelector('.uw-folder').value.trim();
-  const text = step.querySelector('.uw-text').value.trim();
   _uw.instructions = (step.querySelector('.uw-instructions')?.value || '').trim();
   const status = step.querySelector('.uw-scan-status');
-  if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
-  btn.disabled = true; status.textContent = '🔍 Scanning…';
+  btn.disabled = true; status.textContent = '⏳ Processing…';
   try {
-    const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:text });
-    if (!res || !(res.media||[]).length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
-    _uw.posts = res.media.map((m,i) => {
-      const cap = (res.captions||[])[i] || {};
+    // 1) Media
+    let media = [];
+    if (_uw.imgSrc === 'device') {
+      media = _uw.localMedia || [];
+      if (!media.length) { status.textContent = 'Upload at least one image or video from your device.'; btn.disabled=false; return; }
+    } else {
+      const folder = (step.querySelector('.uw-folder')?.value || '').trim();
+      if (!folder) { status.textContent = 'Paste your Drive folder link, or switch images to "My Device".'; btn.disabled=false; return; }
+      const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:'' });
+      media = res.media || [];
+      if (!media.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
+    }
+    // 2) Captions
+    let captions = [];
+    if (_uw.capSrc === 'device') {
+      captions = _uw.deviceCaptions || [];
+      if (!captions.length) status.textContent = 'Tip: no captions parsed from the file — you can still edit each one in the preview.';
+    } else if (_uw.capSrc === 'drive') {
+      const text = (step.querySelector('.uw-text')?.value || '').trim();
+      if (text) {
+        const r = await api('POST', '/api/posting/drive/scan', { folder_url:text, text_url:text });
+        captions = r.captions || [];
+      }
+    }
+    // 3) Match by index
+    _uw.posts = media.map((m,i) => {
+      const cap = captions[i] || {};
       return { caption: cap.caption||'', hashtags: cap.hashtags||[], media:m, media_type: m.is_video?'REELS':'IMAGE', _sched:null };
     });
-    status.textContent = `Found ${res.media.length} file(s).`;
+    status.textContent = `Found ${media.length} file(s).`;
     btn.disabled = false;
     _uwRenderPreview();
   } catch(e) { status.textContent = 'Error: '+(e.message||e); btn.disabled=false; }
