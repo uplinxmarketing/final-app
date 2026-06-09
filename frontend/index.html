@@ -989,10 +989,10 @@ a{color:inherit;text-decoration:none}
 
   <!-- RIGHT CONTEXT PANEL -->
   <aside id="context-panel">
-    <!-- Collapse header -->
+    <!-- Collapse header — title reflects the connected account name -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
-      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Details</span>
-      <button onclick="setContextPanel(false)" title="Hide side panel" style="background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
+      <span id="context-panel-title" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Details</span>
+      <button onclick="setContextPanel(false)" title="Hide side panel" style="background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
     </div>
 
     <!-- Ads mode: Active Context (hidden in posts mode) -->
@@ -3637,8 +3637,12 @@ async function loadPostingInterface() {
     }
     _postingConnected = true;
     const current = accounts.find(a => a.is_current) || accounts[0];
+    const acctName = current.user_name || current.facebook_user_id || 'Connected';
     const label = document.getElementById('posts-account-label');
-    if (label) label.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:5px;vertical-align:middle"></span>Connected as ${escHtml(current.user_name || current.facebook_user_id)}`;
+    if (label) label.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:5px;vertical-align:middle"></span>Connected as ${escHtml(acctName)}`;
+    // Right panel title mirrors the connected account name.
+    const ctxTitle = document.getElementById('context-panel-title');
+    if (ctxTitle) ctxTitle.textContent = acctName;
     updatePostingAccountStatus(current);
     await loadPostingPagesAndIG();
     // Auto-select a default page so Calendar/Feed have something to show
@@ -3906,13 +3910,19 @@ function toggleSidebarMenu() {
 
 // Right context panel (skills + token usage) — admin-only. setContextPanel
 // drives both the sidebar switch and the panel's own collapse/reopen buttons.
+// Uses explicit display values (not '') so the responsive media query can't
+// override "show", and gates everything on a single admin check.
 function setContextPanel(show) {
-  const isAdmin = window._currentUser && window._currentUser.role === 'admin';
+  const isAdmin = !!(window._currentUser && window._currentUser.role === 'admin');
+  const visible = show && isAdmin;
   const aside = document.getElementById('context-panel');
   const reopen = document.getElementById('context-panel-reopen');
-  if (aside) aside.style.display = (show && isAdmin) ? '' : 'none';
-  if (reopen) reopen.style.display = (!show && isAdmin) ? 'flex' : 'none';
-  const sw = document.getElementById('posts-workspace-toggle'); if (sw) sw.checked = show;
+  const wrap = document.getElementById('posts-workspace-toggle-wrap');
+  const sw = document.getElementById('posts-workspace-toggle');
+  if (aside) aside.style.display = visible ? 'flex' : 'none';
+  if (reopen) reopen.style.display = (isAdmin && !visible) ? 'flex' : 'none';
+  if (wrap) wrap.style.display = isAdmin ? 'flex' : 'none';
+  if (sw) sw.checked = visible;
 }
 function toggleContextPanel(show) { setContextPanel(show); }
 
