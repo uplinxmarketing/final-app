@@ -851,7 +851,7 @@ a{color:inherit;text-decoration:none}
                   <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Captions doc/sheet URL <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
                   <div style="display:flex;gap:6px;align-items:center">
                     <input type="text" id="bulk-text-url" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
-                    <button onclick="uwBrowseCaptionsDoc(this,'bulk-text-url')" title="Browse Google Docs/Sheets" style="padding:8px 12px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">📄 Browse</button>
+                    <button onclick="uwBrowseCaptionsDoc(this,'bulk-text-url')" title="Browse Google Docs/Sheets" style="padding:8px 12px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
                   </div>
                 </div>
               </div>
@@ -1617,7 +1617,7 @@ a{color:inherit;text-decoration:none}
     <!-- Body: scrollable file list -->
     <div id="drive-picker-inner" style="flex:1;overflow-y:auto;padding:8px 12px;min-height:0"></div>
     <!-- Footer: actions -->
-    <div id="drive-picker-footer" style="display:none;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>
+    <div id="drive-picker-footer" style="display:none;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0;align-items:center;gap:10px;flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -1648,7 +1648,7 @@ a{color:inherit;text-decoration:none}
               style="flex:1;background:var(--bg-primary);border:2px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box;transition:border-color .15s"
               onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
               onkeydown="if(event.key==='Enter')qupScan()">
-            <button onclick="uwBrowseCaptionsDoc(this,'qup-text-url')" title="Browse Google Docs/Sheets" style="padding:12px 16px;background:var(--bg-secondary);color:var(--text-primary);border:2px solid var(--border);border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap">📄 Browse</button>
+            <button onclick="uwBrowseCaptionsDoc(this,'qup-text-url')" title="Browse Google Docs/Sheets" style="padding:12px 16px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
           </div>
         </div>
 
@@ -4683,7 +4683,7 @@ function uwPickTargets(targets) {
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
           <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse</button>
+          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
         </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
@@ -4707,7 +4707,7 @@ function uwPickTargets(targets) {
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional — paste Google Docs link)</span></label>
         <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
           <input type="text" class="uw-text-device" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse</button>
+          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse Docs</button>
         </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <textarea class="uw-instructions-device" rows="2" placeholder="e.g. add a friendly tone, append #sale…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
@@ -4749,16 +4749,6 @@ function uwConnectDriveAndBrowse(btn) {
       _uwDriveLoad();
     }
   }, 500);
-}
-
-function uwBrowseDrive(btn) {
-  const step = btn.closest('.uw-step');
-  const browser = step.querySelector('.uw-drive-browser');
-  if (browser.style.display !== 'none') { browser.style.display = 'none'; return; }
-  browser.style.display = '';
-  // Per-step browser state: navigation + selected files (across folders).
-  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'' };
-  _uwDriveOpen(step, 'root', 'My Drive', []);
 }
 
 // ── Drive Picker Modal ──────────────────────────────────────────────────────
@@ -4882,22 +4872,21 @@ async function _uwDriveLoad() {
 
     let html = '';
 
-    // Folders — two-column grid
+    // Folders — full-width list rows: click name to open, isolated button to select
     if (folders.length) {
-      html += `<div style=”display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:8px 0”>`;
+      html += `<div style=”display:flex;flex-direction:column;gap:6px;padding:8px 0”>`;
       folders.forEach(f => {
         const sub = _attrJson([..._uw.drive.breadcrumb,{id:f.id,name:f.name}]);
         const id = _attrJson(f.id);
         const nm = _attrJson(f.name);
-        html += `<div style=”background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s” onmouseover=”this.style.borderColor='var(--accent)'” onmouseout=”this.style.borderColor='var(--border)'”>
-          <div style=”display:flex;align-items:center;gap:8px;cursor:pointer” onclick='_uwDriveOpen(${id},${nm},${sub})'>
-            <span style=”font-size:22px”>📁</span>
-            <span style=”font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)”>${escHtml(f.name)}</span>
-          </div>
-          <div style=”display:flex;gap:6px”>
-            <button onclick='_uwDriveOpen(${id},${nm},${sub})' style=”flex:1;padding:5px 0;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;font-size:12px;cursor:pointer”>Open ›</button>
-            ${!captionMode ? `<button onclick='uwUseDriveFolder(${id})' style=”flex:1;padding:5px 0;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer”>Use folder</button>` : ''}
-          </div>
+        const selectBtn = !captionMode
+          ? `<button onclick='event.stopPropagation();uwUseDriveFolder(${id})' title=”Use this folder” style=”flex-shrink:0;padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap”>✅ Select</button>`
+          : '';
+        html += `<div onclick='_uwDriveOpen(${id},${nm},${sub})' style=”background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .15s,border-color .15s” onmouseover=”this.style.borderColor='var(--accent)';this.style.background='var(--bg-hover,var(--bg-primary))'” onmouseout=”this.style.borderColor='var(--border)';this.style.background='var(--bg-secondary)'”>
+          <span style=”font-size:22px;flex-shrink:0”>📁</span>
+          <span style=”font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)”>${escHtml(f.name)}</span>
+          <span style=”font-size:12px;color:var(--text-dim);flex-shrink:0;margin-right:4px”>Open ›</span>
+          ${selectBtn}
         </div>`;
       });
       html += `</div>`;
