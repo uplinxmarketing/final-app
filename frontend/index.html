@@ -1598,6 +1598,26 @@ a{color:inherit;text-decoration:none}
 <div class="toast" id="toast"></div>
 
 <!-- Quick Upload Posts Popup -->
+<!-- ── Drive Picker Modal ─────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="drive-picker-modal" onclick="if(event.target===this)closeDrivePicker()">
+  <div class="modal" style="max-width:780px;width:96vw;height:80vh;max-height:700px;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0">
+      <span style="font-size:18px">🗂️</span>
+      <span style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1">Browse Google Drive</span>
+      <input type="text" id="drive-picker-search" placeholder="🔍 Search Drive…" oninput="uwDriveSearchInput(this)" style="width:240px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none">
+      <button id="drive-picker-clear" onclick="uwDriveSearchClear(this)" style="display:none;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;color:var(--text-secondary)">✕</button>
+      <button onclick="closeDrivePicker()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-dim);padding:0 4px;line-height:1">×</button>
+    </div>
+    <!-- Breadcrumb -->
+    <div id="drive-picker-crumb" style="padding:8px 18px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex-shrink:0"></div>
+    <!-- Body: scrollable file list -->
+    <div id="drive-picker-inner" style="flex:1;overflow-y:auto;padding:8px 12px;min-height:0"></div>
+    <!-- Footer: actions -->
+    <div id="drive-picker-footer" style="display:none;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="quick-upload-popup">
   <div class="modal" style="max-width:540px">
     <div class="modal-header">
@@ -4655,22 +4675,7 @@ function uwPickTargets(targets) {
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Images / creatives — Drive folder</label>
         <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
           <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-          <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--text-primary)">🗂️ Browse</button>
-        </div>
-        <!-- Drive browser panel (hidden by default) -->
-        <div class="uw-drive-browser" style="display:none;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
-          <!-- Header: search + breadcrumb (sticky) -->
-          <div style="padding:8px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
-            <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-              <input type="text" class="uw-drive-search" placeholder="🔍 Search your Drive…" oninput="uwDriveSearchInput(this)" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
-              <button onclick="uwDriveSearchClear(this)" class="uw-drive-clear" title="Clear search" style="display:none;padding:7px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;color:var(--text-secondary)">✕</button>
-            </div>
-            <div class="uw-drive-crumb" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:3px;flex-wrap:wrap"></div>
-          </div>
-          <!-- Body: scrollable list -->
-          <div class="uw-drive-browser-inner" style="padding:6px;max-height:260px;overflow-y:auto"></div>
-          <!-- Footer: selection actions (sticky) -->
-          <div class="uw-drive-footer" style="display:none;padding:8px;border-top:1px solid var(--border);background:var(--bg-secondary);gap:8px;align-items:center;flex-wrap:wrap"></div>
+          <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">🗂️ Browse Drive</button>
         </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
@@ -4726,14 +4731,13 @@ function uwConnectDriveAndBrowse(btn) {
   const top = Math.max(0, (screen.height - h) / 2);
   const popup = window.open('/auth/google', 'oauth_popup', `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`);
   if (!popup) { toast('Allow popups for this site then try again', 'error'); return; }
-  const inner = btn.closest('.uw-drive-browser-inner');
-  const step = btn.closest('.uw-step');
-  inner.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:4px">Waiting for Google sign-in…</div>';
+  const inner = document.getElementById('drive-picker-inner');
+  if (inner) inner.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:16px;text-align:center">Waiting for Google sign-in…</div>';
   const poll = setInterval(() => {
     if (popup.closed) {
       clearInterval(poll);
       if (!_uw.drive) _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'' };
-      _uwDriveLoad(step);
+      _uwDriveLoad();
     }
   }, 500);
 }
@@ -4748,54 +4752,71 @@ function uwBrowseDrive(btn) {
   _uwDriveOpen(step, 'root', 'My Drive', []);
 }
 
-// JSON safe to embed inside a single-quoted HTML attribute (escapes the
-// single quotes that JSON.stringify leaves raw, e.g. in names like O'Brien).
+// ── Drive Picker Modal ──────────────────────────────────────────────────────
+
+// JSON safe to embed inside a single-quoted HTML attribute.
 function _attrJson(x) { return JSON.stringify(x).replace(/'/g, '&#39;'); }
 
+// The step element that opened the picker (so we can fill its folder input on close).
+let _uwDriveStep = null;
+
+function uwBrowseDrive(btn) {
+  _uwDriveStep = btn.closest('.uw-step');
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'' };
+  document.getElementById('drive-picker-search').value = '';
+  document.getElementById('drive-picker-clear').style.display = 'none';
+  document.getElementById('drive-picker-modal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+  _uwDriveLoad();
+}
+
+function closeDrivePicker() {
+  document.getElementById('drive-picker-modal').classList.remove('active');
+  document.body.style.overflow = '';
+}
+
 // Navigate into a folder (clears search).
-function _uwDriveOpen(step, folderId, folderName, breadcrumb) {
+function _uwDriveOpen(folderId, folderName, breadcrumb) {
   _uw.drive.search = '';
-  const searchInput = step.querySelector('.uw-drive-search');
-  if (searchInput) searchInput.value = '';
-  step.querySelector('.uw-drive-clear').style.display = 'none';
+  document.getElementById('drive-picker-search').value = '';
+  document.getElementById('drive-picker-clear').style.display = 'none';
   _uw.drive.folderId = folderId;
   _uw.drive.folderName = folderName;
   _uw.drive.breadcrumb = breadcrumb;
-  _uwDriveLoad(step);
+  _uwDriveLoad();
 }
 
 let _uwDriveSearchTimer = null;
 function uwDriveSearchInput(input) {
-  const step = input.closest('.uw-step');
   const q = input.value.trim();
-  step.querySelector('.uw-drive-clear').style.display = q ? '' : 'none';
+  document.getElementById('drive-picker-clear').style.display = q ? '' : 'none';
   clearTimeout(_uwDriveSearchTimer);
-  _uwDriveSearchTimer = setTimeout(() => { _uw.drive.search = q; _uwDriveLoad(step); }, 350);
+  _uwDriveSearchTimer = setTimeout(() => { _uw.drive.search = q; _uwDriveLoad(); }, 350);
 }
 
 function uwDriveSearchClear(btn) {
-  const step = btn.closest('.uw-step');
-  step.querySelector('.uw-drive-search').value = '';
-  btn.style.display = 'none';
+  document.getElementById('drive-picker-search').value = '';
+  document.getElementById('drive-picker-clear').style.display = 'none';
   _uw.drive.search = '';
-  // Return to wherever we were browsing.
-  _uwDriveLoad(step);
+  _uwDriveLoad();
 }
 
-async function _uwDriveLoad(step) {
-  const inner = step.querySelector('.uw-drive-browser-inner');
-  const crumb = step.querySelector('.uw-drive-crumb');
+async function _uwDriveLoad() {
+  const inner = document.getElementById('drive-picker-inner');
+  const crumb = document.getElementById('drive-picker-crumb');
+  const footer = document.getElementById('drive-picker-footer');
   const search = _uw.drive.search;
-  inner.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px">Loading…</div>';
+  inner.innerHTML = '<div style=”color:var(--text-dim);font-size:13px;padding:16px;text-align:center”>Loading…</div>';
+  footer.style.display = 'none';
 
-  // Breadcrumb (hidden while searching)
+  // Breadcrumb
   if (search) {
-    crumb.innerHTML = `<span>🔍 Search results for “${escHtml(search)}”</span>`;
+    crumb.innerHTML = `<span style=”color:var(--text-secondary)”>🔍 Results for “${escHtml(search)}”</span>`;
   } else {
-    let c = `<span onclick="_uwDriveOpen(this.closest('.uw-step'),'root','My Drive',[])" style="cursor:pointer;color:var(--accent)">🏠 My Drive</span>`;
+    let c = `<span onclick=”_uwDriveOpen('root','My Drive',[])” style=”cursor:pointer;color:var(--accent);font-weight:600”>🏠 My Drive</span>`;
     _uw.drive.breadcrumb.forEach((b,i) => {
       const sub = _uw.drive.breadcrumb.slice(0,i+1);
-      c += ` <span style="color:var(--text-dim)">›</span> <span onclick='_uwDriveOpen(this.closest(".uw-step"),${_attrJson(b.id)},${_attrJson(b.name)},${_attrJson(sub)})' style="cursor:pointer;color:var(--accent)">${escHtml(b.name)}</span>`;
+      c += ` <span style=”color:var(--text-dim)”> › </span><span onclick='_uwDriveOpen(${_attrJson(b.id)},${_attrJson(b.name)},${_attrJson(sub)})' style=”cursor:pointer;color:var(--accent)”>${escHtml(b.name)}</span>`;
     });
     crumb.innerHTML = c;
   }
@@ -4806,52 +4827,76 @@ async function _uwDriveLoad(step) {
       : `/api/posting/drive/browse?folder_id=${encodeURIComponent(_uw.drive.folderId)}`;
     const data = await api('GET', url);
     if (!data) {
-      inner.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);padding:8px">
-        Google Drive isn't connected yet.<br><br>
-        <button onclick="uwConnectDriveAndBrowse(this)" style="padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer">🔗 Connect Google Drive</button>
+      inner.innerHTML = `<div style=”padding:32px;text-align:center”>
+        <div style=”font-size:36px;margin-bottom:12px”>🔗</div>
+        <div style=”font-size:14px;color:var(--text-secondary);margin-bottom:16px”>Google Drive isn't connected yet.</div>
+        <button onclick=”uwConnectDriveAndBrowse(this)” style=”padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer”>Connect Google Drive</button>
         </div>`;
       return;
     }
     const items = data.items || [];
     const folders = items.filter(i => i.isFolder);
     const media = items.filter(i => i.isMedia);
-    let html = '';
+
     if (!folders.length && !media.length) {
-      html += `<div style="color:var(--text-dim);font-size:12px;padding:8px">${search?'No matching folders or media.':'No folders or media files here.'}</div>`;
+      inner.innerHTML = `<div style=”color:var(--text-dim);font-size:13px;padding:24px;text-align:center”>${search ? 'No matching folders or media files.' : 'No folders or media files here.'}</div>`;
+      return;
     }
-    // Folders
-    folders.forEach(f => {
-      const sub = _attrJson([..._uw.drive.breadcrumb,{id:f.id,name:f.name}]);
-      const id = _attrJson(f.id);
-      const nm = _attrJson(f.name);
-      html += `<div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;transition:background .1s" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
-        <span onclick='_uwDriveOpen(this.closest(".uw-step"),${id},${nm},${sub})' style="cursor:pointer;display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-          <span style="font-size:16px">📁</span>
-          <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>
-        </span>
-        <button onclick='_uwDriveOpen(this.closest(".uw-step"),${id},${nm},${sub})' style="padding:3px 8px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:5px;font-size:11px;cursor:pointer">Open ›</button>
-        <button onclick='uwUseDriveFolder(${id},this)' style="padding:3px 8px;background:var(--accent);color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer">Use folder</button>
-      </div>`;
-    });
-    // Media files (individually selectable)
-    media.forEach(m => {
-      const checked = _uw.drive.selected[m.id] ? 'checked' : '';
-      const icon = m.isVideo ? '🎬' : '🖼️';
-      const thumb = m.isVideo
-        ? `<span style="font-size:18px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0">🎬</span>`
-        : `<img src="/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mimeType||'image/jpeg')}" loading="lazy" style="width:34px;height:34px;border-radius:5px;object-fit:cover;flex-shrink:0;background:var(--bg-secondary)" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${icon}',style:'font-size:18px;width:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0'}))">`;
-      const dataAttr = encodeURIComponent(JSON.stringify({id:m.id,name:m.name,mimeType:m.mimeType,isVideo:m.isVideo}));
-      html += `<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
-        <input type="checkbox" ${checked} onchange="uwToggleDriveFile(this,'${dataAttr}')" style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:var(--accent)">
-        ${thumb}
-        <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</span>
-        <span style="font-size:10px;color:var(--text-dim);flex-shrink:0">${m.isVideo?'video':'image'}</span>
-      </label>`;
-    });
+
+    let html = '';
+
+    // Folders — two-column grid
+    if (folders.length) {
+      html += `<div style=”display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:8px 0”>`;
+      folders.forEach(f => {
+        const sub = _attrJson([..._uw.drive.breadcrumb,{id:f.id,name:f.name}]);
+        const id = _attrJson(f.id);
+        const nm = _attrJson(f.name);
+        html += `<div style=”background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s” onmouseover=”this.style.borderColor='var(--accent)'” onmouseout=”this.style.borderColor='var(--border)'”>
+          <div style=”display:flex;align-items:center;gap:8px;cursor:pointer” onclick='_uwDriveOpen(${id},${nm},${sub})'>
+            <span style=”font-size:22px”>📁</span>
+            <span style=”font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)”>${escHtml(f.name)}</span>
+          </div>
+          <div style=”display:flex;gap:6px”>
+            <button onclick='_uwDriveOpen(${id},${nm},${sub})' style=”flex:1;padding:5px 0;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;font-size:12px;cursor:pointer”>Open ›</button>
+            <button onclick='uwUseDriveFolder(${id})' style=”flex:1;padding:5px 0;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer”>Use folder</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Media files — larger grid with bigger thumbnails
+    if (media.length) {
+      html += `<div style=”font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);padding:8px 4px 4px”>${media.length} media file${media.length>1?'s':''} in this folder</div>`;
+      html += `<div style=”display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding-bottom:8px”>`;
+      media.forEach(m => {
+        const checked = _uw.drive.selected[m.id] ? 'checked' : '';
+        const dataAttr = encodeURIComponent(JSON.stringify({id:m.id,name:m.name,mimeType:m.mimeType,isVideo:m.isVideo}));
+        const thumbSrc = `/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mimeType||'image/jpeg')}`;
+        html += `<label style=”cursor:pointer;border-radius:10px;overflow:hidden;border:2px solid ${_uw.drive.selected[m.id]?'var(--accent)':'var(--border)'};transition:border-color .15s;display:flex;flex-direction:column;background:var(--bg-secondary)” onmouseover=”if(!this.querySelector('input').checked)this.style.borderColor='var(--text-dim)'” onmouseout=”if(!this.querySelector('input').checked)this.style.borderColor='var(--border)'” id=”dpf-${m.id}”>
+          <div style=”position:relative;padding-top:100%;background:var(--bg-primary)”>
+            ${m.isVideo
+              ? `<div style=”position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32px”>🎬</div>`
+              : `<img src=”${thumbSrc}” loading=”lazy” style=”position:absolute;inset:0;width:100%;height:100%;object-fit:cover” onerror=”this.style.display='none'”>`}
+            <div style=”position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:${_uw.drive.selected[m.id]?'var(--accent)':'rgba(0,0,0,.35)'};display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:700”>
+              ${_uw.drive.selected[m.id]?'✓':''}
+            </div>
+          </div>
+          <div style=”padding:6px 8px 8px”>
+            <div style=”font-size:11px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap”>${escHtml(m.name)}</div>
+            <div style=”font-size:10px;color:var(--text-dim);margin-top:2px”>${m.isVideo?'Video':'Image'}</div>
+          </div>
+          <input type=”checkbox” ${checked} onchange=”uwToggleDriveFile(this,'${dataAttr}')” style=”display:none”>
+        </label>`;
+      });
+      html += `</div>`;
+    }
+
     inner.innerHTML = html;
-    _uwDriveUpdateFooter(step, media.length);
+    _uwDriveUpdateFooter(media.length);
   } catch(e) {
-    inner.innerHTML = `<div style="color:var(--accent);font-size:12px;padding:8px">${escHtml(e.message||'Error loading Drive')}</div>`;
+    inner.innerHTML = `<div style=”color:var(--accent);font-size:13px;padding:16px”>${escHtml(e.message||'Error loading Drive')}</div>`;
   }
 }
 
@@ -4859,46 +4904,53 @@ function uwToggleDriveFile(cb, dataAttr) {
   const f = JSON.parse(decodeURIComponent(dataAttr));
   if (cb.checked) _uw.drive.selected[f.id] = f;
   else delete _uw.drive.selected[f.id];
-  _uwDriveUpdateFooter(cb.closest('.uw-step'));
+  // Update card border + checkmark without re-rendering
+  const card = document.getElementById('dpf-'+f.id);
+  if (card) {
+    card.style.borderColor = cb.checked ? 'var(--accent)' : 'var(--border)';
+    const dot = card.querySelector('div[style*=”border-radius:50%”]');
+    if (dot) { dot.style.background = cb.checked ? 'var(--accent)' : 'rgba(0,0,0,.35)'; dot.textContent = cb.checked ? '✓' : ''; }
+  }
+  _uwDriveUpdateFooter();
 }
 
-function _uwDriveUpdateFooter(step, folderMediaCount) {
-  const footer = step.querySelector('.uw-drive-footer');
+function _uwDriveUpdateFooter(folderMediaCount) {
+  const footer = document.getElementById('drive-picker-footer');
   const n = Object.keys(_uw.drive.selected).length;
   let html = '';
   if (n > 0) {
-    html += `<span style="font-size:12px;color:var(--text-primary);font-weight:600">${n} file(s) selected</span>
-      <button onclick="uwUseSelectedFiles(this)" style="padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">✅ Use ${n} selected file(s)</button>`;
+    html = `<span style=”font-size:13px;color:var(--text-primary);font-weight:600”>${n} file${n>1?'s':''} selected</span>
+      <button onclick=”uwUseSelectedFiles()” style=”padding:9px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-left:auto”>✅ Use ${n} selected file${n>1?'s':''}</button>`;
   } else if (folderMediaCount && !_uw.drive.search) {
-    html += `<span style="font-size:11px;color:var(--text-dim)">Tick files above, or use the whole folder →</span>
-      <button onclick="uwUseDriveFolder('${_uw.drive.folderId}',this)" style="padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-left:auto">✅ Use this folder (${folderMediaCount})</button>`;
+    html = `<span style=”font-size:12px;color:var(--text-dim)”>Tick files above, or use the whole folder</span>
+      <button onclick='uwUseDriveFolder(${_attrJson(_uw.drive.folderId)})' style=”padding:9px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-left:auto”>✅ Use this folder (${folderMediaCount})</button>`;
   }
   footer.innerHTML = html;
   footer.style.display = html ? 'flex' : 'none';
 }
 
-// Pick a whole folder → fill the folder-link input and close the browser.
-function uwUseDriveFolder(folderId, btn) {
-  const step = btn.closest('.uw-step');
-  const folderInput = step.querySelector('.uw-folder');
-  folderInput.value = `https://drive.google.com/drive/folders/${folderId}`;
-  folderInput.style.borderColor = 'var(--accent)';
-  setTimeout(() => folderInput.style.borderColor = '', 1500);
-  step.querySelector('.uw-drive-browser').style.display = 'none';
+// Whole folder selected → fill the folder URL input and close.
+function uwUseDriveFolder(folderId) {
+  if (_uwDriveStep) {
+    const folderInput = _uwDriveStep.querySelector('.uw-folder');
+    folderInput.value = `https://drive.google.com/drive/folders/${folderId}`;
+    folderInput.style.borderColor = 'var(--accent)';
+    setTimeout(() => { if(folderInput) folderInput.style.borderColor=''; }, 1500);
+  }
+  closeDrivePicker();
 }
 
-// Pick individual files → build posts directly and jump to preview.
-function uwUseSelectedFiles(btn) {
-  const step = btn.closest('.uw-step');
+// Individual files selected → go straight to preview.
+function uwUseSelectedFiles() {
   const files = Object.values(_uw.drive.selected);
   if (!files.length) return;
-  _uw.instructions = (step.querySelector('.uw-instructions')?.value || '').trim();
+  if (_uwDriveStep) _uw.instructions = (_uwDriveStep.querySelector('.uw-instructions')?.value || '').trim();
   _uw.posts = files.map(m => ({
     caption:'', hashtags:[],
     media:{ id:m.id, name:m.name, mime_type:m.mimeType, is_video:m.isVideo },
     media_type: m.isVideo ? 'REELS' : 'IMAGE', _sched:null,
   }));
-  step.querySelector('.uw-drive-browser').style.display = 'none';
+  closeDrivePicker();
   _uwRenderPreview();
 }
 
