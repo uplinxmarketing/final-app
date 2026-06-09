@@ -725,7 +725,12 @@ a{color:inherit;text-decoration:none}
           <div class="welcome" style="height:100%">
             <div style="font-size:32px">🔷</div>
             <h2 style="font-family:var(--font-heading);font-size:18px;color:var(--text-primary)">Uplinx AI — Posts</h2>
-            <p style="font-size:13px;color:var(--text-secondary);text-align:center;max-width:380px;line-height:1.6">Ask me to draft captions, suggest posting times, write hashtags, or help plan your content calendar.</p>
+            <p style="font-size:13px;color:var(--text-secondary);text-align:center;max-width:380px;line-height:1.6">I'll walk you through publishing posts — just tap below and I'll ask where to post and what to upload.</p>
+            <button onclick="startUploadWizard()" style="margin-top:16px;display:inline-flex;flex-direction:column;align-items:center;gap:4px;padding:18px 44px;border-radius:16px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 6px 20px rgba(220,38,38,0.35);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 10px 28px rgba(220,38,38,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 6px 20px rgba(220,38,38,0.35)'">
+              <span style="font-size:34px">📤</span>
+              <span style="font-size:16px;font-weight:800;letter-spacing:.3px">Upload Posts</span>
+            </button>
+            <p style="font-size:12px;color:var(--text-dim);margin-top:14px">…or just type below to ask me anything about your posts.</p>
           </div>
         </div>
         <div style="padding:14px 16px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0">
@@ -3499,7 +3504,7 @@ function enterInterface(iface) {
   if (adsCtx) adsCtx.style.display = isAds ? '' : 'none';
   if (driveUp) driveUp.style.display = isAds ? '' : 'none';
   if (postsAcct) postsAcct.style.display = isAds ? 'none' : '';
-  if (!isAds) loadPostingInterface();
+  if (!isAds) { _postTab = 'chat'; switchPostsTab('chat'); loadPostingInterface(); }
   // Refresh the Meta indicator now that _activeInterface reflects the new mode
   updateStatusIndicators();
 }
@@ -3519,6 +3524,16 @@ async function loadPostingInterface() {
     if (label) label.textContent = `Connected as ${current.user_name || current.facebook_user_id}`;
     updatePostingAccountStatus(current);
     await loadPostingPagesAndIG();
+    // Auto-select a default page so Calendar/Feed have something to show
+    // (the posting flow itself lets you pick explicitly in the chat wizard).
+    if (!_selectedPostPage) {
+      if (_postingPages && _postingPages.length) {
+        selectPostPage({ ..._postingPages[0], platform: 'facebook' });
+      } else if (_postingIgAccounts && _postingIgAccounts.length) {
+        const ig = _postingIgAccounts[0];
+        selectPostPage({ ...ig, platform: 'instagram', name: '@' + (ig.username || ig.name || ig.id) });
+      }
+    }
     showPostsWorkspace(_selectedPostPage ? 'content' : 'no-page');
   } catch(e) {
     showPostsWorkspace('connect');
@@ -4463,32 +4478,63 @@ function _appendPostsCard(html) {
   return div;
 }
 
-function startUploadWizard() {
+async function startUploadWizard() {
   const pm = document.getElementById('posts-main');
-  if (!pm || pm.style.display === 'none') {
-    enterInterface('posting');
-    setTimeout(()=>{ switchPostsTab('chat'); _uwStart(); }, 400);
-  } else {
-    switchPostsTab('chat'); _uwStart();
-  }
+  if (!pm || pm.style.display === 'none') enterInterface('posts');
+  _postTab = 'chat';
+  switchPostsTab('chat');
+  await _uwStart();
 }
 
-function _uwStart() {
-  _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null };
+// Step 0 — verify the Facebook connection is real before anything else, so the
+// chat always reflects the truly-connected account (not a stale flag).
+async function _uwStart() {
+  _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null, instructions:'' };
+  const loading = _appendPostsCard('<div style="font-size:13px;color:var(--text-secondary)">⏳ Checking your connected Facebook account…</div>');
+  let connected = false;
+  try {
+    const accounts = await fetch('/api/accounts/posting').then(r => r.ok ? r.json() : []);
+    connected = Array.isArray(accounts) && accounts.length > 0;
+    if (connected) { _postingConnected = true; await loadPostingPagesAndIG(); }
+  } catch(e) {}
+  loading.remove();
+
+  if (!connected) {
+    _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:6px">📤 Let's upload some posts!</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">First I need a Facebook account connected so I can see your Pages and Instagram accounts.</div>
+      <button onclick="openPostingConnectModal()" style="padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔗 Connect Facebook</button>
+      <button onclick="startUploadWizard()" style="margin-left:8px;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">↻ I've connected — continue</button>`);
+    return;
+  }
+  _uwShowTargets();
+}
+
+// Step 1 — pick the page/client, with an easy "change account" escape hatch.
+function _uwShowTargets() {
   const targets = _buildPostingTargets();
+  const changeBtn = `<button onclick="uwChangeAccount()" style="margin-top:12px;padding:8px 14px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:12px;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔄 Change Facebook account</button>`;
   if (!targets.length) {
-    _appendPostsCard(`<div style="font-size:14px;font-weight:600;margin-bottom:8px">📤 Let's upload some posts!</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">First, connect a Facebook Page or Instagram account.</div>
-      <button onclick="openPostingConnectModal()" style="padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔗 Connect an account</button>`);
+    _appendPostsCard(`<div style="font-size:13px;margin-bottom:6px">✅ Facebook is connected, but I don't see any Pages or Instagram accounts on it.</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Switch to the Facebook account that has the Pages or clients you want to post to.</div>
+      ${changeBtn}`);
     return;
   }
   const btns = targets.map(t => `<button onclick="uwPickTarget('${t.id}')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:11px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;transition:border-color .12s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
       <span style="font-size:18px">${t.platform==='instagram'?'📷':'📘'}</span>
       <span style="flex:1"><span style="font-weight:700">${escHtml(t.name)}</span>${t.client?`<span style="color:var(--text-dim);font-size:11px"> · ${escHtml(t.client)}</span>`:''}</span>
       <span style="color:var(--text-dim)">›</span></button>`).join('');
-  _appendPostsCard(`<div style="font-size:14px;font-weight:600;margin-bottom:4px">📤 Let's upload some posts!</div>
+  _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Which page or client should I publish to?</div>
-    <div style="display:flex;flex-direction:column;gap:8px">${btns}</div>`);
+    <div style="display:flex;flex-direction:column;gap:8px">${btns}</div>
+    ${changeBtn}`);
+}
+
+// Open the connect modal so the user can add/switch the Facebook account, then
+// re-run the wizard automatically once they're back.
+function uwChangeAccount() {
+  openPostingConnectModal();
+  _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary)">Pick or add the Facebook account in the window that opened. When you're done, tap below.</div>
+    <button onclick="startUploadWizard()" style="margin-top:10px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↻ Done — continue</button>`);
 }
 
 function uwPickTarget(id) {
@@ -4498,19 +4544,43 @@ function uwPickTarget(id) {
   _appendPostsMsg('user', `Post to ${t.platform==='instagram'?'📷':'📘'} ${t.name}`);
   _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(t.name)}</b>. Now add your content from Google Drive:</div>
     <div class="uw-step">
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Drive folder link</label>
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Images / creatives — Drive folder link</label>
       <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-      <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px">
-      <button onclick="uwScan(this)" style="padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan folder</button>
-      <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim);margin-left:10px"></span>
+      <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+      <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button onclick="uwScan(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan &amp; preview</button>
+        <button onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
+        <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
     </div>`);
+}
+
+// Hand the whole job to the conversational agent (it has Drive + posting tools).
+function uwAiHandle(btn) {
+  const step = btn.closest('.uw-step');
+  const folder = step.querySelector('.uw-folder').value.trim();
+  const text = step.querySelector('.uw-text').value.trim();
+  const instructions = step.querySelector('.uw-instructions').value.trim();
+  const status = step.querySelector('.uw-scan-status');
+  if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
+  const t = _uw.target;
+  const msg = `Please upload posts to ${t.name} (${t.platform}). The images/creatives are in this Google Drive folder: ${folder}.`
+    + (text ? ` The captions are here: ${text}.` : ' Match captions by filename/order if a captions file is provided.')
+    + (instructions ? ` Additional instructions: ${instructions}.` : '')
+    + ` Match each image to its caption, show me a summary of what you'll post, and ask me to confirm before publishing.`;
+  const input = document.getElementById('posts-chat-input');
+  if (input) { input.value = msg; document.getElementById('posts-send-btn').disabled = false; }
+  sendPostsMessage();
 }
 
 async function uwScan(btn) {
   const step = btn.closest('.uw-step');
   const folder = step.querySelector('.uw-folder').value.trim();
   const text = step.querySelector('.uw-text').value.trim();
+  _uw.instructions = (step.querySelector('.uw-instructions')?.value || '').trim();
   const status = step.querySelector('.uw-scan-status');
   if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
   btn.disabled = true; status.textContent = '🔍 Scanning…';
@@ -4529,6 +4599,7 @@ async function uwScan(btn) {
 
 function _uwRenderPreview() {
   const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${escHtml(_uw.target.name)}</b>. Check each image and caption, then publish.</div>
+    ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions (“${escHtml(_uw.instructions)}”), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview">
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
         <select class="uw-sched-mode" onchange="uwSchedChange(this)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px">
