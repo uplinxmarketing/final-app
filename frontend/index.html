@@ -1603,8 +1603,8 @@ a{color:inherit;text-decoration:none}
   <div class="modal" style="max-width:780px;width:96vw;height:80vh;max-height:700px;display:flex;flex-direction:column;padding:0;overflow:hidden">
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0">
-      <span style="font-size:18px">🗂️</span>
-      <span style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1">Browse Google Drive</span>
+      <span id="drive-picker-icon" style="font-size:18px">🗂️</span>
+      <span id="drive-picker-title" style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1">Browse Google Drive</span>
       <input type="text" id="drive-picker-search" placeholder="🔍 Search Drive…" oninput="uwDriveSearchInput(this)" style="width:240px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none">
       <button id="drive-picker-clear" onclick="uwDriveSearchClear(this)" style="display:none;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;color:var(--text-secondary)">✕</button>
       <button onclick="closeDrivePicker()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-dim);padding:0 4px;line-height:1">×</button>
@@ -3796,12 +3796,9 @@ function switchPostsTab(tab) {
 
 async function loadPostingPagesAndIG() {
   try {
-    const [pages, igAccounts] = await Promise.all([
-      fetch('/api/posting/pages').then(r => r.ok ? r.json() : []),
-      fetch('/api/posting/instagram').then(r => r.ok ? r.json() : []),
-    ]);
-    _postingPages = Array.isArray(pages) ? pages : [];
-    _postingIgAccounts = Array.isArray(igAccounts) ? igAccounts : [];
+    const data = await fetch('/api/posting/pages-and-ig').then(r => r.ok ? r.json() : null).catch(() => null);
+    _postingPages = Array.isArray(data?.pages) ? data.pages : [];
+    _postingIgAccounts = Array.isArray(data?.ig_accounts) ? data.ig_accounts : [];
     renderPostingsSidebar();
     populatePostTargetSelect();
     await loadPostingClients();
@@ -4678,7 +4675,10 @@ function uwPickTargets(targets) {
           <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">🗂️ Browse Drive</button>
         </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-        <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+          <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse</button>
+        </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4699,7 +4699,10 @@ function uwPickTargets(targets) {
         </div>
         <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional — paste Google Docs link)</span></label>
-        <input type="text" class="uw-text-device" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+          <input type="text" class="uw-text-device" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="padding:9px 14px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 Browse</button>
+        </div>
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
         <textarea class="uw-instructions-device" rows="2" placeholder="e.g. add a friendly tone, append #sale…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4760,14 +4763,26 @@ function _attrJson(x) { return JSON.stringify(x).replace(/'/g, '&#39;'); }
 // The step element that opened the picker (so we can fill its folder input on close).
 let _uwDriveStep = null;
 
-function uwBrowseDrive(btn) {
-  _uwDriveStep = btn.closest('.uw-step');
-  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'' };
+function _openDrivePicker(captionMode) {
   document.getElementById('drive-picker-search').value = '';
   document.getElementById('drive-picker-clear').style.display = 'none';
+  document.getElementById('drive-picker-icon').textContent = captionMode ? '📝' : '🗂️';
+  document.getElementById('drive-picker-title').textContent = captionMode ? 'Pick a Captions Document' : 'Browse Google Drive';
   document.getElementById('drive-picker-modal').classList.add('open');
   document.body.style.overflow = 'hidden';
   _uwDriveLoad();
+}
+
+function uwBrowseDrive(btn) {
+  _uwDriveStep = btn.closest('.uw-step');
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'', captionMode:false };
+  _openDrivePicker(false);
+}
+
+function uwBrowseCaptionsDoc(btn) {
+  _uwDriveStep = btn.closest('.uw-step');
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'', captionMode:true };
+  _openDrivePicker(true);
 }
 
 function closeDrivePicker() {
@@ -4821,10 +4836,12 @@ async function _uwDriveLoad() {
     crumb.innerHTML = c;
   }
 
+  const captionMode = _uw.drive.captionMode;
   try {
-    const url = search
+    let url = search
       ? `/api/posting/drive/browse?q=${encodeURIComponent(search)}`
       : `/api/posting/drive/browse?folder_id=${encodeURIComponent(_uw.drive.folderId)}`;
+    if (captionMode) url += '&docs_mode=true';
     const data = await api('GET', url);
     if (!data) {
       inner.innerHTML = `<div style=”padding:32px;text-align:center”>
@@ -4837,9 +4854,12 @@ async function _uwDriveLoad() {
     const items = data.items || [];
     const folders = items.filter(i => i.isFolder);
     const media = items.filter(i => i.isMedia);
+    const docs = items.filter(i => i.isDoc || i.isSheet);
 
-    if (!folders.length && !media.length) {
-      inner.innerHTML = `<div style=”color:var(--text-dim);font-size:13px;padding:24px;text-align:center”>${search ? 'No matching folders or media files.' : 'No folders or media files here.'}</div>`;
+    if (!folders.length && !media.length && !docs.length) {
+      inner.innerHTML = `<div style=”color:var(--text-dim);font-size:13px;padding:24px;text-align:center”>${
+        search ? (captionMode ? 'No matching Google Docs or Sheets.' : 'No matching folders or media files.')
+               : (captionMode ? 'No Google Docs or Sheets in this folder.' : 'No folders or media files here.')}</div>`;
       return;
     }
 
@@ -4859,15 +4879,37 @@ async function _uwDriveLoad() {
           </div>
           <div style=”display:flex;gap:6px”>
             <button onclick='_uwDriveOpen(${id},${nm},${sub})' style=”flex:1;padding:5px 0;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;font-size:12px;cursor:pointer”>Open ›</button>
-            <button onclick='uwUseDriveFolder(${id})' style=”flex:1;padding:5px 0;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer”>Use folder</button>
+            ${!captionMode ? `<button onclick='uwUseDriveFolder(${id})' style=”flex:1;padding:5px 0;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer”>Use folder</button>` : ''}
           </div>
         </div>`;
       });
       html += `</div>`;
     }
 
-    // Media files — larger grid with bigger thumbnails
-    if (media.length) {
+    // Google Docs / Sheets (caption mode)
+    if (captionMode && docs.length) {
+      html += `<div style=”font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);padding:8px 4px 4px”>${docs.length} document${docs.length>1?'s':''}</div>`;
+      html += `<div style=”display:flex;flex-direction:column;gap:6px;padding-bottom:8px”>`;
+      docs.forEach(d => {
+        const icon = d.isSheet ? '📊' : '📄';
+        const typeLabel = d.isSheet ? 'Google Sheet' : 'Google Doc';
+        const idJ = _attrJson(d.id);
+        const mimeJ = _attrJson(d.mimeType);
+        const nmJ = _attrJson(d.name);
+        html += `<div style=”background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;transition:border-color .15s” onmouseover=”this.style.borderColor='var(--accent)'” onmouseout=”this.style.borderColor='var(--border)'”>
+          <span style=”font-size:24px”>${icon}</span>
+          <div style=”flex:1;min-width:0”>
+            <div style=”font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap”>${escHtml(d.name)}</div>
+            <div style=”font-size:11px;color:var(--text-dim);margin-top:2px”>${typeLabel}</div>
+          </div>
+          <button onclick='uwUseCaptionsDoc(${idJ},${mimeJ},${nmJ})' style=”padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap”>Use this</button>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Media files — larger grid with bigger thumbnails (non-caption mode)
+    if (!captionMode && media.length) {
       html += `<div style=”font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);padding:8px 4px 4px”>${media.length} media file${media.length>1?'s':''} in this folder</div>`;
       html += `<div style=”display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding-bottom:8px”>`;
       media.forEach(m => {
@@ -4894,7 +4936,7 @@ async function _uwDriveLoad() {
     }
 
     inner.innerHTML = html;
-    _uwDriveUpdateFooter(media.length);
+    if (!captionMode) _uwDriveUpdateFooter(media.length);
   } catch(e) {
     inner.innerHTML = `<div style=”color:var(--accent);font-size:13px;padding:16px”>${escHtml(e.message||'Error loading Drive')}</div>`;
   }
@@ -4952,6 +4994,29 @@ function uwUseSelectedFiles() {
   }));
   closeDrivePicker();
   _uwRenderPreview();
+}
+
+// Caption doc selected → fill the captions URL input and close.
+function uwUseCaptionsDoc(fileId, mimeType, fileName) {
+  let url;
+  if (mimeType === 'application/vnd.google-apps.document')
+    url = `https://docs.google.com/document/d/${fileId}/edit`;
+  else if (mimeType === 'application/vnd.google-apps.spreadsheet')
+    url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
+  else
+    url = `https://drive.google.com/file/d/${fileId}/view`;
+  if (_uwDriveStep) {
+    // Fill whichever caption input is in the currently visible panel
+    const visiblePanel = _uwDriveStep.querySelector('.uw-src-panel:not([style*="display:none"]),.uw-src-panel');
+    const inp = (visiblePanel && (visiblePanel.querySelector('.uw-text') || visiblePanel.querySelector('.uw-text-device')))
+      || _uwDriveStep.querySelector('.uw-text') || _uwDriveStep.querySelector('.uw-text-device');
+    if (inp) {
+      inp.value = url;
+      inp.style.borderColor = 'var(--accent)';
+      setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 1500);
+    }
+  }
+  closeDrivePicker();
 }
 
 async function uwDeviceFilePicked(input) {
@@ -5255,12 +5320,9 @@ async function ppmLoadClients() {
 
 async function ppmLoadLivePages() {
   try {
-    const [pages, igAccounts] = await Promise.all([
-      fetch('/api/posting/pages').then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch('/api/posting/instagram').then(r => r.ok ? r.json() : []).catch(() => []),
-    ]);
-    _ppmPages = Array.isArray(pages) ? pages : [];
-    _ppmIg = Array.isArray(igAccounts) ? igAccounts : [];
+    const data = await fetch('/api/posting/pages-and-ig').then(r => r.ok ? r.json() : null).catch(() => null);
+    _ppmPages = Array.isArray(data?.pages) ? data.pages : [];
+    _ppmIg = Array.isArray(data?.ig_accounts) ? data.ig_accounts : [];
 
     const pageSel = document.getElementById('ppm-page-select');
     if (pageSel) {
