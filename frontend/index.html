@@ -4560,7 +4560,7 @@ function _uwShowTargets() {
     </select>` : '';
 
   _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
-    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a client, or choose a page below.</div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a client to fill both automatically, or choose a Facebook Page and/or Instagram account — you can select <b>both</b> to post to both at once.</div>
     <div class="uw-target-step">
       ${clientBlock}
       ${fbBlock}
@@ -4571,36 +4571,49 @@ function _uwShowTargets() {
     ${changeBtn}`);
 }
 
-// Coordinate the three dropdowns: selecting one clears the others so there's
-// always exactly one destination, then show a confirmation + enable Continue.
+// FB + IG are independent — you can pick one or both (they're linked in Meta
+// Business Suite, so posting to both at once is the common case). The client
+// dropdown is a shortcut that fills both from the client's assigned pages.
 function uwTargetSelChange(sel, kind) {
   const step = sel.closest('.uw-target-step');
   const fb = step.querySelector('.uw-fb-sel');
   const ig = step.querySelector('.uw-ig-sel');
   const cl = step.querySelector('.uw-client-sel');
+
+  // Selecting a client auto-fills the FB + IG dropdowns from its assigned pages.
+  if (kind === 'client') {
+    if (fb) fb.value = '';
+    if (ig) ig.value = '';
+    if (sel.value) {
+      const c = (_postingClients||[]).find(x => x.name === sel.value);
+      (c?.profiles||[]).forEach(p => {
+        if (p.fb_page_id && fb && [...fb.options].some(o => o.value === p.fb_page_id)) fb.value = p.fb_page_id;
+        if (p.ig_account_id && ig && [...ig.options].some(o => o.value === p.ig_account_id)) ig.value = p.ig_account_id;
+      });
+    }
+  } else {
+    // Manually changing FB or IG clears the client shortcut label.
+    if (cl) cl.value = '';
+  }
+  _uwRefreshTargets(step);
+}
+
+// Recompute the chosen-target list from whatever the FB + IG dropdowns hold.
+function _uwRefreshTargets(step) {
+  const fb = step.querySelector('.uw-fb-sel');
+  const ig = step.querySelector('.uw-ig-sel');
   const chosen = step.querySelector('.uw-target-chosen');
   const cont = step.querySelector('.uw-target-continue');
-  // Clear the other dropdowns
-  if (kind !== 'facebook' && fb) fb.value = '';
-  if (kind !== 'instagram' && ig) ig.value = '';
-  if (kind !== 'client' && cl) cl.value = '';
+  const all = _buildPostingTargets();
+  const targets = [];
+  if (fb && fb.value) { const t = all.find(x => x.id === fb.value && x.platform === 'facebook'); if (t) targets.push(t); }
+  if (ig && ig.value) { const t = all.find(x => x.id === ig.value && x.platform === 'instagram'); if (t) targets.push(t); }
 
-  let target = null;
-  if (kind === 'client' && sel.value) {
-    const c = (_postingClients||[]).find(x => x.name === sel.value);
-    const prof = (c?.profiles||[]).find(p => p.fb_page_id) || (c?.profiles||[]).find(p => p.ig_account_id);
-    if (prof) {
-      if (prof.fb_page_id) target = { id:prof.fb_page_id, name:prof.fb_page_name||prof.label||c.name, platform:'facebook', client:c.name };
-      else target = { id:prof.ig_account_id, name:'@'+(prof.ig_username||prof.ig_account_id), platform:'instagram', page_id:prof.fb_page_id, client:c.name };
-    }
-  } else if (sel.value) {
-    target = _buildPostingTargets().find(t => t.id === sel.value && t.platform === kind);
-  }
-
-  _uw._pendingTarget = target;
-  if (target) {
+  _uw._pendingTargets = targets;
+  if (targets.length) {
     chosen.style.display = '';
-    chosen.innerHTML = `${target.platform==='instagram'?'📷':'📘'} Publishing to <b>${escHtml(target.name)}</b>${target.client?` <span style="color:var(--text-dim)">· ${escHtml(target.client)}</span>`:''}`;
+    chosen.innerHTML = 'Publishing to ' + targets.map(t =>
+      `${t.platform==='instagram'?'📷':'📘'} <b>${escHtml(t.name)}</b>`).join(' &nbsp;+&nbsp; ');
     cont.disabled = false; cont.style.opacity = '1';
   } else {
     chosen.style.display = 'none';
@@ -4609,8 +4622,8 @@ function uwTargetSelChange(sel, kind) {
 }
 
 function uwContinueTarget(btn) {
-  if (!_uw._pendingTarget) return;
-  uwPickTarget(_uw._pendingTarget.id, _uw._pendingTarget);
+  if (!_uw._pendingTargets || !_uw._pendingTargets.length) return;
+  uwPickTargets(_uw._pendingTargets);
 }
 
 // Open the connect modal so the user can add/switch the Facebook account, then
@@ -4621,13 +4634,14 @@ function uwChangeAccount() {
     <button onclick="startUploadWizard()" style="margin-top:10px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↻ Done — continue</button>`);
 }
 
-function uwPickTarget(id, resolved) {
-  const t = resolved || _buildPostingTargets().find(x => x.id === id);
-  if (!t) return;
-  _uw.target = t;
+function uwPickTargets(targets) {
+  if (!targets || !targets.length) return;
+  _uw.targets = targets;
+  _uw.target = targets[0]; // primary, for any single-target display
   _uw.localMedia = []; // reset local uploads for this step
-  _appendPostsMsg('user', `Post to ${t.platform==='instagram'?'📷':'📘'} ${t.name}`);
-  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(t.name)}</b>. Choose how to add your content:</div>
+  const label = targets.map(t => `${t.platform==='instagram'?'📷':'📘'} ${t.name}`).join(' + ');
+  _appendPostsMsg('user', `Post to ${label}`);
+  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(label)}</b>. Choose how to add your content:</div>
     <div class="uw-step">
 
       <!-- Tab switcher -->
@@ -4708,6 +4722,11 @@ async function _uwDriveBrowse(inner, step, folderId, breadcrumb) {
   inner.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:4px">Loading…</div>';
   try {
     const data = await api('GET', `/api/posting/drive/browse?folder_id=${encodeURIComponent(folderId)}`);
+    if (!data) {
+      inner.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);padding:4px">
+        Google Drive isn't connected yet. <button onclick="window.open('/auth/google','_blank')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0;text-decoration:underline">Connect Google Drive</button> then try Browse again.</div>`;
+      return;
+    }
     const items = data.items || [];
     const folders = items.filter(i => i.isFolder);
     const media = items.filter(i => i.isMedia);
@@ -4811,8 +4830,8 @@ function uwAiHandle(btn) {
   const instructions = step.querySelector('.uw-instructions').value.trim();
   const status = step.querySelector('.uw-scan-status');
   if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
-  const t = _uw.target;
-  const msg = `Please upload posts to ${t.name} (${t.platform}). The images/creatives are in this Google Drive folder: ${folder}.`
+  const dests = (_uw.targets||[_uw.target]).map(t => `${t.name} (${t.platform})`).join(' and ');
+  const msg = `Please upload posts to ${dests}. The images/creatives are in this Google Drive folder: ${folder}.`
     + (text ? ` The captions are here: ${text}.` : ' Match captions by filename/order if a captions file is provided.')
     + (instructions ? ` Additional instructions: ${instructions}.` : '')
     + ` Match each image to its caption, show me a summary of what you'll post, and ask me to confirm before publishing.`;
@@ -4843,7 +4862,8 @@ async function uwScan(btn) {
 }
 
 function _uwRenderPreview() {
-  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${escHtml(_uw.target.name)}</b>. Check each image and caption, then publish.</div>
+  const destLabel = (_uw.targets||[_uw.target]).map(t => escHtml(t.name)).join(' + ');
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image and caption, then publish.</div>
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions (“${escHtml(_uw.instructions)}”), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview">
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
@@ -4918,23 +4938,27 @@ function uwRecalcDates() {
 }
 
 async function uwPublish(btn) {
-  if (!_uw.posts.length || !_uw.target) return;
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+  if (!_uw.posts.length || !targets.length) return;
   const card = _uw.previewCard;
   const status = card.querySelector('.uw-pub-status');
   if (_uw.scheduleMode === 'later' && !card.querySelector('.uw-sched-start').value) {
     status.textContent = 'Set a start time, or switch to “Post immediately”.'; return;
   }
-  const t = _uw.target;
-  const items = _uw.posts.map(p => {
+  // One item per (post × target) — posting to both FB and IG creates two items.
+  const items = [];
+  _uw.posts.forEach(p => {
     const m = p.media;
     const mediaItem = m.local_file_id
       ? { local_file_id: m.local_file_id, mime_type: m.mime_type, filename: m.name }
       : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name };
-    const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
-      scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
-      media:[mediaItem] };
-    if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
-    return item;
+    targets.forEach(t => {
+      const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
+        scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
+        media:[mediaItem] };
+      if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
+      items.push(item);
+    });
   });
   btn.disabled = true; status.textContent = 'Submitting…';
   try {
@@ -4951,11 +4975,24 @@ async function uwPollJob() {
   try {
     const job = await fetch(`/api/posting/jobs/${_uw.jobId}`).then(r=>r.ok?r.json():null);
     if (!job) { status.textContent='Lost track of job.'; return; }
+    // Items are ordered post-major (post0→fb,post0→ig, post1→fb,…), so map an
+    // item index back to its post card. A post card is ✅ only if every target
+    // for it succeeded.
+    const nTargets = (_uw.targets || [_uw.target]).filter(Boolean).length || 1;
+    const agg = {}; // postIndex -> {ok, sched, fail}
     (job.results||[]).forEach(r=>{
-      const el = card.querySelector('.uw-res-'+r.index); if(!el) return;
-      if (r.success && r.scheduled){ el.textContent='🕒 Scheduled'; el.style.color='var(--text-secondary)'; }
-      else if (r.success){ el.textContent='✅'; el.style.color='var(--success,#22c55e)'; }
-      else { el.textContent='❌'; el.style.color='var(--accent)'; }
+      const pi = Math.floor(r.index / nTargets);
+      const a = agg[pi] || (agg[pi] = {ok:0, sched:0, fail:0});
+      if (r.success && r.scheduled) a.sched++;
+      else if (r.success) a.ok++;
+      else a.fail++;
+    });
+    Object.keys(agg).forEach(pi=>{
+      const el = card.querySelector('.uw-res-'+pi); if(!el) return;
+      const a = agg[pi];
+      if (a.fail){ el.textContent = a.ok+a.sched ? `⚠️ ${a.fail} failed` : '❌'; el.style.color='var(--accent)'; }
+      else if (a.sched){ el.textContent='🕒 Scheduled'; el.style.color='var(--text-secondary)'; }
+      else { el.textContent='✅'; el.style.color='var(--success,#22c55e)'; }
     });
     if (job.status==='queued'){ status.textContent = job.position>0?`⏳ ${job.position} job(s) ahead — you can keep chatting`:'⏳ Starting…'; }
     else if (job.status==='running'){ status.textContent=`🔄 Publishing ${job.completed}/${job.total}…`; }
