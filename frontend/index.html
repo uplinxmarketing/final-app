@@ -4548,21 +4548,182 @@ function uwPickTarget(id) {
   const t = _buildPostingTargets().find(x => x.id === id);
   if (!t) return;
   _uw.target = t;
+  _uw.localMedia = []; // reset local uploads for this step
   _appendPostsMsg('user', `Post to ${t.platform==='instagram'?'📷':'📘'} ${t.name}`);
-  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(t.name)}</b>. Now add your content from Google Drive:</div>
+  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(t.name)}</b>. Choose how to add your content:</div>
     <div class="uw-step">
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Images / creatives — Drive folder link</label>
-      <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-      <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-      <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button onclick="uwScan(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan &amp; preview</button>
-        <button onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
-        <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
+
+      <!-- Tab switcher -->
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button class="uw-src-tab uw-src-active" data-src="drive" onclick="uwSrcTab(this,'drive')" style="padding:7px 14px;border-radius:20px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">📁 Google Drive</button>
+        <button class="uw-src-tab" data-src="device" onclick="uwSrcTab(this,'device')" style="padding:7px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">💻 My Device</button>
       </div>
+
+      <!-- DRIVE PANEL -->
+      <div class="uw-src-panel" data-panel="drive">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Images / creatives — Drive folder</label>
+        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+          <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+          <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--text-primary)">🗂️ Browse</button>
+        </div>
+        <!-- Drive browser panel (hidden by default) -->
+        <div class="uw-drive-browser" style="display:none;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;max-height:200px;overflow-y:auto">
+          <div class="uw-drive-browser-inner" style="padding:8px"></div>
+        </div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+        <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+        <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button onclick="uwScan(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan &amp; preview</button>
+          <button onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
+          <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
+        </div>
+      </div>
+
+      <!-- DEVICE PANEL (hidden by default) -->
+      <div class="uw-src-panel" data-panel="device" style="display:none">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">💻 Upload images / videos from your device</label>
+        <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:10px;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="font-size:28px;margin-bottom:6px">📂</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Click to choose files, or drag &amp; drop</div>
+          <div style="font-size:11px;color:var(--text-dim)">JPG, PNG, GIF, WEBP, MP4, MOV — up to ${window._maxUploadMb||50} MB each</div>
+          <input type="file" multiple accept="image/*,video/*" onchange="uwDeviceFilePicked(this)" style="display:none">
+        </div>
+        <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional — paste Google Docs link)</span></label>
+        <input type="text" class="uw-text-device" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+        <textarea class="uw-instructions-device" rows="2" placeholder="e.g. add a friendly tone, append #sale…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button onclick="uwDevicePreview(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
+          <span class="uw-device-status" style="font-size:12px;color:var(--text-dim)"></span>
+        </div>
+      </div>
+
     </div>`);
+}
+
+function uwSrcTab(btn, src) {
+  const step = btn.closest('.uw-step');
+  step.querySelectorAll('.uw-src-tab').forEach(b => {
+    const active = b.dataset.src === src;
+    b.style.background = active ? 'var(--accent)' : 'transparent';
+    b.style.color = active ? '#fff' : 'var(--text-secondary)';
+    b.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+  });
+  step.querySelectorAll('.uw-src-panel').forEach(p => {
+    p.style.display = p.dataset.panel === src ? '' : 'none';
+  });
+}
+
+async function uwBrowseDrive(btn) {
+  const step = btn.closest('.uw-step');
+  const browser = step.querySelector('.uw-drive-browser');
+  const inner = step.querySelector('.uw-drive-browser-inner');
+  if (browser.style.display !== 'none') { browser.style.display = 'none'; return; }
+  browser.style.display = '';
+  inner.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:4px">Loading…</div>';
+  await _uwDriveBrowse(inner, step, 'root', []);
+}
+
+async function _uwDriveBrowse(inner, step, folderId, breadcrumb) {
+  inner.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:4px">Loading…</div>';
+  try {
+    const data = await api('GET', `/api/posting/drive/browse?folder_id=${encodeURIComponent(folderId)}`);
+    const items = data.items || [];
+    const folders = items.filter(i => i.isFolder);
+    const media = items.filter(i => i.isMedia);
+    let html = '';
+    // Breadcrumb nav
+    if (breadcrumb.length) {
+      html += `<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px;flex-wrap:wrap">`;
+      html += `<button onclick="_uwDriveBrowse(this.closest('.uw-drive-browser-inner'),this.closest('.uw-step'),'root',[])" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0">🏠 My Drive</button>`;
+      breadcrumb.forEach((b,i) => {
+        html += `<span style="color:var(--text-dim);font-size:12px"> › </span>`;
+        const crumb = JSON.stringify(breadcrumb.slice(0,i+1)).replace(/"/g,'&quot;');
+        html += `<button onclick="_uwDriveBrowse(this.closest('.uw-drive-browser-inner'),this.closest('.uw-step'),'${b.id}',${crumb})" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0">${escHtml(b.name)}</button>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">📂 My Drive</div>`;
+    }
+    if (!folders.length && !media.length) {
+      html += `<div style="color:var(--text-dim);font-size:12px">No folders or media files here.</div>`;
+    }
+    folders.forEach(f => {
+      const newCrumb = JSON.stringify([...breadcrumb,{id:f.id,name:f.name}]).replace(/"/g,'&quot;');
+      html += `<div onclick="_uwDriveBrowse(this.closest('.uw-drive-browser-inner'),this.closest('.uw-step'),'${f.id}',${newCrumb})" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+        <span style="font-size:16px">📁</span><span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>
+        <button onclick="event.stopPropagation();uwSelectDriveFolder('${f.id}','${f.name.replace(/'/g,"\\'")}',this)" style="padding:3px 8px;background:var(--accent);color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer">Select</button>
+      </div>`;
+    });
+    if (media.length) {
+      html += `<div style="font-size:11px;color:var(--text-dim);margin:6px 0 4px">${media.length} media file(s) in this folder</div>`;
+      html += `<button onclick="uwSelectDriveFolder('${folderId}','${(breadcrumb[breadcrumb.length-1]||{name:'root'}).name.replace(/'/g,"\\'")}',this)" style="padding:5px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:4px">✅ Use this folder (${media.length} files)</button>`;
+    }
+    inner.innerHTML = html;
+  } catch(e) {
+    inner.innerHTML = `<div style="color:var(--accent);font-size:12px">${escHtml(e.message||'Error loading Drive')}</div>`;
+  }
+}
+
+function uwSelectDriveFolder(folderId, folderName, btn) {
+  const step = btn.closest('.uw-step');
+  const folderInput = step.querySelector('.uw-folder');
+  folderInput.value = `https://drive.google.com/drive/folders/${folderId}`;
+  folderInput.style.borderColor = 'var(--accent)';
+  setTimeout(() => folderInput.style.borderColor = '', 1500);
+  step.querySelector('.uw-drive-browser').style.display = 'none';
+}
+
+async function uwDeviceFilePicked(input) {
+  const step = input.closest('.uw-step');
+  const list = step.querySelector('.uw-device-list');
+  const status = step.querySelector('.uw-device-status');
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  status.textContent = `⏳ Uploading ${files.length} file(s)…`;
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  try {
+    const res = await fetch('/api/posting/upload/local', { method:'POST', body:fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _uw.localMedia = (_uw.localMedia || []).concat(data.media || []);
+    status.textContent = `✅ ${_uw.localMedia.length} file(s) ready`;
+    list.innerHTML = _uw.localMedia.map(m => `
+      <div style="display:flex;align-items:center;gap:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px">
+        ${m.is_video ? '<span style="font-size:20px">🎬</span>' : `<img src="/api/posting/local/preview/${m.local_file_id}" style="width:36px;height:36px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`}
+        <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</span>
+        <span style="font-size:11px;color:var(--text-dim)">${m.is_video?'video':'image'}</span>
+      </div>`).join('');
+  } catch(e) {
+    status.textContent = 'Upload error: ' + (e.message || e);
+  }
+}
+
+async function uwDevicePreview(btn) {
+  const step = btn.closest('.uw-step');
+  const status = step.querySelector('.uw-device-status');
+  if (!_uw.localMedia || !_uw.localMedia.length) { status.textContent = 'Select files first.'; return; }
+  const textUrl = step.querySelector('.uw-text-device').value.trim();
+  _uw.instructions = step.querySelector('.uw-instructions-device').value.trim();
+  btn.disabled = true; status.textContent = '⏳ Processing…';
+  let captions = [];
+  if (textUrl) {
+    try {
+      const r = await api('POST', '/api/posting/drive/scan', { folder_url: textUrl, text_url: textUrl });
+      captions = r.captions || [];
+    } catch(_) {}
+  }
+  _uw.posts = _uw.localMedia.map((m, i) => {
+    const cap = captions[i] || {};
+    return { caption: cap.caption||'', hashtags: cap.hashtags||[], media: m, media_type: m.is_video?'REELS':'IMAGE', _sched: null };
+  });
+  status.textContent = `Found ${_uw.posts.length} file(s).`;
+  btn.disabled = false;
+  _uwRenderPreview();
 }
 
 // Hand the whole job to the conversational agent (it has Drive + posting tools).
@@ -4632,9 +4793,12 @@ function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
   wrap.innerHTML = _uw.posts.map((p,i) => {
     const m = p.media;
+    const thumbSrc = m.local_file_id
+      ? `/api/posting/local/preview/${m.local_file_id}`
+      : `/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mime_type||'image/jpeg')}`;
     const thumb = m.is_video
       ? `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🎬</div>`
-      : `<img src="/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mime_type||'image/jpeg')}" loading="lazy" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--bg-primary)" onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0',textContent:'🖼️'}))">`;
+      : `<img src="${thumbSrc}" loading="lazy" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--bg-primary)" onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0',textContent:'🖼️'}))">`;
     return `<div style="display:flex;gap:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px;align-items:flex-start">
       ${thumb}
       <div style="flex:1;min-width:0">
@@ -4685,9 +4849,13 @@ async function uwPublish(btn) {
   }
   const t = _uw.target;
   const items = _uw.posts.map(p => {
+    const m = p.media;
+    const mediaItem = m.local_file_id
+      ? { local_file_id: m.local_file_id, mime_type: m.mime_type, filename: m.name }
+      : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name };
     const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
       scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
-      media:[{ drive_file_id:p.media.id, mime_type:p.media.mime_type, filename:p.media.name }] };
+      media:[mediaItem] };
     if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
     return item;
   });

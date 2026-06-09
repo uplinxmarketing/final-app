@@ -2,6 +2,7 @@
 Uplinx Meta Manager — FastAPI application.
 All routes, OAuth flows, session management, and API endpoints.
 """
+import aiofiles
 import asyncio
 import json
 import logging
@@ -3089,6 +3090,28 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
     mapping = await media_bridge.resolve_media_token(db, token)
     if mapping is None:
         raise HTTPException(404, "Media link expired or not found")
+    # Local-file path: drive_file_id is stored as "local:<file_id>"
+    if mapping.drive_file_id.startswith("local:"):
+        local_id = mapping.drive_file_id[6:]
+        path: Optional[Path] = None
+        for uploads in _session_uploads.values():
+            entry = next((u for u in uploads if u["file_id"] == local_id), None)
+            if entry:
+                path = Path(entry["path"])
+                break
+        if path is None:
+            path = Path("uploads") / local_id
+        if not path.exists():
+            raise HTTPException(404, "Local media file not found")
+        async def _local_iter(p: Path):
+            async with aiofiles.open(p, "rb") as fh:
+                while chunk := await fh.read(65536):
+                    yield chunk
+        return StreamingResponse(
+            _local_iter(path),
+            media_type=mapping.mime_type,
+            headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
+        )
     try:
         google_token = await _google_token_for_uid(mapping.google_user_id, db)
     except Exception as exc:
@@ -3137,7 +3160,8 @@ def _parse_scheduled_ts(scheduled_time: Optional[str]) -> Optional[int]:
 
 
 class DriveMediaItem(BaseModel):
-    drive_file_id: str
+    drive_file_id: str = ""
+    local_file_id: str = ""   # alternative: locally-uploaded file
     mime_type: str = "application/octet-stream"
     filename: str = "media"
 
@@ -3164,6 +3188,29 @@ def _compose_caption(caption: str, hashtags: list[str]) -> str:
     return caption or tags
 
 
+async def _resolve_media_bytes(m: DriveMediaItem, google_token: str) -> dict:
+    """Download bytes from Drive or read from local upload storage."""
+    if m.local_file_id:
+        # Local file: read from disk
+        path = Path("uploads") / m.local_file_id
+        if not path.exists():
+            # Try to find by scanning _session_uploads values
+            for uploads in _session_uploads.values():
+                entry = next((u for u in uploads if u["file_id"] == m.local_file_id), None)
+                if entry:
+                    path = Path(entry["path"])
+                    break
+        if not path.exists():
+            return {"success": False, "error": f"Local file {m.local_file_id} not found"}
+        try:
+            async with aiofiles.open(path, "rb") as fh:
+                data = await fh.read()
+            return {"success": True, "bytes": data}
+        except OSError as exc:
+            return {"success": False, "error": str(exc)}
+    return await google_api.download_drive_file(m.drive_file_id, google_token)
+
+
 async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_token: str) -> dict:
     if not item.page_id:
         return {"success": False, "error": "page_id required for facebook"}
@@ -3176,9 +3223,9 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     # Single video (REELS/VIDEO both post as a Page video)
     if len(item.media) == 1 and item.media_type in ("VIDEO", "REELS"):
         m = item.media[0]
-        dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+        dl = await _resolve_media_bytes(m, google_token)
         if not dl.get("success"):
-            return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+            return {"success": False, "error": f"Media download failed: {dl.get('error')}"}
         res = await meta_api.publish_page_video_bytes(
             page_token, item.page_id, dl["bytes"], caption=caption,
             filename=m.filename, scheduled_publish_time=scheduled_ts,
@@ -3190,9 +3237,9 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     # Single photo
     if len(item.media) == 1 and item.media_type == "IMAGE":
         m = item.media[0]
-        dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+        dl = await _resolve_media_bytes(m, google_token)
         if not dl.get("success"):
-            return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+            return {"success": False, "error": f"Media download failed: {dl.get('error')}"}
         res = await meta_api.publish_page_photo_bytes(
             page_token, item.page_id, dl["bytes"], caption=caption,
             filename=m.filename, scheduled_publish_time=scheduled_ts,
@@ -3205,9 +3252,9 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     if item.media_type == "IMAGE":
         media_ids: list[str] = []
         for m in item.media:
-            dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+            dl = await _resolve_media_bytes(m, google_token)
             if not dl.get("success"):
-                return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+                return {"success": False, "error": f"Media download failed: {dl.get('error')}"}
             up = await meta_api.upload_unpublished_page_photo_bytes(
                 page_token, item.page_id, dl["bytes"], filename=m.filename
             )
@@ -3232,14 +3279,18 @@ async def _publish_instagram_drive(
         return {"success": False, "error": "instagram_id required for instagram"}
     if not item.media:
         return {"success": False, "error": "no media provided"}
-    if not google_uid:
+    # google_uid only required if any media item comes from Drive (not local)
+    has_drive = any(m.drive_file_id and not m.local_file_id for m in item.media)
+    if has_drive and not google_uid:
         return {"success": False, "error": "Google Drive must be connected"}
     caption = _compose_caption(item.caption, item.hashtags)
     base = settings.meta_graph_base_url
     minted: list[str] = []
 
     async def _mint(m: DriveMediaItem) -> str:
-        tok = await media_bridge.mint_media_token(db, m.drive_file_id, google_uid, m.mime_type, m.filename)
+        # For local uploads, store as "local:<file_id>" so the proxy reads from disk.
+        file_ref = f"local:{m.local_file_id}" if m.local_file_id else m.drive_file_id
+        tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", m.mime_type, m.filename)
         # Commit immediately so the public /media endpoint (a separate request,
         # possibly on another worker) can resolve the token when Meta fetches it.
         await db.commit()
@@ -3565,6 +3616,108 @@ async def api_posting_drive_preview(
         media_type=safe_mime,
         headers={"Cache-Control": "private, max-age=300"},
     )
+
+
+@app.get("/api/posting/drive/browse")
+async def api_posting_drive_browse(
+    request: Request,
+    folder_id: str = "root",
+    db: AsyncSession = Depends(get_db),
+):
+    """List folders (and optionally media files) inside a Drive folder for the in-chat browser."""
+    google_token = await get_google_token(request, db)
+    query = f"'{folder_id}' in parents and trashed=false"
+    result = await google_api.list_drive_files(google_token, query=query)
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error") or "Drive listing failed")
+    items = [
+        {
+            "id": f["id"],
+            "name": f.get("name", ""),
+            "mimeType": f.get("mimeType", ""),
+            "size": f.get("size"),
+            "isFolder": f.get("mimeType") == "application/vnd.google-apps.folder",
+            "isMedia": f.get("mimeType", "").startswith(("image/", "video/")),
+            "modifiedTime": f.get("modifiedTime"),
+        }
+        for f in result["files"]
+    ]
+    items.sort(key=lambda x: (not x["isFolder"], x["name"].lower()))
+    return {"items": items, "folder_id": folder_id}
+
+
+@app.post("/api/posting/upload/local")
+@limiter.limit("20/minute")
+async def api_posting_upload_local(
+    request: Request,
+    files: list[UploadFile] = File(...),
+):
+    """Upload files from the user's device for use in the posting wizard.
+
+    Returns media items in the same shape as Drive scan results so the
+    frontend can feed them straight into _uwRenderPreview().
+    """
+    session = get_session(request)
+    session_key = session.get("meta_user_id", "anon")
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    media = []
+    for f in files:
+        if not validate_file_extension(f.filename or ""):
+            continue
+        file_bytes = await f.read()
+        if len(file_bytes) > max_bytes:
+            continue
+        if not validate_mime_type(file_bytes, f.filename or ""):
+            continue
+        result = await process_uploaded_file(file_bytes, f.filename or "upload")
+        if not result.get("success"):
+            continue
+        file_id = result["stored_path"].split("/")[-1]
+        upload_info = {
+            "file_id": file_id,
+            "name": result["original_name"],
+            "type": result["file_type"],
+            "path": result["stored_path"],
+            "sha256": result["sha256"],
+        }
+        _session_uploads.setdefault(session_key, []).append(upload_info)
+        mime = f.content_type or ("video/mp4" if result["file_type"] == "video" else "image/jpeg")
+        media.append({
+            "id": f"local:{file_id}",
+            "name": result["original_name"],
+            "mime_type": mime,
+            "size": len(file_bytes),
+            "is_video": result["file_type"] == "video",
+            "local_file_id": file_id,
+        })
+    return {"media": media, "captions": []}
+
+
+@app.get("/api/posting/local/preview/{file_id}")
+async def api_posting_local_preview(file_id: str, request: Request):
+    """Serve a locally-uploaded file as an inline preview image."""
+    session = get_session(request)
+    session_key = session.get("meta_user_id", "anon")
+    uploads = _session_uploads.get(session_key, [])
+    entry = next((u for u in uploads if u["file_id"] == file_id), None)
+    if not entry:
+        raise HTTPException(404, "File not found")
+    path = Path(entry["path"])
+    if not path.exists():
+        raise HTTPException(404, "File not found on disk")
+    mime = "image/jpeg"
+    suffix = path.suffix.lower()
+    if suffix in (".png",):
+        mime = "image/png"
+    elif suffix in (".gif",):
+        mime = "image/gif"
+    elif suffix in (".webp",):
+        mime = "image/webp"
+    async def _iter():
+        async with aiofiles.open(path, "rb") as fh:
+            while chunk := await fh.read(65536):
+                yield chunk
+    return StreamingResponse(_iter(), media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
 
 class PublishFacebookRequest(BaseModel):
