@@ -3107,6 +3107,14 @@ async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(
         raise HTTPException(502, result.get("error", "Meta API error"))
     raw = result["data"]
     pages = raw["data"] if isinstance(raw, dict) else raw
+    # Flatten the nested picture object so the frontend gets a plain URL.
+    out_pages = []
+    for page in pages:
+        pic = (page.get("picture") or {}).get("data", {}).get("url", "")
+        out_pages.append({
+            **page,
+            "picture_url": pic,
+        })
     ig_accounts = []
     for page in pages:
         iba = page.get("instagram_business_account")
@@ -3115,10 +3123,11 @@ async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(
                 "id": iba["id"],
                 "name": iba.get("name", ""),
                 "username": iba.get("username", ""),
+                "picture_url": iba.get("profile_picture_url", ""),
                 "page_id": page["id"],
                 "page_name": page.get("name", ""),
             })
-    return {"pages": pages, "ig_accounts": ig_accounts}
+    return {"pages": out_pages, "ig_accounts": ig_accounts}
 
 
 # ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
@@ -4112,15 +4121,22 @@ async def api_posting_calendar(
     year: int,
     month: int,
     request: Request,
+    platform: str = "facebook",
     db: AsyncSession = Depends(get_db),
 ):
-    """Calendar data for a page/month: scheduled posts from DB + published posts from Meta API."""
+    """Calendar data for a page/month: scheduled posts from DB + published posts from Meta API.
+
+    Works for both Facebook Pages (reads /{page}/feed) and Instagram Business
+    accounts (reads /{ig}/media). Every entry is tagged with its platform so
+    the UI can show the right icon.
+    """
     import calendar as _cal
     from datetime import timezone as _tz
 
     _, last_day = _cal.monthrange(year, month)
     month_start = datetime(year, month, 1, tzinfo=_tz.utc)
     month_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=_tz.utc)
+    is_instagram = platform == "instagram"
 
     sched_result = await db.execute(
         select(ScheduledPost).where(
@@ -4135,25 +4151,53 @@ async def api_posting_calendar(
     published: list = []
     try:
         token = await get_posting_token(request, db)
-        async with httpx.AsyncClient(timeout=15) as client:
-            page_r = await client.get(
-                f"{settings.meta_graph_base_url}/{page_id}",
-                params={"fields": "access_token", "access_token": token},
-            )
-        page_token = page_r.json().get("access_token", token) if page_r.status_code == 200 else token
-        async with httpx.AsyncClient(timeout=20) as client:
-            feed_r = await client.get(
-                f"{settings.meta_graph_base_url}/{page_id}/feed",
-                params={
-                    "fields": "id,message,created_time,story,full_picture",
-                    "since": int(month_start.timestamp()),
-                    "until": int(month_end.timestamp()),
-                    "limit": 100,
-                    "access_token": page_token,
-                },
-            )
-        if feed_r.status_code == 200:
-            published = feed_r.json().get("data", [])
+        if is_instagram:
+            # IG media is read with the access token of the Page that owns the
+            # account, so resolve that page token first.
+            page_token = token
+            try:
+                cache_key = get_session(request).get("posting_user_id") or hashlib.sha256(token.encode()).hexdigest()[:16]
+                pages_res = await _get_pages_cached(token, cache_key)
+                if pages_res.get("success"):
+                    raw = pages_res["data"]
+                    for pg in (raw["data"] if isinstance(raw, dict) else raw):
+                        iba = pg.get("instagram_business_account") or {}
+                        if iba.get("id") == page_id:
+                            page_token = pg.get("access_token", token)
+                            break
+            except Exception:
+                pass
+            async with httpx.AsyncClient(timeout=20) as client:
+                media_r = await client.get(
+                    f"{settings.meta_graph_base_url}/{page_id}/media",
+                    params={
+                        "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
+                        "limit": 100,
+                        "access_token": page_token,
+                    },
+                )
+            if media_r.status_code == 200:
+                published = media_r.json().get("data", [])
+        else:
+            async with httpx.AsyncClient(timeout=15) as client:
+                page_r = await client.get(
+                    f"{settings.meta_graph_base_url}/{page_id}",
+                    params={"fields": "access_token", "access_token": token},
+                )
+            page_token = page_r.json().get("access_token", token) if page_r.status_code == 200 else token
+            async with httpx.AsyncClient(timeout=20) as client:
+                feed_r = await client.get(
+                    f"{settings.meta_graph_base_url}/{page_id}/feed",
+                    params={
+                        "fields": "id,message,created_time,story,full_picture,permalink_url",
+                        "since": int(month_start.timestamp()),
+                        "until": int(month_end.timestamp()),
+                        "limit": 100,
+                        "access_token": page_token,
+                    },
+                )
+            if feed_r.status_code == 200:
+                published = feed_r.json().get("data", [])
     except HTTPException:
         pass
 
@@ -4164,23 +4208,39 @@ async def api_posting_calendar(
             days.setdefault(day, {"scheduled": [], "published": []})
             days[day]["scheduled"].append({
                 "id": p.id,
-                "caption": (p.caption or "")[:120],
+                "caption": (p.caption or "")[:140],
                 "time": p.scheduled_time.isoformat(),
                 "platform": p.platform,
+                "media_type": p.media_type,
             })
     for p in published:
-        ct = p.get("created_time", "")
+        # Normalise FB-feed vs IG-media shapes into one entry.
+        if is_instagram:
+            ct = p.get("timestamp", "")
+            entry = {
+                "id": p.get("id"),
+                "message": (p.get("caption") or "")[:140],
+                "created_time": ct,
+                "image": p.get("thumbnail_url") or p.get("media_url"),
+                "permalink": p.get("permalink"),
+                "platform": "instagram",
+            }
+        else:
+            ct = p.get("created_time", "")
+            entry = {
+                "id": p.get("id"),
+                "message": (p.get("message") or p.get("story", ""))[:140],
+                "created_time": ct,
+                "image": p.get("full_picture"),
+                "permalink": p.get("permalink_url"),
+                "platform": "facebook",
+            }
         if ct:
             try:
                 dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
                 day = str(dt.day)
                 days.setdefault(day, {"scheduled": [], "published": []})
-                days[day]["published"].append({
-                    "id": p.get("id"),
-                    "message": (p.get("message") or p.get("story", ""))[:120],
-                    "created_time": ct,
-                    "image": p.get("full_picture"),
-                })
+                days[day]["published"].append(entry)
             except Exception:
                 pass
 
