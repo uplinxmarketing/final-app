@@ -4364,11 +4364,57 @@ async def api_posting_calendar(
 async def api_posting_feed(
     page_id: str,
     limit: int = 20,
+    platform: str = "facebook",
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Published posts feed for a Facebook page."""
+    """Published posts feed for a Facebook Page or Instagram account.
+
+    Returns a normalised list of ``{message, created_time, full_picture,
+    permalink_url, platform}`` entries so the frontend can render FB and IG
+    feeds with the same card markup.
+    """
     token = await get_posting_token(request, db)
+
+    if platform == "instagram":
+        # IG media is read with the owning Page's token — resolve it first.
+        page_token = token
+        try:
+            cache_key = get_session(request).get("posting_user_id") or hashlib.sha256(token.encode()).hexdigest()[:16]
+            pages_res = await _get_pages_cached(token, cache_key)
+            if pages_res.get("success"):
+                raw = pages_res["data"]
+                for pg in (raw["data"] if isinstance(raw, dict) else raw):
+                    iba = pg.get("instagram_business_account") or {}
+                    if iba.get("id") == page_id:
+                        page_token = pg.get("access_token", token)
+                        break
+        except Exception:
+            pass
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                f"{settings.meta_graph_base_url}/{page_id}/media",
+                params={
+                    "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
+                    "limit": min(limit, 50),
+                    "access_token": page_token,
+                },
+            )
+        if r.status_code != 200:
+            err = r.json().get("error", {}).get("message", "Failed to load Instagram feed")
+            raise HTTPException(502, err)
+        return [
+            {
+                "id": p.get("id"),
+                "message": p.get("caption") or "",
+                "created_time": p.get("timestamp", ""),
+                "full_picture": p.get("thumbnail_url") or p.get("media_url"),
+                "permalink_url": p.get("permalink"),
+                "platform": "instagram",
+            }
+            for p in r.json().get("data", [])
+        ]
+
     async with httpx.AsyncClient(timeout=15) as client:
         page_r = await client.get(
             f"{settings.meta_graph_base_url}/{page_id}",
@@ -4387,7 +4433,7 @@ async def api_posting_feed(
     if r.status_code != 200:
         err = r.json().get("error", {}).get("message", "Failed to load feed")
         raise HTTPException(502, err)
-    return r.json().get("data", [])
+    return [{**p, "platform": "facebook"} for p in r.json().get("data", [])]
 
 
 # ── Scheduled posts ────────────────────────────────────────────────────────────
