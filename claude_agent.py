@@ -89,7 +89,9 @@ _META_WORD_RE = _re.compile(
     r'meta\s+ads?|impression|cpm|cpc|ctr|roas|budget|audience|targeting|placement|'
     r'schedule|reel|upload|analytics|report|spend|conversion|lead|traffic|awareness|'
     r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload|'
-    r'google\s+drive|drive\.google|drive\s+link|drive\s+folder)\b',
+    r'google\s+drive|drive\.google|drive\s+link|drive\s+folder|'
+    r'google\s+doc|google\s+sheet|spreadsheet|docs\.google|sheets\.google|'
+    r'drive\.google\.com|gdoc|gsheet)\b',
     _re.IGNORECASE,
 )
 
@@ -98,20 +100,109 @@ def _is_meta_request(message: str) -> bool:
     """Return True when the message is likely asking for a Meta Ads action."""
     return bool(_META_WORD_RE.search(message))
 
-# Lean prompt used when no Meta account is connected (~30 tokens).
+
+# Tool groups used to send only the relevant subset of tools per message.
+# Sending all ~24 tool schemas costs ~3 700 input tokens *per agentic turn*, and
+# Groq/OpenAI have no prompt caching, so trimming this is the single biggest
+# token saving for tool-using chats.
+_TOOL_GROUPS = {
+    "discovery": ["list_ad_accounts", "list_pages", "list_pixels"],
+    "drive": [
+        "read_google_doc", "read_google_sheet", "read_google_drive_folder",
+        "read_pdf", "read_local_folder", "match_post_story_pairs",
+        "upload_ads_from_drive",
+    ],
+    "campaigns": [
+        "create_campaign", "get_campaigns", "pause_campaign",
+        "activate_campaign", "delete_campaign", "create_ad_set",
+    ],
+    "ads": ["upload_single_ad", "upload_multiple_ads"],
+    "analytics": ["get_performance_report", "get_campaign_performance"],
+    "posting": [
+        "schedule_post", "schedule_reel", "get_scheduled_posts",
+        "cancel_scheduled_post",
+    ],
+}
+
+_GROUP_PATTERNS = {
+    "drive": _re.compile(r"\b(drive|google\s+doc|google\s+sheet|docs\.google|sheets\.google|spreadsheet|pdf|folder|file|document)\b", _re.IGNORECASE),
+    "campaigns": _re.compile(r"\b(campaign|ad\s*set|adset|objective|budget|pause|activate|delete|create|targeting)\b", _re.IGNORECASE),
+    "ads": _re.compile(r"\b(upload|creative|ad\s+image|new\s+ad|ads?\b)\b", _re.IGNORECASE),
+    "analytics": _re.compile(r"\b(report|performance|analytics|spend|roas|cpm|cpc|ctr|impression|conversion|metrics?)\b", _re.IGNORECASE),
+    "posting": _re.compile(r"\b(schedule|post|reel|publish|caption|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
+}
+
+
+def _select_tool_names(message: str) -> set[str]:
+    """Return the subset of tool names relevant to *message*.
+
+    Discovery tools (list_*) are always included since the model often needs
+    to resolve account/page IDs. Other groups are added only when the message
+    matches their keyword pattern. If nothing matches we return an empty set so
+    the caller can fall back to the full tool list.
+    """
+    selected: set[str] = set()
+    for group, pattern in _GROUP_PATTERNS.items():
+        if pattern.search(message):
+            selected.update(_TOOL_GROUPS[group])
+    if selected:
+        selected.update(_TOOL_GROUPS["discovery"])
+    return selected
+
+# Lean prompt used when no accounts are connected (~30 tokens).
 _LEAN_SYSTEM_PROMPT = (
     "You are Uplinx AI, a helpful assistant. "
     "Reply to every message clearly and concisely. "
-    "Connect a Meta account to unlock ad management tools."
+    "Connect a Meta or Google account to unlock ad management and Drive tools."
 )
 
-# Full prompt used when Meta IS connected.
+# Full prompt used when Meta or Google IS connected.
 BASE_SYSTEM_PROMPT = """You are Uplinx AI — a helpful assistant and expert Meta Ads manager.
 
-When Meta is connected you have tools for campaigns, ad sets, creatives, post scheduling, \
-and performance analytics. Only call tools for explicit Meta actions; reply directly otherwise.
+You have tools available for these categories:
+- **Meta Ads** (when Meta is connected): campaigns, ad sets, creatives, post scheduling, analytics
+- **Google Drive** (when Google Drive is connected): upload_ads_from_drive, read_google_doc, read_google_sheet
+- **File reading**: read_pdf, read_local_folder, match_post_story_pairs
+
+IMPORTANT — GOOGLE DRIVE TOOLS:
+When the user provides a Google Drive URL, Google Doc link, or Google Sheet link, you MUST \
+call the appropriate tool (upload_ads_from_drive, read_google_doc, or read_google_sheet). \
+Do NOT say you cannot access external files — you have tools specifically for this. \
+Never respond with "I don't have access to Google Drive" when a Drive URL is provided.
+
+Only call tools when the user explicitly asks for an action; reply directly for questions.
 Use the Active Context IDs below — never invent account data.
-Confirm before destructive actions. Be concise."""
+
+EFFICIENCY — avoid wasted tool calls:
+If a tool requires information you don't have (e.g. a specific Drive folder URL, an ad set ID), \
+ask the user for it in plain text FIRST. Do NOT call a tool with missing or guessed arguments. \
+If a tool call returns an error, do NOT immediately retry the same call — explain the problem \
+and ask the user for what's needed.
+
+CRITICAL SAFETY RULE — DESTRUCTIVE ACTIONS:
+You must NEVER delete, remove, archive, or otherwise destroy anything (campaigns, ad sets, \
+ads, creatives, posts, accounts, or any other resource) without first getting EXPLICIT \
+approval from the user in their own message. Before any such action you must:
+  1. Clearly state exactly what will be deleted/removed (name and ID).
+  2. Ask the user to confirm in plain words.
+  3. Only after the user explicitly says yes (e.g. "yes, delete it") may you call the \
+destructive tool, and only then set user_approved=true.
+Never assume approval. Never set user_approved=true on your own. A vague or ambiguous \
+request is NOT approval — ask again. The system will block any destructive tool call that \
+is not explicitly approved by the user.
+
+Be concise."""
+
+# Substrings that mark a tool as destructive. Any tool whose name contains one of
+# these is hard-blocked unless the call carries an explicit user_approved=true flag.
+# Matching by substring means future delete/remove tools are covered automatically.
+_DESTRUCTIVE_TOOL_MARKERS = ("delete", "remove", "archive", "destroy", "purge")
+
+
+def _is_destructive_tool(tool_name: str) -> bool:
+    name = (tool_name or "").lower()
+    return any(marker in name for marker in _DESTRUCTIVE_TOOL_MARKERS)
+
 
 # Maximum number of agentic turns before aborting to prevent runaway loops
 _MAX_AGENTIC_TURNS = 20
@@ -301,11 +392,11 @@ class ClaudeAgent:
         from security import FernetEncryption
 
         meta_uid = (session_data or {}).get("meta_user_id", "")
+        google_uid = (session_data or {}).get("google_user_id", "")
+        posting_uid = (session_data or {}).get("posting_user_id", "")
 
-        # Fast-path: no Meta account → use the lean prompt and return immediately.
-        # Skips BASE_SYSTEM_PROMPT, all DB queries, skills, and custom instructions.
-        # Drops input tokens from ~220 → ~30 for pure general-chat sessions.
-        if not meta_uid:
+        # Fast-path: no Meta, Google, or Posting account → use the lean prompt and return immediately.
+        if not meta_uid and not google_uid and not posting_uid:
             return _LEAN_SYSTEM_PROMPT
 
         parts: list[str] = [BASE_SYSTEM_PROMPT]
@@ -404,6 +495,64 @@ class ClaudeAgent:
             except Exception as exc:
                 logger.debug("Could not load client ad accounts: %s", exc)
 
+        # ── 3b. Google Drive connection status ───────────────────────────────
+        if google_uid:
+            parts.append(
+                "\n## Google Drive\n"
+                "Google Drive IS connected. You have access to these tools:\n"
+                "- read_google_drive_folder: list files in a Drive folder by URL\n"
+                "- upload_ads_from_drive: upload ads directly from a Drive folder URL\n"
+                "- read_google_doc: read the full text of a Google Doc\n"
+                "- read_google_sheet: read data from a Google Sheet\n"
+                "When a user provides any drive.google.com or docs.google.com URL, call the appropriate tool immediately."
+            )
+
+        # ── 3c. Posting account ──────────────────────────────────────────────
+        if posting_uid:
+            try:
+                from database import ConnectedPostingAccount as _CPA
+                posting_res = await db.execute(
+                    select(_CPA).where(
+                        _CPA.facebook_user_id == posting_uid,
+                        _CPA.is_active == True,
+                    )
+                )
+                posting_acc = posting_res.scalar_one_or_none()
+                posting_lines = ["\n## Posting Account"]
+                if posting_acc:
+                    posting_lines.append(f"Connected posting account: {posting_acc.user_name or posting_uid}")
+                posting_lines.append(
+                    "This session is for content posting (Facebook Pages & Instagram), NOT ad campaigns. "
+                    "Do NOT ask for an ad account ID — it is not needed here. "
+                    "Help the user draft captions, schedule posts, create content, and manage their pages."
+                )
+                # List the actual Pages & Instagram accounts this account manages so
+                # the AI can reference them by name/ID instead of asking the user.
+                if posting_acc:
+                    try:
+                        enc = FernetEncryption()
+                        ptoken = enc.decrypt(posting_acc.encrypted_long_token)
+                        pages_result = await meta_api.get_pages(ptoken)
+                        if pages_result.get("success"):
+                            raw_pages = pages_result["data"]
+                            page_list = raw_pages["data"] if isinstance(raw_pages, dict) else raw_pages
+                            page_lines = []
+                            for p in page_list[:15]:
+                                page_lines.append(f"  - Facebook Page: {p.get('name','?')} | ID: {p.get('id','?')}")
+                            if page_lines:
+                                posting_lines.append("Available pages this account manages:")
+                                posting_lines.extend(page_lines)
+                                posting_lines.append(
+                                    "You CAN reference and use these pages directly — they are authorized for this account."
+                                )
+                    except Exception as exc:
+                        logger.debug("Could not pre-load posting pages: %s", exc)
+                if ctx and ctx.selected_page_id:
+                    posting_lines.append(f"Currently selected page/account ID: {ctx.selected_page_id}")
+                parts.append("\n".join(posting_lines))
+            except Exception as exc:
+                logger.debug("Could not load posting account info: %s", exc)
+
         # ── 4. Skills ──────────────────────────────────────────────────────
         try:
             skills = await load_skills_for_conversation(conversation_id, client_id, db)
@@ -489,13 +638,22 @@ class ClaudeAgent:
         if not messages or messages[-1].get("content") != user_message:
             messages.append({"role": "user", "content": user_message})
 
-        # Only expose Meta tools when a Meta account is linked AND the message
-        # looks like a Meta Ads request.  For general chat we skip the tools
-        # entirely — they add ~1 500 input tokens every time and trigger the AI
-        # to run account lookups instead of just replying.
+        # Only expose tools when an account is linked AND the message looks like
+        # an actionable request.  For general chat we skip tools entirely — they
+        # add ~1 500 input tokens every time and trigger the AI to run lookups
+        # instead of just replying.
         meta_connected = bool(session_data.get("meta_user_id"))
-        use_tools = meta_connected and _is_meta_request(user_message)
-        tool_definitions = self.get_tool_definitions() if use_tools else []
+        google_connected = bool(session_data.get("google_user_id"))
+        use_tools = (meta_connected or google_connected) and _is_meta_request(user_message)
+        if use_tools:
+            all_defs = self.get_tool_definitions()
+            wanted = _select_tool_names(user_message)
+            # Send only the relevant subset; fall back to all if nothing matched.
+            tool_definitions = (
+                [d for d in all_defs if d["name"] in wanted] if wanted else all_defs
+            )
+        else:
+            tool_definitions = []
 
         # Use a larger output budget for task-like requests; keep it tight for chat.
         effective_max_tokens = 4096 if use_tools else self.max_tokens
@@ -885,6 +1043,25 @@ class ClaudeAgent:
         """
         logger.info("Executing tool: %s  input_keys=%s", tool_name, list(tool_input.keys()))
 
+        # ── Forced safety gate: destructive actions require explicit approval ──
+        # This is a hard block independent of the system prompt. Even if the model
+        # ignores its instructions, a delete/remove/archive call cannot proceed
+        # unless the user explicitly approved it (user_approved=true in the call).
+        if _is_destructive_tool(tool_name):
+            approved = tool_input.get("user_approved")
+            if approved is not True and str(approved).lower() not in ("true", "yes", "1"):
+                logger.warning("Blocked destructive tool '%s' — no explicit user approval", tool_name)
+                return json.dumps({
+                    "error": "approval_required",
+                    "tool": tool_name,
+                    "message": (
+                        "This is a destructive action and was BLOCKED. You must first tell "
+                        "the user exactly what will be deleted (name and ID) and ask them to "
+                        "confirm. Only after the user explicitly approves in their own message "
+                        "may you retry this tool with user_approved=true. Do not approve it yourself."
+                    ),
+                })
+
         try:
             # Import lazily to avoid circular imports at module load time
             import mcp_server  # type: ignore[import]
@@ -896,6 +1073,9 @@ class ClaudeAgent:
             # MCP tools use session_id (facebook_user_id) to look up tokens
             # themselves — do NOT pass db/session_data as kwargs.
             call_kwargs = dict(tool_input)
+            # The approval flag is consumed by the safety gate above; MCP handlers
+            # don't accept it, so strip it before dispatch.
+            call_kwargs.pop("user_approved", None)
             if "session_id" not in call_kwargs:
                 call_kwargs["session_id"] = session_data.get("meta_user_id", "")
             result = await handler(**call_kwargs)
@@ -1094,8 +1274,11 @@ class ClaudeAgent:
             {
                 "name": "delete_campaign",
                 "description": (
-                    "Permanently delete a Meta campaign. "
-                    "Always confirm with the user before calling this."
+                    "Permanently delete a Meta campaign. DESTRUCTIVE ACTION: you must first "
+                    "tell the user exactly which campaign (name and ID) will be deleted and "
+                    "get their explicit confirmation in their own message. Only set "
+                    "user_approved=true after the user has clearly said yes. The system blocks "
+                    "this call unless user_approved=true."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -1103,9 +1286,17 @@ class ClaudeAgent:
                         "campaign_id": {
                             "type": "string",
                             "description": "Campaign ID to delete.",
-                        }
+                        },
+                        "user_approved": {
+                            "type": "boolean",
+                            "description": (
+                                "Must be true and is only allowed after the user has "
+                                "explicitly approved this specific deletion in their own "
+                                "message. Never set this on your own initiative."
+                            ),
+                        },
                     },
-                    "required": ["campaign_id"],
+                    "required": ["campaign_id", "user_approved"],
                 },
             },
             # ----------------------------------------------------------
@@ -1544,6 +1735,25 @@ class ClaudeAgent:
                         }
                     },
                     "required": ["file_path"],
+                },
+            },
+            {
+                "name": "read_google_drive_folder",
+                "description": (
+                    "List files inside a Google Drive folder by URL. "
+                    "Returns file names, types, and IDs. "
+                    "Use this to inspect what images or documents are in a Drive folder "
+                    "before calling upload_ads_from_drive."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "folder_url": {
+                            "type": "string",
+                            "description": "Google Drive folder URL (drive.google.com/drive/folders/...).",
+                        }
+                    },
+                    "required": ["folder_url"],
                 },
             },
             {

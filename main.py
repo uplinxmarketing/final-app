@@ -9,7 +9,7 @@ import hashlib
 import secrets
 import urllib.parse
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -89,6 +89,43 @@ def _verify_password(pw: str, hashed: str) -> bool:
 
 _bg_tasks: list[asyncio.Task] = []
 
+async def _load_settings_from_db() -> None:
+    """Reload persisted API keys / config from the DB into the live settings.
+
+    On Render (ephemeral filesystem) the .env file is wiped on every redeploy,
+    so the DB is the durable source of truth. Values already present in the
+    environment / .env take precedence (env vars set in the Render dashboard
+    should win), so we only fill in keys that are currently empty.
+    """
+    try:
+        from database import load_app_settings
+        async for db in get_db():
+            stored = await load_app_settings(db)
+            break
+    except Exception as exc:
+        logger.error(f"Could not load settings from DB: {exc}")
+        return
+    if not stored:
+        return
+    applied = []
+    for key, value in stored.items():
+        if not value:
+            continue
+        # Don't override a value already provided via the environment / .env.
+        current = getattr(settings, key, "")
+        if current:
+            continue
+        if hasattr(settings, key):
+            setattr(settings, key, value)
+            applied.append(key)
+    if applied:
+        logger.info("Loaded %d setting(s) from DB: %s", len(applied), ", ".join(applied))
+        try:
+            agent._init_client()
+        except Exception as exc:
+            logger.warning("Could not re-init agent after DB settings load: %s", exc)
+
+
 async def _deferred_startup() -> None:
     """All seeding and CRM init — runs in background 3s after server starts."""
     await asyncio.sleep(3)
@@ -155,6 +192,12 @@ async def lifespan(app: FastAPI):
         await _recover_stale_jobs()
     except Exception as _exc:
         logger.error(f"stale job recovery error (non-fatal): {_exc}")
+    # Restore persisted API keys from the DB before serving requests, so the AI
+    # agent works immediately after a redeploy (Render wipes the .env file).
+    try:
+        await _load_settings_from_db()
+    except Exception as _exc:
+        logger.error(f"settings reload error (non-fatal): {type(_exc).__name__}: {_exc}")
     _bg_tasks.append(asyncio.create_task(_deferred_startup()))
     _bg_tasks.append(asyncio.create_task(_cleanup_uploads_loop()))
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
@@ -499,11 +542,11 @@ SESSION_COOKIE = "uplinx_session"
 LOGIN_COOKIE = "uplinx_login"
 PUBLIC_PATHS = {"/health", "/", "/ads", "/auth/meta", "/auth/meta/callback",
                 "/auth/meta/posting", "/auth/meta/posting/callback",
-                "/auth/google", "/auth/google/callback", "/setup",
+                "/auth/google", "/auth/google/callback", "/auth/done", "/setup",
                 "/api/accounts/meta/token", "/api/accounts/posting/token",
                 "/login", "/api/login", "/api/logout",
                 "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-                "/api/auth/emergency-reset"}
+                "/api/auth/emergency-reset", "/api/posting/debug", "/privacy"}
 
 
 def _login_token() -> str:
@@ -547,9 +590,14 @@ async def login_guard(request: Request, call_next):
             or path.startswith("/media/")       # public media proxy (Meta fetches IG media)
             or path.startswith("/static/")):
         return await call_next(request)
-    token = request.cookies.get(LOGIN_COOKIE)
-    expected = _login_token()
-    if not token or not secrets.compare_digest(token, expected):
+    # Accept either the legacy login cookie (master password) OR a valid per-user
+    # session cookie (set by admin SSO login). This means users who log in via the
+    # admin panel don't also need to enter the master password.
+    login_token = request.cookies.get(LOGIN_COOKIE)
+    session_token = request.cookies.get(SESSION_COOKIE)
+    has_login_cookie = login_token and secrets.compare_digest(login_token, _login_token())
+    has_session = bool(verify_session_token(session_token) if session_token else None)
+    if not has_login_cookie and not has_session:
         if path.startswith("/api/"):
             return JSONResponse({"error": "Login required"}, status_code=403)
         return RedirectResponse("/login")
@@ -558,6 +606,20 @@ async def login_guard(request: Request, call_next):
 
 def get_session(request: Request) -> dict:
     return getattr(request.state, "session", {})
+
+
+def _token_expired(token_expiry) -> bool:
+    """Timezone-safe expiry check.
+
+    Stored token_expiry may be timezone-aware (e.g. ``+00:00``) while
+    ``datetime.utcnow()`` is naive — comparing the two raises a TypeError.
+    Normalize both to aware UTC before comparing.
+    """
+    if not token_expiry:
+        return False
+    if token_expiry.tzinfo is None:
+        token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+    return token_expiry < datetime.now(timezone.utc)
 
 
 async def get_meta_token(request: Request, db: AsyncSession) -> str:
@@ -575,7 +637,7 @@ async def get_meta_token(request: Request, db: AsyncSession) -> str:
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(401, "Meta account not found")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+    if _token_expired(acc.token_expiry):
         raise HTTPException(401, "Meta token expired — please reconnect")
     acc.last_used_at = datetime.utcnow()
     await db.commit()
@@ -598,7 +660,7 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(401, "Google account not found")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+    if _token_expired(acc.token_expiry):
         refresh = await google_api.refresh_access_token(
             encryption.decrypt(acc.encrypted_refresh_token),
             settings.GOOGLE_CLIENT_ID,
@@ -612,21 +674,36 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
     return encryption.decrypt(acc.encrypted_access_token)
 
 async def get_posting_token(request: Request, db: AsyncSession) -> str:
-    """Decrypt and return the active Posting Meta access token."""
+    """Decrypt and return the active Posting Meta access token.
+
+    Prefers the posting account tied to the current session. If the session
+    doesn't carry a posting_user_id (e.g. connected in a popup/other tab, or a
+    fresh login after the account was already stored), fall back to the most
+    recently used active posting account — consistent with the app-wide,
+    non-session-scoped posting account listing.
+    """
     session = get_session(request)
     uid = session.get("posting_user_id")
-    if not uid:
-        raise HTTPException(401, "Posting account not connected")
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(
-            ConnectedPostingAccount.facebook_user_id == uid,
-            ConnectedPostingAccount.is_active == True,
+    acc = None
+    if uid:
+        result = await db.execute(
+            select(ConnectedPostingAccount).where(
+                ConnectedPostingAccount.facebook_user_id == uid,
+                ConnectedPostingAccount.is_active == True,
+            )
         )
-    )
-    acc = result.scalar_one_or_none()
+        acc = result.scalar_one_or_none()
+    if acc is None:
+        # Fallback: any active posting account (most recently created first).
+        result = await db.execute(
+            select(ConnectedPostingAccount)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        acc = result.scalars().first()
     if not acc:
-        raise HTTPException(401, "Posting account not found")
-    if acc.token_expiry and acc.token_expiry < datetime.utcnow():
+        raise HTTPException(401, "Posting account not connected")
+    if _token_expired(acc.token_expiry):
         raise HTTPException(401, "Posting token expired — please reconnect")
     acc.last_used_at = datetime.utcnow()
     await db.commit()
@@ -752,8 +829,13 @@ async def setup_page():
     return HTMLResponse("<h1>Setup page not found</h1>", status_code=500)
 
 @app.post("/api/setup/save")
-async def setup_save(req: SetupSaveRequest):
-    """Write provided keys into the .env file and reload settings."""
+async def setup_save(req: SetupSaveRequest, db: AsyncSession = Depends(get_db)):
+    """Write provided keys into the .env file, persist them to the DB, and reload settings.
+
+    The DB copy is the durable source of truth: on platforms with an ephemeral
+    filesystem (Render), the .env file is wiped on every redeploy, so keys are
+    reloaded from the DB on startup.
+    """
     env_path = Path(".env")
     if not env_path.exists():
         env_path.write_text("", encoding="utf-8")
@@ -788,6 +870,15 @@ async def setup_save(req: SetupSaveRequest):
             lines = _set_key(lines, key, value)
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # Persist to the DB (durable across redeploys on ephemeral filesystems).
+    try:
+        from database import save_app_setting
+        for key, value in pairs.items():
+            await save_app_setting(key, value, db)
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Could not persist settings to DB: %s", exc)
 
     # Update the live settings object in-place so _is_setup_complete()
     # returns True immediately without needing a server restart.
@@ -824,8 +915,8 @@ async def setup_save(req: SetupSaveRequest):
 
 
 @app.delete("/api/setup/key/{provider}")
-async def clear_api_key(provider: str):
-    """Remove a single AI provider key from .env and live settings."""
+async def clear_api_key(provider: str, db: AsyncSession = Depends(get_db)):
+    """Remove a single AI provider key from .env, the DB, and live settings."""
     env_key_map = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "groq": "GROQ_API_KEY"}
     env_key = env_key_map.get(provider)
     if not env_key:
@@ -835,6 +926,13 @@ async def clear_api_key(provider: str):
         lines = [l for l in env_path.read_text(encoding="utf-8").splitlines()
                  if not (l.startswith(f"{env_key}=") or l.startswith(f"{env_key} ="))]
         env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Also remove the durable DB copy so it isn't restored on next redeploy.
+    try:
+        from database import delete_app_setting
+        await delete_app_setting(env_key, db)
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Could not delete setting %s from DB: %s", env_key, exc)
     if provider == "anthropic":
         settings.ANTHROPIC_API_KEY = ""
     elif provider == "openai":
@@ -896,11 +994,36 @@ async def setup_status():
         "db_type": db_type,
     }
 
+@app.get("/api/setup/redirect-uris")
+async def setup_redirect_uris(request: Request):
+    """Return the EXACT OAuth redirect URIs this app sends, computed from the
+    live request host. Copy these verbatim into the Meta/Google dashboards."""
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    base = f"{scheme}://{host}"
+    return {
+        "detected_scheme": scheme,
+        "detected_host": host,
+        "meta_ads_redirect_uri": f"{base}/auth/meta/callback",
+        "meta_posting_redirect_uri": f"{base}/auth/meta/posting/callback",
+        "google_redirect_uri": f"{base}/auth/google/callback",
+        "app_domain": host,
+    }
+
+
 # ── Health & frontend ──────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page():
+    p = Path("frontend/privacy.html")
+    return HTMLResponse(p.read_text(encoding="utf-8") if p.exists() else "<h1>Privacy Policy</h1>")
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -1415,9 +1538,8 @@ async def frontend(request: Request):
 META_SCOPES = ",".join([
     "ads_management", "ads_read", "pages_show_list",
     "pages_read_engagement", "pages_manage_ads", "pages_manage_posts",
-    "read_insights", "instagram_basic", "instagram_content_publish",
-    "instagram_manage_insights", "instagram_manage_contents",
-    "publish_video", "business_management", "attribution_read",
+    "read_insights", "instagram_content_publish",
+    "instagram_manage_insights", "business_management",
 ])
 
 @app.get("/auth/meta")
@@ -1434,7 +1556,17 @@ async def auth_meta(
     then to the META_APP_ID environment variable.
     """
     app_id_val = ""
-    redirect_uri_val = settings.meta_redirect_uri
+    # Derive redirect_uri from the actual request host (respecting proxy
+    # X-Forwarded-* headers) so it always matches the live domain rather than a
+    # stale BASE_URL / localhost default.
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    redirect_uri_val = f"{scheme}://{host}/auth/meta/callback"
+    if host.startswith("localhost") or host.startswith("127.0.0.1"):
+        # Local dev — honour the configured value (may be a tunnel URL).
+        redirect_uri_val = settings.meta_redirect_uri
 
     if app:
         result = await db.execute(
@@ -1463,14 +1595,32 @@ async def auth_meta(
 
     state = generate_oauth_state()
     response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax")
-    params = urllib.parse.urlencode({
-        "client_id": app_id_val,
-        "redirect_uri": redirect_uri_val,
-        "scope": META_SCOPES,
-        "response_type": "code",
-        "state": state,
-    })
-    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+    response.set_cookie("oauth_meta_redirect_uri", redirect_uri_val, max_age=600, httponly=True, samesite="lax")
+
+    # Facebook Login for Business apps require the config_id flow (no scope —
+    # permissions come from the dashboard configuration). Classic apps use the
+    # scope-based flow. We pick based on whether a config_id is configured.
+    config_id = settings.META_CONFIG_ID.strip()
+    if config_id:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "config_id": config_id,
+            "redirect_uri": redirect_uri_val,
+            "response_type": "code",
+            "override_default_response_type": "true",
+            "state": state,
+        })
+        oauth_base = f"https://www.facebook.com/{settings.META_API_VERSION}/dialog/oauth"
+    else:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "redirect_uri": redirect_uri_val,
+            "scope": META_SCOPES,
+            "response_type": "code",
+            "state": state,
+        })
+        oauth_base = "https://www.facebook.com/dialog/oauth"
+    return RedirectResponse(f"{oauth_base}?{params}", headers=response.headers)
 
 @app.get("/auth/meta/callback")
 async def auth_meta_callback(
@@ -1504,9 +1654,11 @@ async def auth_meta_callback(
         except Exception:
             pass
 
-    # Exchange code → short-lived token
+    # Exchange code → short-lived token. Must reuse the exact redirect_uri sent
+    # in the authorize step (stored in a cookie), or Meta rejects the exchange.
+    _redirect_uri = request.cookies.get("oauth_meta_redirect_uri") or settings.meta_redirect_uri
     short = await meta_api.exchange_code_for_token(
-        code, _app_id, _app_secret, settings.meta_redirect_uri
+        code, _app_id, _app_secret, _redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
@@ -1561,9 +1713,12 @@ async def auth_meta_callback(
         db.add(acc)
     await db.commit()
 
-    # Create signed session
-    session_token = create_session_token({"meta_user_id": uid})
-    redirect = RedirectResponse("/?connected=meta")
+    # Merge meta_user_id into existing session so user auth cookie is preserved
+    existing_token = request.cookies.get(SESSION_COOKIE)
+    existing_session = verify_session_token(existing_token) if existing_token else {}
+    session_data = {**existing_session, "meta_user_id": uid}
+    session_token = create_session_token(session_data)
+    redirect = RedirectResponse("/auth/done?type=meta")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
         max_age=28800, httponly=True, samesite="lax"
@@ -1586,8 +1741,15 @@ async def auth_google(request: Request, response: Response):
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         return RedirectResponse("/?error=google_not_configured")
     state = generate_oauth_state()
-    # Derive redirect_uri from the actual request host so it works on any deployment
-    redirect_uri = f"{request.url.scheme}://{request.url.netloc}/auth/google/callback"
+    # Derive redirect_uri from the actual request host so it works on any deployment.
+    # Respect X-Forwarded-Proto/Host because proxies (Render, Fly, etc.) terminate
+    # TLS and forward to the app as plain HTTP — otherwise scheme would read "http"
+    # and Google would reject the https URI registered in the console.
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    redirect_uri = f"{scheme}://{host}/auth/google/callback"
     response.set_cookie("oauth_state_google", state, max_age=600, httponly=True, samesite="lax")
     response.set_cookie("google_redirect_uri", redirect_uri, max_age=600, httponly=True, samesite="lax")
     params = urllib.parse.urlencode({
@@ -1676,6 +1838,23 @@ async def auth_google_callback(
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
     return {"success": True}
+
+
+@app.get("/auth/done", response_class=HTMLResponse)
+async def auth_done(type: str = "meta"):
+    """OAuth completion page: closes popup and notifies opener, or redirects if no popup."""
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>Connected</title></head>
+<body><script>
+if (window.opener && !window.opener.closed) {{
+  window.opener.postMessage({{oauthConnected: '{type}'}}, window.location.origin);
+  window.close();
+}} else {{
+  window.location.href = '/?connected={type}';
+}}
+</script><p style="font-family:sans-serif;text-align:center;margin-top:40px">Connected! You can close this tab.</p></body></html>
+""")
+
 
 # ── Shared request models ──────────────────────────────────────────────────────
 
@@ -1898,9 +2077,7 @@ async def api_delete_meta_app(
 
 META_POSTING_SCOPES = ",".join([
     "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-    "instagram_basic", "instagram_content_publish",
-    "instagram_manage_insights", "instagram_manage_contents",
-    "publish_video",
+    "instagram_content_publish", "instagram_manage_insights",
 ])
 
 @app.get("/auth/meta/posting")
@@ -1912,6 +2089,14 @@ async def auth_meta_posting(
 ):
     """Initiate Meta OAuth for the Posting app."""
     app_id_val = ""
+    # Derive redirect_uri from the live request host (respecting proxy headers).
+    fwd_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    fwd_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = fwd_proto or request.url.scheme
+    host = fwd_host or request.url.netloc
+    posting_redirect_uri = f"{scheme}://{host}/auth/meta/posting/callback"
+    if host.startswith("localhost") or host.startswith("127.0.0.1"):
+        posting_redirect_uri = settings.meta_posting_redirect_uri
 
     if app:
         result = await db.execute(
@@ -1939,14 +2124,31 @@ async def auth_meta_posting(
 
     state = generate_oauth_state()
     response.set_cookie("oauth_state_posting", state, max_age=600, httponly=True, samesite="lax")
-    params = urllib.parse.urlencode({
-        "client_id": app_id_val,
-        "redirect_uri": settings.meta_posting_redirect_uri,
-        "scope": META_POSTING_SCOPES,
-        "response_type": "code",
-        "state": state,
-    })
-    return RedirectResponse(f"https://www.facebook.com/dialog/oauth?{params}", headers=response.headers)
+    response.set_cookie("oauth_posting_redirect_uri", posting_redirect_uri, max_age=600, httponly=True, samesite="lax")
+
+    # Same logic as the ads app: use the Business-login config_id flow when a
+    # configuration ID is set, otherwise the classic scope-based flow.
+    posting_config_id = settings.META_POSTING_CONFIG_ID.strip()
+    if posting_config_id:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "config_id": posting_config_id,
+            "redirect_uri": posting_redirect_uri,
+            "response_type": "code",
+            "override_default_response_type": "true",
+            "state": state,
+        })
+        oauth_base = f"https://www.facebook.com/{settings.META_API_VERSION}/dialog/oauth"
+    else:
+        params = urllib.parse.urlencode({
+            "client_id": app_id_val,
+            "redirect_uri": posting_redirect_uri,
+            "scope": META_POSTING_SCOPES,
+            "response_type": "code",
+            "state": state,
+        })
+        oauth_base = "https://www.facebook.com/dialog/oauth"
+    return RedirectResponse(f"{oauth_base}?{params}", headers=response.headers)
 
 
 @app.get("/auth/meta/posting/callback")
@@ -1980,8 +2182,9 @@ async def auth_meta_posting_callback(
         except Exception:
             pass
 
+    _posting_redirect_uri = request.cookies.get("oauth_posting_redirect_uri") or settings.meta_posting_redirect_uri
     short = await meta_api.exchange_code_for_token(
-        code, _papp_id, _papp_secret, settings.meta_posting_redirect_uri
+        code, _papp_id, _papp_secret, _posting_redirect_uri
     )
     if not short.get("success"):
         return RedirectResponse(f"/?error={urllib.parse.quote(short.get('error', 'token_exchange_failed'))}")
@@ -2033,11 +2236,12 @@ async def auth_meta_posting_callback(
         db.add(acc)
     await db.commit()
 
-    # Merge into existing session so both ads + posting IDs coexist
-    existing = get_session(request)
-    session_data = {**dict(existing), "posting_user_id": uid}
+    # Merge posting_user_id into existing session so user auth cookie is preserved
+    existing_token = request.cookies.get(SESSION_COOKIE)
+    existing_session = verify_session_token(existing_token) if existing_token else {}
+    session_data = {**existing_session, "posting_user_id": uid}
     session_token = create_session_token(session_data)
-    redirect = RedirectResponse("/?connected=posting")
+    redirect = RedirectResponse("/auth/done?type=posting")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
         max_age=28800, httponly=True, samesite="lax"
@@ -2745,6 +2949,94 @@ async def api_delete_campaign(campaign_id: str, request: Request, db: AsyncSessi
 
 # ── Posting-specific endpoints ────────────────────────────────────────────────
 
+@app.get("/api/posting/debug")
+async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)):
+    """Diagnostic: show granted permissions and raw pages result for the posting token."""
+    import traceback as _tb
+    out: dict = {"steps": {}}
+    # Step 1: resolve token
+    token = None
+    try:
+        token = await get_posting_token(request, db)
+        out["steps"]["get_token"] = "ok"
+        out["token_prefix"] = token[:20] + "..." if token else None
+    except HTTPException as e:
+        out["steps"]["get_token"] = f"HTTPException {e.status_code}: {e.detail}"
+        return out
+    except Exception as e:
+        out["steps"]["get_token"] = f"Exception: {_tb.format_exc()}"
+        return out
+    # Step 2: permissions
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rp = await client.get(
+                f"{settings.meta_graph_base_url}/me/permissions",
+                params={"access_token": token},
+            )
+            out["permissions"] = rp.json() if rp.status_code == 200 else {"status": rp.status_code, "body": rp.text}
+            out["steps"]["permissions"] = f"status {rp.status_code}"
+    except Exception as e:
+        out["steps"]["permissions"] = f"Exception: {_tb.format_exc()}"
+    # Step 3: /me/accounts
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            ra = await client.get(
+                f"{settings.meta_graph_base_url}/me/accounts",
+                params={"fields": "id,name,category,access_token", "access_token": token},
+            )
+            out["me_accounts"] = ra.json() if ra.status_code == 200 else {"status": ra.status_code, "body": ra.text}
+            out["steps"]["me_accounts"] = f"status {ra.status_code}"
+    except Exception as e:
+        out["steps"]["me_accounts"] = f"Exception: {_tb.format_exc()}"
+    # Step 4: /me (who is the token owner)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rm = await client.get(
+                f"{settings.meta_graph_base_url}/me",
+                params={"fields": "id,name", "access_token": token},
+            )
+            out["me"] = rm.json() if rm.status_code == 200 else {"status": rm.status_code, "body": rm.text}
+            out["steps"]["me"] = f"status {rm.status_code}"
+    except Exception as e:
+        out["steps"]["me"] = f"Exception: {_tb.format_exc()}"
+    # Step 5: which OAuth flow is configured + app id (no secrets)
+    out["oauth_flow"] = "business_login (config_id)" if settings.META_POSTING_CONFIG_ID.strip() else "classic_scope"
+    out["app_id"] = settings.META_POSTING_APP_ID or "(none)"
+    # Step 6: business portfolios the token owner belongs to
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rb = await client.get(
+                f"{settings.meta_graph_base_url}/me/businesses",
+                params={"fields": "id,name", "access_token": token},
+            )
+            out["me_businesses"] = rb.json() if rb.status_code == 200 else {"status": rb.status_code, "body": rb.text}
+            out["steps"]["me_businesses"] = f"status {rb.status_code}"
+    except Exception as e:
+        out["steps"]["me_businesses"] = f"Exception: {_tb.format_exc()}"
+    # Step 7: token debug — granted scopes & whether token is valid/which app issued it
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rd = await client.get(
+                f"{settings.meta_graph_base_url}/debug_token",
+                params={"input_token": token, "access_token": token},
+            )
+            if rd.status_code == 200:
+                d = rd.json().get("data", {})
+                out["token_debug"] = {
+                    "app_id": d.get("app_id"),
+                    "type": d.get("type"),
+                    "is_valid": d.get("is_valid"),
+                    "scopes": d.get("scopes"),
+                    "granular_scopes": d.get("granular_scopes"),
+                }
+            else:
+                out["token_debug"] = {"status": rd.status_code, "body": rd.text}
+            out["steps"]["token_debug"] = f"status {rd.status_code}"
+    except Exception as e:
+        out["steps"]["token_debug"] = f"Exception: {_tb.format_exc()}"
+    return out
+
+
 @app.get("/api/posting/pages")
 async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)):
     """Get FB pages accessible via the Posting app token."""
@@ -2752,7 +3044,9 @@ async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)
     result = await meta_api.get_pages(token)
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
-    return result["data"]
+    # get_pages returns {"success": True, "data": {"data": [...]}} — unwrap to list
+    raw = result["data"]
+    return raw["data"] if isinstance(raw, dict) else raw
 
 
 @app.get("/api/posting/instagram")
@@ -2762,7 +3056,8 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
     result = await meta_api.get_pages(token)
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
-    pages = result["data"]
+    raw = result["data"]
+    pages = raw["data"] if isinstance(raw, dict) else raw
     ig_accounts = []
     async with httpx.AsyncClient(timeout=15) as client:
         for page in pages:
@@ -3412,7 +3707,8 @@ async def api_posting_my_pages(request: Request, db: AsyncSession = Depends(get_
             token = await get_posting_token(request, db)
             pages_result = await meta_api.get_pages(token)
             if pages_result.get("success"):
-                pages = pages_result["data"]
+                raw = pages_result["data"]
+                pages = raw["data"] if isinstance(raw, dict) else raw
                 out = [{"id": p["id"], "name": p.get("name", ""), "platform": "facebook"} for p in pages]
                 async with httpx.AsyncClient(timeout=15) as client:
                     for p in pages:

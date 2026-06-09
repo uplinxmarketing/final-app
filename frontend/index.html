@@ -488,11 +488,11 @@ a{color:inherit;text-decoration:none}
   </div>
 
   <!-- Option B: OAuth -->
-  <a href="/auth/meta" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none"
+  <button onclick="openOAuthPopup('/auth/meta')" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:500;transition:var(--transition);cursor:pointer"
     onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
     onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
     🔷 Login with Facebook (requires app domain)
-  </a>
+  </button>
 
   <!-- Skip option — chat works without Meta -->
   <button onclick="showApp()" style="margin-top:4px;padding:11px 24px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);font-size:14px;font-weight:600;cursor:pointer;transition:var(--transition)"
@@ -608,6 +608,13 @@ a{color:inherit;text-decoration:none}
         <span id="status-meta" style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px">
           <span id="status-meta-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-dim);display:inline-block"></span>
           <span id="status-meta-label">Not connected</span>
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11px;color:var(--text-dim)">Drive</span>
+        <span id="status-google" style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px">
+          <span id="status-google-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-dim);display:inline-block"></span>
+          <span id="status-google-label">Not connected</span>
         </span>
       </div>
     </div>
@@ -1052,6 +1059,9 @@ a{color:inherit;text-decoration:none}
         ↑ Upload to Campaign
       </button>
       <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:10px;line-height:1.5;border-top:1px solid var(--border);padding-top:8px">
+        💬 Need multiple campaigns or ads with different URLs? Just describe it in the chat — e.g. <em>"Use the images in &lt;folder link&gt; and copy from &lt;doc link&gt;, create ads in ad set 123 pointing to siteA.com, and another batch in ad set 456 pointing to siteB.com."</em>
+      </div>
     </div>
 
     <div class="panel-section">
@@ -1190,11 +1200,11 @@ a{color:inherit;text-decoration:none}
       </div>
 
       <div id="posting-oauth-buttons" style="display:flex;flex-direction:column;gap:6px">
-        <a href="/auth/meta/posting" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none;width:100%;box-sizing:border-box;justify-content:center"
+        <button onclick="openOAuthPopup('/auth/meta/posting')" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);width:100%;box-sizing:border-box;justify-content:center;cursor:pointer"
           onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
           onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
           🔷 Login with Facebook (first posting app)
-        </a>
+        </button>
       </div>
     </div>
   </div>
@@ -1341,6 +1351,7 @@ a{color:inherit;text-decoration:none}
                 <div style="font-size:12px;color:var(--text-dim)" id="meta-conn-info">Not connected</div>
               </div>
             </div>
+            <button id="meta-ads-disconnect-btn" onclick="disconnectMetaAds()" style="display:none;padding:4px 10px;border-radius:6px;border:1px solid var(--error,#ef4444);background:transparent;color:var(--error,#ef4444);font-size:11px;cursor:pointer">Disconnect</button>
           </div>
         </div>
         <!-- Ads apps with connect buttons -->
@@ -2876,8 +2887,16 @@ async function loadConnectionStatus() {
     const acc = meta.find(a=>a.is_current) || meta[0];
     document.getElementById('meta-conn-dot').classList.add('connected');
     document.getElementById('meta-conn-info').textContent = acc.user_name || acc.user_email || 'Connected';
-    document.getElementById('meta-conn-btn').textContent = 'Reconnect';
     state.metaConnected = true;
+    state.metaAccountId = acc.id;
+    const discBtn = document.getElementById('meta-ads-disconnect-btn');
+    if (discBtn) discBtn.style.display = 'block';
+  } else {
+    document.getElementById('meta-conn-dot').classList.remove('connected');
+    document.getElementById('meta-conn-info').textContent = 'Not connected';
+    state.metaAccountId = null;
+    const discBtn = document.getElementById('meta-ads-disconnect-btn');
+    if (discBtn) discBtn.style.display = 'none';
   }
   if (google && google.length) {
     const acc = google.find(a=>a.is_current) || google[0];
@@ -3214,16 +3233,34 @@ async function updateStatusIndicators() {
       }
     }
   } catch(e) {}
-  // Meta
+  // Meta — the Ads Manager and Posting apps are SEPARATE apps with separate
+  // connections. Each interface reflects ONLY its own account type; never fall
+  // back to the other app, or one app would show green when only the other is
+  // connected.
   try {
-    const meta = await api('GET', '/api/accounts/meta').catch(()=>null);
-    if (meta && meta.length) {
-      const acc = meta.find(a=>a.is_current) || meta[0];
+    const endpoint = _activeInterface === 'posts' ? '/api/accounts/posting' : '/api/accounts/meta';
+    const accounts = await api('GET', endpoint).catch(()=>null);
+    if (accounts && accounts.length) {
+      const acc = accounts.find(a=>a.is_current) || accounts[0];
       document.getElementById('status-meta-dot').style.background = '#22c55e';
       document.getElementById('status-meta-label').textContent = acc.user_name || 'Connected';
     } else {
       document.getElementById('status-meta-dot').style.background = '#ef4444';
       document.getElementById('status-meta-label').textContent = 'Not connected';
+    }
+  } catch(e) {}
+  // Google Drive
+  try {
+    const g = await api('GET', '/api/accounts/google').catch(()=>null);
+    const dot = document.getElementById('status-google-dot');
+    const lbl = document.getElementById('status-google-label');
+    if (g && g.length) {
+      const acc = g.find(a=>a.is_current) || g[0];
+      if (dot) dot.style.background = '#22c55e';
+      if (lbl) lbl.textContent = acc.user_email || acc.user_name || 'Connected';
+    } else {
+      if (dot) dot.style.background = '#ef4444';
+      if (lbl) lbl.textContent = 'Not connected';
     }
   } catch(e) {}
 }
@@ -3380,6 +3417,8 @@ function enterInterface(iface) {
   if (driveUp) driveUp.style.display = isAds ? '' : 'none';
   if (postsAcct) postsAcct.style.display = isAds ? 'none' : '';
   if (!isAds) loadPostingInterface();
+  // Refresh the Meta indicator now that _activeInterface reflects the new mode
+  updateStatusIndicators();
 }
 
 function switchInterface(iface) { enterInterface(iface); }
@@ -3573,6 +3612,13 @@ function selectPostPage(page) {
     el.style.background = isThis ? 'rgba(220,38,38,0.1)' : 'transparent';
     el.style.borderColor = isThis ? 'var(--accent)' : 'transparent';
   });
+  // Update AI conversation context so the AI knows which page is selected
+  if (_postsConvId) {
+    const ctx = page.platform === 'instagram'
+      ? { selected_instagram_id: page.id, selected_page_id: page.page_id || page.id }
+      : { selected_page_id: page.id };
+    api('PUT', `/api/conversations/${_postsConvId}/context`, ctx).catch(() => {});
+  }
   if (_postingConnected) {
     showPostsWorkspace('content');
     selectPostPlatform(page.platform || 'facebook');
@@ -4349,6 +4395,48 @@ async function disconnectPostingAccount(id) {
   loadPostingInterface();
 }
 
+function openOAuthPopup(url) {
+  const w = 600, h = 700;
+  const left = Math.max(0, (screen.width - w) / 2);
+  const top = Math.max(0, (screen.height - h) / 2);
+  const popup = window.open(url, 'oauth_popup', `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`);
+  if (!popup) { toast('Allow popups for this site and try again', 'error'); return; }
+  // Poll until popup closes, then refresh status (handles window.opener=null after cross-origin redirects)
+  const poll = setInterval(async () => {
+    if (popup.closed) {
+      clearInterval(poll);
+      await loadConnectionStatus();
+      await updateStatusIndicators();
+      loadConnectionsApps();
+      loadAccountDropdowns();
+      loadPostingInterface();
+    }
+  }, 500);
+}
+
+window.addEventListener('message', async (e) => {
+  if (e.origin !== window.location.origin) return;
+  const type = e.data && e.data.oauthConnected;
+  if (!type) return;
+  toast('Connected successfully!', 'success');
+  await loadConnectionStatus();
+  await updateStatusIndicators();
+  if (type === 'meta') { loadConnectionsApps(); loadAccountDropdowns(); }
+  if (type === 'posting') { loadPostingInterface(); loadConnectionsApps(); }
+});
+
+async function disconnectMetaAds() {
+  const id = state.metaAccountId;
+  if (!id) return;
+  if (!confirm('Disconnect your Meta Ads account?')) return;
+  await fetch(`/api/accounts/meta/${id}`, {method:'DELETE'});
+  await fetch('/auth/logout', {method:'POST'});
+  state.metaConnected = false;
+  state.metaAccountId = null;
+  await loadConnectionStatus();
+  await updateStatusIndicators();
+}
+
 async function savePostingCredentials() {
   const appId = document.getElementById('posting-app-id-input').value.trim();
   const appSecret = document.getElementById('posting-app-secret-input').value.trim();
@@ -4397,10 +4485,10 @@ function renderAppsSection(containerId, apps, type) {
         <div style="font-size:11px;color:var(--text-dim);font-family:monospace">App ID: ${a.app_id}</div>
       </div>
       <div style="display:flex;gap:5px;flex-shrink:0">
-        <a href="/auth/meta${type === 'posting' ? '/posting' : ''}?app=${a.id}"
-          style="padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap">
+        <button onclick="openOAuthPopup('/auth/meta${type === 'posting' ? '/posting' : ''}?app=${a.id}')"
+          style="padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">
           🔗 Connect
-        </a>
+        </button>
         <button onclick="openMetaAppEditForm(${a.id},'${escHtml(a.name)}','${escHtml(a.app_id)}','${a.app_type}')"
           style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">✏️</button>
         <button onclick="deleteMetaApp(${a.id})"
@@ -4511,52 +4599,52 @@ async function loadConnectionsApps() {
 
     if (connAds) {
       connAds.innerHTML = ads.map(a => `
-        <a href="/auth/meta?app=${a.id}"
-          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+        <div onclick="openOAuthPopup('/auth/meta?app=${a.id}')"
+          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s"
           onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${a.name}</div>
             <div style="font-size:10px;color:var(--text-dim);font-family:monospace">${a.app_id}</div>
           </div>
           <span style="font-size:11px;font-weight:600;color:var(--accent)">🔗 Connect</span>
-        </a>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
+        </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
     }
 
     if (connPosting) {
       connPosting.innerHTML = posting.map(a => `
-        <a href="/auth/meta/posting?app=${a.id}"
-          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+        <div onclick="openOAuthPopup('/auth/meta/posting?app=${a.id}')"
+          style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s"
           onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${a.name}</div>
             <div style="font-size:10px;color:var(--text-dim);font-family:monospace">${a.app_id}</div>
           </div>
           <span style="font-size:11px;font-weight:600;color:var(--accent)">🔗 Connect</span>
-        </a>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
+        </div>`).join('') || '<div style="font-size:12px;color:var(--text-dim)">No apps — click Manage Apps to add one.</div>';
     }
 
     if (postingModalApps) {
       postingModalApps.innerHTML = posting.map(a => `
-        <a href="/auth/meta/posting?app=${a.id}"
-          style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:inherit;transition:border-color 0.15s"
+        <div onclick="openOAuthPopup('/auth/meta/posting?app=${a.id}')"
+          style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s"
           onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.name}</div>
             <div style="font-size:11px;color:var(--text-dim);font-family:monospace">App ID: ${a.app_id}</div>
           </div>
           <span style="padding:5px 12px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;font-weight:600">🔗 Connect</span>
-        </a>`).join('') || '<div style="font-size:13px;color:var(--text-dim)">No posting apps configured. <button onclick="closeModal(\'posting-connect-modal\');openMetaAppsModal(\'posting\')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;font-weight:600">Manage Apps →</button></div>';
+        </div>`).join('') || '<div style="font-size:13px;color:var(--text-dim)">No posting apps configured. <button onclick="closeModal(\'posting-connect-modal\');openMetaAppsModal(\'posting\')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;font-weight:600">Manage Apps →</button></div>';
     }
 
-    // Update OAuth link with first posting app if available
+    // Update OAuth button with first posting app if available
     if (postingOAuthButtons && posting.length > 0) {
       postingOAuthButtons.innerHTML = posting.map(a => `
-        <a href="/auth/meta/posting?app=${a.id}"
-          style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);text-decoration:none;width:100%;box-sizing:border-box;justify-content:center"
+        <button onclick="openOAuthPopup('/auth/meta/posting?app=${a.id}')"
+          style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);width:100%;box-sizing:border-box;justify-content:center;cursor:pointer"
           onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
           onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
           🔷 Login with Facebook via "${a.name}"
-        </a>`).join('');
+        </button>`).join('');
     }
   } catch(e) { console.warn('loadConnectionsApps:', e); }
 }
