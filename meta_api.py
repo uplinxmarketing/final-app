@@ -698,6 +698,41 @@ async def publish_page_photo_bytes(
     )
 
 
+async def publish_page_video_bytes(
+    page_token: str,
+    page_id: str,
+    video_bytes: bytes,
+    caption: str = "",
+    title: str = "",
+    filename: str = "video.mp4",
+    published: bool = True,
+    scheduled_publish_time: Optional[int] = None,
+) -> dict[str, Any]:
+    """Publish (or schedule) a Facebook Page video by uploading raw bytes.
+
+    Posts to ``graph-video.facebook.com/{page_id}/videos`` using the ``source``
+    multipart field, so Meta receives the file directly — no public URL and
+    nothing written to our disk. Returns the new video/post ``id``.
+    """
+    url = f"{VIDEO_BASE_URL}/{page_id}/videos"
+    data: dict[str, Any] = {"description": caption, "access_token": page_token}
+    if title:
+        data["title"] = title
+    if not published or scheduled_publish_time:
+        data["published"] = "false"
+    if scheduled_publish_time:
+        data["scheduled_publish_time"] = str(scheduled_publish_time)
+    # Video uploads can be large; allow a generous timeout.
+    return await _api_request(
+        "POST",
+        url,
+        retries=2,
+        data=data,
+        files={"source": (filename, video_bytes, "application/octet-stream")},
+        timeout=300.0,
+    )
+
+
 async def upload_unpublished_page_photo_bytes(
     page_token: str,
     page_id: str,

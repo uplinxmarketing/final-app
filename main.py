@@ -2883,6 +2883,20 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     caption = _compose_caption(item.caption, item.hashtags)
     scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
 
+    # Single video (REELS/VIDEO both post as a Page video)
+    if len(item.media) == 1 and item.media_type in ("VIDEO", "REELS"):
+        m = item.media[0]
+        dl = await google_api.download_drive_file(m.drive_file_id, google_token)
+        if not dl.get("success"):
+            return {"success": False, "error": f"Drive download failed: {dl.get('error')}"}
+        res = await meta_api.publish_page_video_bytes(
+            page_token, item.page_id, dl["bytes"], caption=caption,
+            filename=m.filename, scheduled_publish_time=scheduled_ts,
+        )
+        if not res["success"]:
+            return res
+        return {"success": True, "post_id": res["data"].get("post_id") or res["data"].get("id")}
+
     # Single photo
     if len(item.media) == 1 and item.media_type == "IMAGE":
         m = item.media[0]
