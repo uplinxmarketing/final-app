@@ -589,14 +589,14 @@ a{color:inherit;text-decoration:none}
     <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
       <div style="padding:12px 12px 10px;border-bottom:1px solid var(--border);flex-shrink:0">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">MY CLIENTS</div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">BUSINESS PORTFOLIOS</div>
           <div style="display:flex;gap:4px">
-            <button id="posting-manage-btn" onclick="openPostingManageModal()" title="Manage client pages (Admin)" style="display:none;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">⚙</button>
-            <button onclick="loadPostingClients()" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
+            <button onclick="openPortfolioModal()" title="Manage portfolios" style="background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">⚙</button>
+            <button onclick="loadPostingPortfolios().then(renderPostingPortfolioSidebar)" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
           </div>
         </div>
         <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition);margin-bottom:6px" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
-        <button onclick="openPortfolioModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🗂️ Business Portfolios</button>
+        <button onclick="openPortfolioModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:var(--transition)">🗂️ New / Manage Portfolios</button>
       </div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
@@ -1264,10 +1264,10 @@ a{color:inherit;text-decoration:none}
         <input type="hidden" id="portfolio-edit-id" value="">
         <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Portfolio name</label>
         <input type="text" id="portfolio-name-input" placeholder="e.g. Cherricup" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;margin-bottom:12px">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px">Facebook Pages</label>
-        <div id="portfolio-fb-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px"></div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px">Instagram Accounts</label>
-        <div id="portfolio-ig-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px"></div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-fb-ico"></span> Facebook Page</label>
+        <div id="portfolio-fb-list" style="margin-bottom:12px"></div>
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-ig-ico"></span> Instagram Account</label>
+        <div id="portfolio-ig-list" style="margin-bottom:14px"></div>
         <div style="display:flex;gap:8px">
           <button onclick="savePortfolio()" id="portfolio-save-btn" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save portfolio</button>
           <button onclick="resetPortfolioForm()" style="padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">Clear</button>
@@ -3559,6 +3559,7 @@ let _postingIgAccounts = [];
 let _myPostingPagesMap = {};
 let _postingClients = [];
 let _postingPortfolios = [];
+let _portfoliosLoaded = false;
 let _selectedPostPage = null;
 let _calFbPage = null;   // calendar-specific FB page selection
 let _calIgPage = null;   // calendar-specific IG account selection
@@ -3691,24 +3692,16 @@ function updatePostingAccountStatus(account) {
 }
 
 async function loadPostingClients() {
-  const listEl = document.getElementById('posts-client-list');
-  if (!listEl) return;
-  listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>';
-
-  // Show ⚙ manage button for admins
-  const manageBtn = document.getElementById('posting-manage-btn');
+  // The sidebar now shows Business Portfolios (renderPostingPortfolioSidebar).
+  // We still load posting clients purely so client-assigned pages remain
+  // available as posting targets; we no longer render a client list.
   const isAdminUser = window._currentUser && window._currentUser.role === 'admin';
-  if (manageBtn) manageBtn.style.display = isAdminUser ? '' : 'none';
-  // Workspace hide/open toggle is an admin-only control
   const wsToggleWrap = document.getElementById('posts-workspace-toggle-wrap');
   if (wsToggleWrap) wsToggleWrap.style.display = isAdminUser ? 'flex' : 'none';
 
   try {
     _postingClients = await fetch('/api/posting/clients').then(r => r.ok ? r.json() : []).catch(() => []);
-    renderPostingClientList();
-  } catch(e) {
-    if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px">Error loading clients.</div>';
-  }
+  } catch(e) { _postingClients = []; }
 }
 
 function renderPostingClientList() {
@@ -3941,6 +3934,52 @@ async function loadPostingPortfolios() {
     _postingPortfolios = await fetch('/api/posting/portfolios').then(r => r.ok ? r.json() : []).catch(() => []);
     if (!Array.isArray(_postingPortfolios)) _postingPortfolios = [];
   } catch(e) { _postingPortfolios = []; }
+  _portfoliosLoaded = true;
+  renderPostingPortfolioSidebar();
+}
+
+// Render the user's portfolios in the posts sidebar (replaces the old clients list).
+function renderPostingPortfolioSidebar() {
+  const listEl = document.getElementById('posts-client-list');
+  if (!listEl) return;
+  if (!_postingPortfolios.length) {
+    listEl.innerHTML = `<div style="text-align:center;padding:24px 12px">
+      <div style="font-size:36px;margin-bottom:10px">🗂️</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No portfolios yet</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">Create a Business Portfolio to group a Facebook Page + Instagram account, then select it anywhere.</div>
+      <button onclick="openPortfolioModal()" style="margin-top:12px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🗂️ Create portfolio</button>
+    </div>`;
+    return;
+  }
+  listEl.innerHTML = _postingPortfolios.map(p => {
+    const fb = (p.pages||[]).find(x => x.platform === 'facebook');
+    const ig = (p.pages||[]).find(x => x.platform === 'instagram');
+    const sub = [];
+    if (fb) sub.push(`${fbIcon(11)} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(fb.name||'Page')}</span>`);
+    if (ig) sub.push(`${igIcon(11)} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(ig.name||'IG')}</span>`);
+    return `<div onclick="selectSidebarPortfolio(${p.id})" style="margin-bottom:6px;border:1px solid var(--border);background:var(--bg-primary);border-radius:10px;padding:10px 12px;cursor:pointer;transition:border-color .12s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px;flex-shrink:0">🗂️</span>
+        <div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</div>
+      </div>
+      ${sub.length ? `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:11px;color:var(--text-secondary)">${sub.map(s=>`<span style="display:flex;align-items:center;gap:6px">${s}</span>`).join('')}</div>` : '<div style="font-size:11px;color:var(--text-dim);margin-top:6px">No pages assigned</div>'}
+    </div>`;
+  }).join('');
+}
+
+// Selecting a portfolio in the sidebar applies it to the workspace + calendar + feed.
+function selectSidebarPortfolio(id) {
+  const p = _postingPortfolios.find(x => String(x.id) === String(id));
+  if (!p) return;
+  const { fb, ig } = _portfolioTargets(p);
+  _calFbPage = fb || null; _calIgPage = ig || null;
+  _feedFbPage = fb || null; _feedIgPage = ig || null;
+  if (fb) selectPostingPage(fb.id);
+  else if (ig) selectPostingIG(ig.id);
+  const calSel = document.getElementById('calendar-portfolio-sel'); if (calSel) calSel.value = String(id);
+  const feedSel = document.getElementById('feed-portfolio-sel'); if (feedSel) feedSel.value = String(id);
+  if (_postTab === 'calendar') loadCalendar();
+  else if (_postTab === 'feed') loadFeed();
 }
 
 function openPortfolioModal() {
@@ -3975,28 +4014,51 @@ function renderPortfolioList() {
   }).join('');
 }
 
-function _portfolioPageRows(listId, items, platform, selectedIds) {
+// Selected page ids for the portfolio form (single FB + single IG).
+let _pfSel = { facebook:null, instagram:null };
+
+// Inline searchable single-select list (no floating menu → no modal clipping).
+function _renderPfPicker(listId, items, platform) {
   const el = document.getElementById(listId);
   if (!el) return;
   if (!items.length) { el.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">None connected.</div>`; return; }
-  el.innerHTML = items.map(it => {
+  const search = items.length >= 6
+    ? `<input type="text" class="pf-search" oninput="_pfFilter(this)" placeholder="🔍 Search by name…" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">`
+    : '';
+  const rows = items.map(it => {
     const id = it.id;
     const name = platform === 'facebook' ? (it.name||id) : '@'+(it.username||it.name||id);
-    const checked = selectedIds.has(id) ? 'checked' : '';
-    return `<label style="display:flex;align-items:center;gap:9px;padding:7px 9px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-primary)">
-      <input type="checkbox" class="pf-${platform}-cb" value="${escHtml(id)}" data-name="${escHtml(name)}" ${checked} style="width:16px;height:16px;accent-color:var(--accent)">
+    const sel = _pfSel[platform] === id;
+    return `<div class="pf-row" data-search="${escHtml(name.toLowerCase())}" onclick="_pfPick('${platform}','${escHtml(id)}')" style="display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-primary);background:${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}" onmouseover="if(!this.dataset.sel)this.style.background='var(--bg-primary)'" onmouseout="if(!this.dataset.sel)this.style.background='transparent'" ${sel?'data-sel="1"':''}>
       ${pageAvatar(it.picture_url, platform, 22)}
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</span>
-    </label>`;
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</span>
+      ${sel?'<span style="color:var(--accent);font-weight:700">✓</span>':''}
+    </div>`;
   }).join('');
+  el.innerHTML = `${search}<div class="pf-rows" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">${rows}</div>`;
+}
+function _pfFilter(input){
+  const q = input.value.trim().toLowerCase();
+  const box = input.parentElement.querySelector('.pf-rows');
+  if (!box) return;
+  box.querySelectorAll('.pf-row').forEach(r => { r.style.display = (!q || (r.getAttribute('data-search')||'').includes(q)) ? '' : 'none'; });
+}
+function _pfPick(platform, id){
+  _pfSel[platform] = (_pfSel[platform] === id) ? null : id;
+  _renderPfPicker(platform === 'facebook' ? 'portfolio-fb-list' : 'portfolio-ig-list',
+    platform === 'facebook' ? (_postingPages||[]) : (_postingIgAccounts||[]), platform);
 }
 
 function renderPortfolioForm(selected) {
   const sel = selected || [];
-  const fbIds = new Set(sel.filter(x => x.platform === 'facebook').map(x => x.id));
-  const igIds = new Set(sel.filter(x => x.platform === 'instagram').map(x => x.id));
-  _portfolioPageRows('portfolio-fb-list', _postingPages||[], 'facebook', fbIds);
-  _portfolioPageRows('portfolio-ig-list', _postingIgAccounts||[], 'instagram', igIds);
+  _pfSel = {
+    facebook: (sel.find(x => x.platform === 'facebook') || {}).id || null,
+    instagram: (sel.find(x => x.platform === 'instagram') || {}).id || null,
+  };
+  const fbIco = document.getElementById('portfolio-fb-ico'); if (fbIco) fbIco.innerHTML = fbIcon(13);
+  const igIco = document.getElementById('portfolio-ig-ico'); if (igIco) igIco.innerHTML = igIcon(13);
+  _renderPfPicker('portfolio-fb-list', _postingPages||[], 'facebook');
+  _renderPfPicker('portfolio-ig-list', _postingIgAccounts||[], 'instagram');
 }
 
 function resetPortfolioForm() {
@@ -4022,8 +4084,14 @@ function editPortfolio(id) {
 
 function _gatherPortfolioPages() {
   const pages = [];
-  document.querySelectorAll('.pf-facebook-cb:checked').forEach(cb => pages.push({ platform:'facebook', id:cb.value, name:cb.getAttribute('data-name') }));
-  document.querySelectorAll('.pf-instagram-cb:checked').forEach(cb => pages.push({ platform:'instagram', id:cb.value, name:cb.getAttribute('data-name') }));
+  if (_pfSel.facebook) {
+    const p = (_postingPages||[]).find(x => x.id === _pfSel.facebook);
+    pages.push({ platform:'facebook', id:_pfSel.facebook, name:(p && p.name) || _pfSel.facebook });
+  }
+  if (_pfSel.instagram) {
+    const a = (_postingIgAccounts||[]).find(x => x.id === _pfSel.instagram);
+    pages.push({ platform:'instagram', id:_pfSel.instagram, name:a ? ('@'+(a.username||a.name||a.id)) : _pfSel.instagram });
+  }
   return pages;
 }
 
@@ -4140,6 +4208,7 @@ function selectPostingIG(igId) {
 // ── Calendar ────────────────────────────────────────────────────────────────
 
 async function loadCalendar() {
+  if (!_portfoliosLoaded) { await loadPostingPortfolios(); }
   renderCalendarPagePicker();
   if (!_calFbPage && !_calIgPage) {
     const grid = document.getElementById('calendar-grid');
@@ -4617,6 +4686,7 @@ async function _loadOneFeed(page, platform, listEl, titleEl) {
 }
 
 function loadFeed() {
+  if (!_portfoliosLoaded) { loadPostingPortfolios().then(renderFeedPagePicker); }
   renderFeedPagePicker();
   _loadOneFeed(_feedFbPage, 'facebook', document.getElementById('posts-feed-list-fb'), document.getElementById('feed-fb-col-title'));
   _loadOneFeed(_feedIgPage, 'instagram', document.getElementById('posts-feed-list-ig'), document.getElementById('feed-ig-col-title'));
@@ -5180,14 +5250,7 @@ function _uwShowTargets() {
       ${_postingPortfolios.map(p => `<option value="${p.id}">🗂️ ${escHtml(p.name)}</option>`).join('')}
     </select>` : '';
 
-  const clientBlock = clients.length ? `
-    <label style="${labelStyle}">⭐ Quick pick — by client</label>
-    <select class="uw-client-sel" onchange="uwTargetSelChange(this,'client')" style="${selStyle};margin-bottom:14px">
-      <option value="">— Select a client (auto-fills its page) —</option>
-      ${clients.map(c => `<option value="${escHtml(c.name)}">${escHtml(c.name)}</option>`).join('')}
-    </select>` : '';
-
-  const orDivider = (portfolioBlock || clientBlock) ? `<div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
+  const orDivider = portfolioBlock ? `<div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
 
   // Unique keys per wizard run so re-running doesn't collide with old cards.
   const seq = (window._uwSeq = (window._uwSeq || 0) + 1);
@@ -5206,7 +5269,6 @@ function _uwShowTargets() {
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a Business Portfolio to fill both pages automatically, or choose a Facebook Page and/or Instagram account — you can select <b>both</b> to post to both at once.</div>
     <div class="uw-target-step">
       ${portfolioBlock}
-      ${clientBlock}
       ${orDivider}
       ${fbBlock}
       ${igBlock}
