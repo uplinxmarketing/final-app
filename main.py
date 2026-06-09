@@ -3777,6 +3777,119 @@ async def api_posting_upload_local(
     return {"media": media, "captions": []}
 
 
+# Caption file extensions we can parse without extra runtime dependencies.
+_CAPTION_FILE_EXTS = {".txt", ".md", ".csv", ".tsv", ".docx", ".xlsx", ".pdf"}
+
+
+def _extract_docx_text(data: bytes) -> str:
+    """Extract paragraph text from a .docx (Open XML) without python-docx."""
+    import io
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    paragraphs: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml")
+    root = ET.fromstring(xml)
+    for para in root.iter(f"{W}p"):
+        texts = [node.text for node in para.iter(f"{W}t") if node.text]
+        paragraphs.append("".join(texts))
+    return "\n".join(paragraphs)
+
+
+def _extract_xlsx_text(data: bytes) -> str:
+    """Extract rows from a .xlsx (Open XML) without openpyxl. One row per line."""
+    import io
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in zf.namelist():
+            sroot = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+            for si in sroot.iter(f"{S}si"):
+                shared.append("".join(t.text or "" for t in si.iter(f"{S}t")))
+        # First worksheet
+        sheet_names = [n for n in zf.namelist() if re.match(r"xl/worksheets/sheet\d+\.xml", n)]
+        if not sheet_names:
+            return ""
+        wroot = ET.fromstring(zf.read(sorted(sheet_names)[0]))
+    rows: list[str] = []
+    for row in wroot.iter(f"{S}row"):
+        cells: list[str] = []
+        for c in row.iter(f"{S}c"):
+            v = c.find(f"{S}v")
+            if v is None or v.text is None:
+                continue
+            if c.get("t") == "s":  # shared-string index
+                try:
+                    cells.append(shared[int(v.text)])
+                except (ValueError, IndexError):
+                    pass
+            else:
+                cells.append(v.text)
+        if cells:
+            rows.append(" ".join(cells))
+    # Each row is its own caption block.
+    return "\n---\n".join(rows)
+
+
+def _extract_caption_text(data: bytes, filename: str) -> str:
+    """Best-effort plain-text extraction from an uploaded caption file."""
+    ext = Path(filename or "").suffix.lower()
+    if ext in (".txt", ".md"):
+        return data.decode("utf-8", errors="replace")
+    if ext in (".csv", ".tsv"):
+        sep = "\t" if ext == ".tsv" else ","
+        import csv
+        import io
+        rows = list(csv.reader(io.StringIO(data.decode("utf-8", errors="replace")), delimiter=sep))
+        return "\n---\n".join(" ".join(c for c in row if c) for row in rows if any(row))
+    if ext == ".docx":
+        return _extract_docx_text(data)
+    if ext == ".xlsx":
+        return _extract_xlsx_text(data)
+    if ext == ".pdf":
+        try:
+            import pdfplumber
+            import io
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                return "\n".join((page.extract_text() or "") for page in pdf.pages)
+        except Exception:
+            return ""
+    # Unknown — try utf-8 anyway.
+    return data.decode("utf-8", errors="replace")
+
+
+@app.post("/api/posting/upload/captions")
+@limiter.limit("20/minute")
+async def api_posting_upload_captions(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """Parse a captions file uploaded from the user's device into caption blocks.
+
+    Accepts .txt/.md/.csv/.tsv/.docx/.xlsx/.pdf and returns the same
+    ``{"captions": [...]}`` shape as the Drive scan, so the wizard can match
+    captions to media by index regardless of where each came from.
+    """
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _CAPTION_FILE_EXTS:
+        raise HTTPException(400, f"Unsupported caption file type '{ext}'. Use txt, csv, docx, xlsx or pdf.")
+    data = await file.read()
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(413, "Caption file is too large.")
+    try:
+        raw_text = _extract_caption_text(data, file.filename or "")
+    except Exception as exc:
+        raise HTTPException(422, f"Could not read caption file: {exc}")
+    captions = _split_caption_blocks(raw_text)
+    return {"captions": captions, "blocks": len(captions)}
+
+
 @app.get("/api/posting/local/preview/{file_id}")
 async def api_posting_local_preview(file_id: str, request: Request):
     """Serve a locally-uploaded file as an inline preview image."""
