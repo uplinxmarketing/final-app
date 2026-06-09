@@ -604,11 +604,11 @@ a{color:inherit;text-decoration:none}
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="switchPostsTab('bulk')" onmouseout="if(_postTab!=='bulk'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload Posts</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
         <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="switchPostsTab('chat')" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
-        <!-- Admin-only: slide toggle to hide/open the right column (workspace) -->
+        <!-- Admin-only: slide toggle to hide/open the right column (skills + token usage panel) -->
         <div id="posts-workspace-toggle-wrap" style="display:none;align-items:center;justify-content:space-between;padding:9px 4px 2px;margin-top:5px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--text-secondary);font-weight:600">🖥️ Workspace</span>
-          <label class="ui-switch" title="Show or hide the workspace panel">
-            <input type="checkbox" id="posts-workspace-toggle" checked onchange="togglePostsWorkspace(this.checked)">
+          <span style="font-size:12px;color:var(--text-secondary);font-weight:600">📊 Side panel</span>
+          <label class="ui-switch" title="Show or hide the right side panel (skills &amp; token usage)">
+            <input type="checkbox" id="posts-workspace-toggle" checked onchange="toggleContextPanel(this.checked)">
             <span class="ui-switch-slider"></span>
           </label>
         </div>
@@ -945,14 +945,35 @@ a{color:inherit;text-decoration:none}
         </div>
 
         <!-- Tab: Feed -->
-        <div id="posts-tab-feed" style="display:none;flex:1;overflow-y:auto;padding:20px">
-          <div style="max-width:620px;margin:0 auto">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-              <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Published Posts</div>
-              <button onclick="loadFeed()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">🔄 Refresh</button>
+        <div id="posts-tab-feed" style="display:none;flex:1;overflow-y:auto;padding:20px;flex-direction:column">
+          <!-- FB + IG page selectors (separate, like the calendar) -->
+          <div id="feed-page-picker" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-shrink:0;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Feeds</span>
+            <div id="feed-fb-select" style="position:relative;flex:1;min-width:190px;max-width:300px">
+              <button onclick="toggleFeedMenu('fb')" id="feed-fb-btn" style="width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
+                <span id="feed-fb-label" style="flex:1;display:flex;align-items:center;gap:8px;min-width:0">Facebook Page…</span>
+                <span style="color:var(--text-dim);font-size:11px;flex-shrink:0">▼</span>
+              </button>
+              <div id="feed-fb-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.25);max-height:340px;overflow-y:auto;padding:6px"></div>
             </div>
-            <div id="posts-feed-list" style="display:flex;flex-direction:column;gap:10px">
-              <div style="font-size:13px;color:var(--text-dim)">Loading feed…</div>
+            <div id="feed-ig-select" style="position:relative;flex:1;min-width:190px;max-width:300px">
+              <button onclick="toggleFeedMenu('ig')" id="feed-ig-btn" style="width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
+                <span id="feed-ig-label" style="flex:1;display:flex;align-items:center;gap:8px;min-width:0">Instagram…</span>
+                <span style="color:var(--text-dim);font-size:11px;flex-shrink:0">▼</span>
+              </button>
+              <div id="feed-ig-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.25);max-height:340px;overflow-y:auto;padding:6px"></div>
+            </div>
+            <button onclick="loadFeed()" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer">🔄 Refresh</button>
+          </div>
+          <!-- Two feed columns side by side -->
+          <div style="display:flex;gap:16px;flex:1;min-height:0;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px">
+              <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px"><span id="feed-fb-col-title" style="display:flex;align-items:center;gap:7px"></span></div>
+              <div id="posts-feed-list-fb" style="display:flex;flex-direction:column;gap:10px"></div>
+            </div>
+            <div style="flex:1;min-width:280px">
+              <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px"><span id="feed-ig-col-title" style="display:flex;align-items:center;gap:7px"></span></div>
+              <div id="posts-feed-list-ig" style="display:flex;flex-direction:column;gap:10px"></div>
             </div>
           </div>
         </div>
@@ -3590,11 +3611,12 @@ function enterInterface(iface) {
   const postsMain = document.getElementById('posts-main');
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
   if (postsMain) { postsMain.style.display = isAds ? 'none' : 'flex'; }
-  // Keep the admin workspace toggle in sync (workspace is shown on entry)
-  if (!isAds) { const wsT = document.getElementById('posts-workspace-toggle'); if (wsT) wsT.checked = true; }
-  // Right panel: visible in both modes, but toggle which sections appear
+  // Right context panel (skills + token usage) is admin-only. Keep the
+  // admin toggle in sync — the panel is shown on entry for admins.
+  const isAdminUser = window._currentUser && window._currentUser.role === 'admin';
   const aside = document.getElementById('context-panel');
-  if (aside) aside.style.display = '';
+  if (aside) aside.style.display = isAdminUser ? '' : 'none';
+  const wsT = document.getElementById('posts-workspace-toggle'); if (wsT) wsT.checked = true;
   const adsCtx = document.getElementById('panel-section-ads-context');
   const driveUp = document.getElementById('panel-section-drive-upload');
   const postsAcct = document.getElementById('panel-section-posts-account');
@@ -3852,10 +3874,10 @@ function switchPostsTab(tab) {
   if (pageContent) pageContent.style.display = isChat ? 'none' : 'flex';
 
   if (!isChat) {
-    // Bulk has its own target picker, so it only needs a connected account
-    // (no per-page selection required).
-    const isBulk = tab === 'bulk';
-    const state = !_postingConnected ? 'connect' : ((_selectedPostPage || isBulk) ? 'content' : 'no-page');
+    // Bulk, Calendar and Feed have their own page pickers, so they only need a
+    // connected account (no sidebar page selection required).
+    const selfContained = tab === 'bulk' || tab === 'calendar' || tab === 'feed';
+    const state = !_postingConnected ? 'connect' : ((_selectedPostPage || selfContained) ? 'content' : 'no-page');
     const banner = document.getElementById('posts-connect-banner');
     const noPage = document.getElementById('posts-no-page-state');
     if (banner) banner.style.display = state === 'connect' ? 'flex' : 'none';
@@ -3874,10 +3896,11 @@ function switchPostsTab(tab) {
   }
 }
 
-// Admin-only: slide-toggle to hide/open the right column (workspace panel).
-function togglePostsWorkspace(show) {
-  const main = document.getElementById('posts-main');
-  if (main) main.style.display = show ? 'flex' : 'none';
+// Admin-only: slide-toggle to hide/open the right column (skills + token
+// usage context panel). Non-admins never see this panel at all.
+function toggleContextPanel(show) {
+  const aside = document.getElementById('context-panel');
+  if (aside) aside.style.display = show ? '' : 'none';
 }
 
 async function loadPostingPagesAndIG() {
@@ -4193,43 +4216,127 @@ function changeCalendarMonth(delta) {
 
 // ── Feed ────────────────────────────────────────────────────────────────────
 
-async function loadFeed() {
-  const el = document.getElementById('posts-feed-list');
-  if (!_selectedPostPage) {
-    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Select a page to view its feed.</div>';
-    return;
+// ── Feed (separate FB + IG selectors, both columns at once) ─────────────────
+let _feedFbPage = null;
+let _feedIgPage = null;
+
+function renderFeedPagePicker() {
+  const fbLabel = document.getElementById('feed-fb-label');
+  const fbMenu = document.getElementById('feed-fb-menu');
+  if (fbLabel && fbMenu) {
+    fbLabel.innerHTML = _feedFbPage
+      ? `${pageAvatar(_feedFbPage.picture_url,'facebook',24)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${escHtml(_feedFbPage.name)}</span>`
+      : `${fbIcon(16)}<span style="color:var(--text-dim)">Facebook Page…</span>`;
+    fbMenu.innerHTML = _feedMenuHtml('facebook');
   }
-  if (_selectedPostPage.platform === 'instagram') {
-    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Feed view is only available for Facebook Pages.</div>';
-    return;
+  const igLabel = document.getElementById('feed-ig-label');
+  const igMenu = document.getElementById('feed-ig-menu');
+  if (igLabel && igMenu) {
+    igLabel.innerHTML = _feedIgPage
+      ? `${pageAvatar(_feedIgPage.picture_url,'instagram',24)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">@${escHtml(_feedIgPage.username||_feedIgPage.name)}</span>`
+      : `${igIcon(16)}<span style="color:var(--text-dim)">Instagram…</span>`;
+    igMenu.innerHTML = _feedMenuHtml('instagram');
   }
-  if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Loading feed…</div>';
+}
+
+function _feedMenuHtml(platform) {
+  const rowStyle = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-primary);transition:background .12s';
+  const mkRow = (item, name, sel) => `<div onclick="event.stopPropagation();pickFeedPage('${item.id}','${platform}')" style="${rowStyle};background:${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}" onmouseover="this.style.background='var(--bg-primary)'" onmouseout="this.style.background='${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}'">
+    ${pageAvatar(item.picture_url, platform, 26)}
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</span>
+    ${sel?'<span style="color:var(--accent);font-weight:700;font-size:15px">✓</span>':'<span style="width:15px"></span>'}
+  </div>`;
+  let html = '';
+  if (platform === 'facebook') {
+    html += (_postingPages && _postingPages.length)
+      ? _postingPages.map(p => mkRow(p, p.name||p.id, _feedFbPage && _feedFbPage.id===p.id)).join('')
+      : '<div style="padding:14px;text-align:center;color:var(--text-dim);font-size:12px">No Facebook Pages found.</div>';
+    if (_feedFbPage) html += `<div style="padding:6px 8px 2px;border-top:1px solid var(--border);margin-top:4px"><button onclick="event.stopPropagation();_feedFbPage=null;renderFeedPagePicker();loadFeed()" style="width:100%;padding:6px;background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;cursor:pointer">Clear Facebook</button></div>`;
+  } else {
+    html += (_postingIgAccounts && _postingIgAccounts.length)
+      ? _postingIgAccounts.map(a => mkRow(a, '@'+(a.username||a.name||a.id), _feedIgPage && _feedIgPage.id===a.id)).join('')
+      : '<div style="padding:14px;text-align:center;color:var(--text-dim);font-size:12px">No Instagram accounts found.</div>';
+    if (_feedIgPage) html += `<div style="padding:6px 8px 2px;border-top:1px solid var(--border);margin-top:4px"><button onclick="event.stopPropagation();_feedIgPage=null;renderFeedPagePicker();loadFeed()" style="width:100%;padding:6px;background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;cursor:pointer">Clear Instagram</button></div>`;
+  }
+  return html;
+}
+
+function toggleFeedMenu(which) {
+  const menu = document.getElementById(which === 'fb' ? 'feed-fb-menu' : 'feed-ig-menu');
+  const other = document.getElementById(which === 'fb' ? 'feed-ig-menu' : 'feed-fb-menu');
+  if (other) other.style.display = 'none';
+  if (!menu) return;
+  const open = menu.style.display !== 'none';
+  menu.style.display = open ? 'none' : 'block';
+  if (!open) setTimeout(() => document.addEventListener('click', _closeFeedMenuOnce), 0);
+}
+function _closeFeedMenuOnce(e) {
+  const fbWrap = document.getElementById('feed-fb-select');
+  const igWrap = document.getElementById('feed-ig-select');
+  if ((fbWrap && fbWrap.contains(e.target)) || (igWrap && igWrap.contains(e.target))) return;
+  ['feed-fb-menu','feed-ig-menu'].forEach(id => { const m = document.getElementById(id); if (m) m.style.display = 'none'; });
+  document.removeEventListener('click', _closeFeedMenuOnce);
+}
+
+function pickFeedPage(id, platform) {
+  if (platform === 'facebook') {
+    const page = _postingPages.find(p => p.id === id);
+    _feedFbPage = (_feedFbPage && _feedFbPage.id === id) ? null : (page || {id, name:id, picture_url:''});
+    const m = document.getElementById('feed-fb-menu'); if (m) m.style.display = 'none';
+  } else {
+    const acct = _postingIgAccounts.find(a => a.id === id);
+    _feedIgPage = (_feedIgPage && _feedIgPage.id === id) ? null : (acct || {id, name:id, picture_url:'', username:''});
+    const m = document.getElementById('feed-ig-menu'); if (m) m.style.display = 'none';
+  }
+  renderFeedPagePicker();
+  loadFeed();
+}
+
+function _renderFeedCard(p) {
+  const text = (p.message || p.story || '(no text)');
+  const link = p.permalink_url;
+  const linkLabel = p.platform === 'instagram' ? 'View on Instagram →' : 'View on Facebook →';
+  return `<div style="padding:14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:6px;word-break:break-word">${escHtml(text.substring(0,280))}${text.length>280?'…':''}</div>
+        <div style="font-size:11px;color:var(--text-dim)">${p.created_time ? new Date(p.created_time).toLocaleString() : ''}</div>
+        ${link ? `<a href="${escHtml(link)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent);text-decoration:none;margin-top:4px;display:inline-block">${linkLabel}</a>` : ''}
+      </div>
+      ${p.full_picture ? `<img src="${escHtml(p.full_picture)}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:7px;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+    </div>
+  </div>`;
+}
+
+async function _loadOneFeed(page, platform, listEl, titleEl) {
+  if (titleEl) {
+    titleEl.innerHTML = page
+      ? `${platformIcon(platform,14)} ${escHtml(platform==='instagram' ? '@'+(page.username||page.name) : page.name)}`
+      : `${platformIcon(platform,14)} <span style="color:var(--text-dim);font-weight:600">Not selected</span>`;
+  }
+  if (!listEl) return;
+  if (!page) { listEl.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">Pick a ${platform==='instagram'?'an Instagram account':'a Facebook Page'} above.</div>`; return; }
+  listEl.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Loading feed…</div>';
   try {
-    const r = await fetch(`/api/posting/feed?page_id=${encodeURIComponent(_selectedPostPage.id)}&limit=20`);
+    const r = await fetch(`/api/posting/feed?page_id=${encodeURIComponent(page.id)}&platform=${platform}&limit=20`);
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
-      if (el) el.innerHTML = `<div style="font-size:13px;color:var(--error)">${e.detail || 'Failed to load feed — check posting account connection.'}</div>`;
+      listEl.innerHTML = `<div style="font-size:13px;color:var(--error)">${escHtml(e.detail || 'Failed to load feed.')}</div>`;
       return;
     }
     const posts = await r.json();
-    if (!posts.length) {
-      if (el) el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No published posts found.</div>';
-      return;
-    }
-    if (el) el.innerHTML = posts.map(p => `
-      <div style="padding:14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px">
-        <div style="display:flex;gap:12px;align-items:flex-start">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--text-primary);line-height:1.55;margin-bottom:6px">${(p.message || p.story || '(no text)').substring(0,280)}${(p.message||p.story||'').length>280?'…':''}</div>
-            <div style="font-size:11px;color:var(--text-dim)">${p.created_time ? new Date(p.created_time).toLocaleString() : ''}</div>
-            ${p.permalink_url ? `<a href="${p.permalink_url}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent);text-decoration:none;margin-top:4px;display:inline-block">View on Facebook →</a>` : ''}
-          </div>
-          ${p.full_picture ? `<img src="${p.full_picture}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:7px;flex-shrink:0">` : ''}
-        </div>
-      </div>`).join('');
+    listEl.innerHTML = posts.length
+      ? posts.map(_renderFeedCard).join('')
+      : '<div style="font-size:13px;color:var(--text-dim)">No published posts found.</div>';
   } catch(e) {
-    if (el) el.innerHTML = '<div style="font-size:13px;color:var(--error)">Failed to load feed.</div>';
+    listEl.innerHTML = '<div style="font-size:13px;color:var(--error)">Failed to load feed.</div>';
   }
+}
+
+function loadFeed() {
+  renderFeedPagePicker();
+  _loadOneFeed(_feedFbPage, 'facebook', document.getElementById('posts-feed-list-fb'), document.getElementById('feed-fb-col-title'));
+  _loadOneFeed(_feedIgPage, 'instagram', document.getElementById('posts-feed-list-ig'), document.getElementById('feed-ig-col-title'));
 }
 
 async function submitPost() {
