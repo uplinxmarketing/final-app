@@ -645,7 +645,8 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
     <div class="sidebar-bottom">
-      <div class="sidebar-nav">
+      <div class="sidebar-nav-item" onclick="toggleSidebarMenu()" id="sidebar-menu-toggle" style="font-weight:600">⚙️ Menu <span id="sidebar-menu-caret" style="margin-left:auto;color:var(--text-dim);font-size:11px;transition:transform .15s">▸</span></div>
+      <div class="sidebar-nav" id="sidebar-nav-list" style="display:none">
         <div class="sidebar-nav-item" onclick="openModal('connections-modal')">🔗 Connections</div>
         <div class="sidebar-nav-item" onclick="openModal('skills-modal')">📋 Skills</div>
         <div class="sidebar-nav-item" onclick="openModal('settings-modal')">⚙️ Settings</div>
@@ -983,13 +984,15 @@ a{color:inherit;text-decoration:none}
     </div><!-- end posts-workspace -->
   </div>
 
+  <!-- Floating button to reopen the right panel once collapsed (admin only) -->
+  <button id="context-panel-reopen" onclick="setContextPanel(true)" title="Show side panel" style="display:none;position:fixed;top:70px;right:0;z-index:40;align-items:center;justify-content:center;width:26px;height:46px;border:1px solid var(--border);border-right:none;border-radius:8px 0 0 8px;background:var(--bg-secondary);color:var(--text-secondary);cursor:pointer;font-size:13px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-secondary)'">◀</button>
+
   <!-- RIGHT CONTEXT PANEL -->
   <aside id="context-panel">
-    <!-- Posts mode: Posting Account (hidden in ads mode) -->
-    <div id="panel-section-posts-account" class="panel-section" style="display:none">
-      <div class="panel-label">Posting Account</div>
-      <div id="posts-account-status" style="padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-dim)">Not connected</div>
-      <button onclick="openPostingConnectModal()" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:left">🔗 Manage Accounts</button>
+    <!-- Collapse header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Details</span>
+      <button onclick="setContextPanel(false)" title="Hide side panel" style="background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
     </div>
 
     <!-- Ads mode: Active Context (hidden in posts mode) -->
@@ -3611,18 +3614,13 @@ function enterInterface(iface) {
   const postsMain = document.getElementById('posts-main');
   if (chatArea) chatArea.style.display = isAds ? '' : 'none';
   if (postsMain) { postsMain.style.display = isAds ? 'none' : 'flex'; }
-  // Right context panel (skills + token usage) is admin-only. Keep the
-  // admin toggle in sync — the panel is shown on entry for admins.
-  const isAdminUser = window._currentUser && window._currentUser.role === 'admin';
-  const aside = document.getElementById('context-panel');
-  if (aside) aside.style.display = isAdminUser ? '' : 'none';
-  const wsT = document.getElementById('posts-workspace-toggle'); if (wsT) wsT.checked = true;
+  // Right context panel (skills + token usage) is admin-only. Shown (expanded)
+  // on entry for admins; setContextPanel also resets the reopen button + switch.
+  setContextPanel(true);
   const adsCtx = document.getElementById('panel-section-ads-context');
   const driveUp = document.getElementById('panel-section-drive-upload');
-  const postsAcct = document.getElementById('panel-section-posts-account');
   if (adsCtx) adsCtx.style.display = isAds ? '' : 'none';
   if (driveUp) driveUp.style.display = isAds ? '' : 'none';
-  if (postsAcct) postsAcct.style.display = isAds ? 'none' : '';
   if (!isAds) { _postTab = 'chat'; switchPostsTab('chat'); loadPostingInterface(); }
   // Refresh the Meta indicator now that _activeInterface reflects the new mode
   updateStatusIndicators();
@@ -3640,7 +3638,7 @@ async function loadPostingInterface() {
     _postingConnected = true;
     const current = accounts.find(a => a.is_current) || accounts[0];
     const label = document.getElementById('posts-account-label');
-    if (label) label.textContent = `Connected as ${current.user_name || current.facebook_user_id}`;
+    if (label) label.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:5px;vertical-align:middle"></span>Connected as ${escHtml(current.user_name || current.facebook_user_id)}`;
     updatePostingAccountStatus(current);
     await loadPostingPagesAndIG();
     // Auto-select a default page so Calendar/Feed have something to show
@@ -3896,12 +3894,27 @@ function switchPostsTab(tab) {
   }
 }
 
-// Admin-only: slide-toggle to hide/open the right column (skills + token
-// usage context panel). Non-admins never see this panel at all.
-function toggleContextPanel(show) {
-  const aside = document.getElementById('context-panel');
-  if (aside) aside.style.display = show ? '' : 'none';
+// Collapsible bottom sidebar menu (Connections / Skills / Settings / etc.).
+function toggleSidebarMenu() {
+  const list = document.getElementById('sidebar-nav-list');
+  const caret = document.getElementById('sidebar-menu-caret');
+  if (!list) return;
+  const open = list.style.display !== 'none';
+  list.style.display = open ? 'none' : 'flex';
+  if (caret) caret.style.transform = open ? '' : 'rotate(90deg)';
 }
+
+// Right context panel (skills + token usage) — admin-only. setContextPanel
+// drives both the sidebar switch and the panel's own collapse/reopen buttons.
+function setContextPanel(show) {
+  const isAdmin = window._currentUser && window._currentUser.role === 'admin';
+  const aside = document.getElementById('context-panel');
+  const reopen = document.getElementById('context-panel-reopen');
+  if (aside) aside.style.display = (show && isAdmin) ? '' : 'none';
+  if (reopen) reopen.style.display = (!show && isAdmin) ? 'flex' : 'none';
+  const sw = document.getElementById('posts-workspace-toggle'); if (sw) sw.checked = show;
+}
+function toggleContextPanel(show) { setContextPanel(show); }
 
 async function loadPostingPagesAndIG() {
   try {
