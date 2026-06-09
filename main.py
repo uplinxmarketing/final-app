@@ -9,6 +9,7 @@ import logging
 import hashlib
 import re
 import secrets
+import time
 import urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -3075,6 +3076,51 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
     return ig_accounts
 
 
+# Simple in-process TTL cache for the pages+IG combined result.
+# Key: facebook_user_id (or token hash); Value: (timestamp, pages_list)
+_pages_cache: dict[str, tuple[float, list]] = {}
+_PAGES_CACHE_TTL = 300  # 5 minutes
+
+
+async def _get_pages_cached(token: str, cache_key: str) -> dict:
+    """Call get_pages with a 5-minute in-memory cache keyed by cache_key."""
+    now = time.time()
+    cached = _pages_cache.get(cache_key)
+    if cached and now - cached[0] < _PAGES_CACHE_TTL:
+        return {"success": True, "data": {"data": cached[1]}}
+    result = await meta_api.get_pages(token)
+    if result.get("success"):
+        raw = result["data"]
+        pages = raw["data"] if isinstance(raw, dict) else raw
+        _pages_cache[cache_key] = (now, pages)
+    return result
+
+
+@app.get("/api/posting/pages-and-ig")
+async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(get_db)):
+    """Combined endpoint — returns both FB pages and IG accounts in one Meta API call."""
+    token = await get_posting_token(request, db)
+    session = get_session(request)
+    cache_key = session.get("posting_user_id") or hashlib.sha256(token.encode()).hexdigest()[:16]
+    result = await _get_pages_cached(token, cache_key)
+    if not result.get("success"):
+        raise HTTPException(502, result.get("error", "Meta API error"))
+    raw = result["data"]
+    pages = raw["data"] if isinstance(raw, dict) else raw
+    ig_accounts = []
+    for page in pages:
+        iba = page.get("instagram_business_account")
+        if iba:
+            ig_accounts.append({
+                "id": iba["id"],
+                "name": iba.get("name", ""),
+                "username": iba.get("username", ""),
+                "page_id": page["id"],
+                "page_name": page.get("name", ""),
+            })
+    return {"pages": pages, "ig_accounts": ig_accounts}
+
+
 # ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
 
 @app.get("/media/{token}")
@@ -3618,22 +3664,29 @@ async def api_posting_drive_preview(
     )
 
 
+_DOCS_MIMES = {
+    "application/vnd.google-apps.document",
+    "application/vnd.google-apps.spreadsheet",
+}
+
+
 @app.get("/api/posting/drive/browse")
 async def api_posting_drive_browse(
     request: Request,
     folder_id: str = "root",
     q: str = "",
+    docs_mode: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     """List/search folders and media files for the in-chat Drive browser.
 
     Without ``q`` it lists what's inside ``folder_id``. With ``q`` it searches
     the user's whole Drive by name (folders + media only).
+    When ``docs_mode=true`` surfaces only Google Docs/Sheets (for captions picker).
     """
     google_token = await get_google_token(request, db)
     search = (q or "").strip()
     if search:
-        # Escape single quotes for the Drive query language.
         safe = search.replace("\\", "\\\\").replace("'", "\\'")
         query = f"name contains '{safe}' and trashed=false"
     else:
@@ -3646,8 +3699,11 @@ async def api_posting_drive_browse(
         mime = f.get("mimeType", "")
         is_folder = mime == "application/vnd.google-apps.folder"
         is_media = mime.startswith(("image/", "video/"))
-        # When searching, only surface folders and media (skip docs/etc).
-        if search and not (is_folder or is_media):
+        is_doc = mime in _DOCS_MIMES
+        if docs_mode:
+            if not (is_folder or is_doc):
+                continue
+        elif search and not (is_folder or is_media):
             continue
         items.append({
             "id": f["id"],
@@ -3657,6 +3713,8 @@ async def api_posting_drive_browse(
             "isFolder": is_folder,
             "isMedia": is_media,
             "isVideo": mime.startswith("video/"),
+            "isDoc": mime == "application/vnd.google-apps.document",
+            "isSheet": mime == "application/vnd.google-apps.spreadsheet",
             "modifiedTime": f.get("modifiedTime"),
         })
     items.sort(key=lambda x: (not x["isFolder"], x["name"].lower()))
