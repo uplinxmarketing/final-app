@@ -655,7 +655,7 @@ a{color:inherit;text-decoration:none}
 
         <!-- Big post action button -->
         <div style="display:flex;justify-content:center;margin-top:20px">
-          <button onclick="openQuickUploadPopup()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 40px;border-radius:14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(220,38,38,0.3);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(220,38,38,0.4)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.3)'">
+          <button onclick="startUploadWizard()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 40px;border-radius:14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(220,38,38,0.3);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(220,38,38,0.4)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(220,38,38,0.3)'">
             <span style="font-size:32px">📤</span>
             <span style="font-size:15px;font-weight:700;letter-spacing:.3px">Upload Posts</span>
             <span style="font-size:12px;opacity:.85">Bulk publish from Google Drive</span>
@@ -729,6 +729,9 @@ a{color:inherit;text-decoration:none}
           </div>
         </div>
         <div style="padding:14px 16px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0">
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <button onclick="startUploadWizard()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:20px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(220,38,38,0.25)">📤 Upload Posts</button>
+          </div>
           <div class="chat-input-box" style="display:flex;align-items:flex-end;gap:10px" id="posts-chat-input-box">
             <textarea id="posts-chat-input" class="form-input" placeholder="Ask Uplinx AI about your posts…" rows="1"
               style="flex:1;resize:none;max-height:120px;overflow-y:auto;line-height:1.5;font-size:14px;background:transparent;border:none;outline:none;padding:0"
@@ -4429,6 +4432,215 @@ async function qupPollJob() {
   } catch(e) {
     _qupPollTimer = setTimeout(qupPollJob, 3000);
   }
+}
+
+// ─── In-chat Upload Wizard ───────────────────────────────────────────────────
+// Guided posting flow that lives INSIDE the AI chat: pick a page → paste Drive
+// links → preview each matched image + caption (+ scheduled date) → publish.
+
+let _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null };
+
+function _buildPostingTargets() {
+  const out = [];
+  (_postingPages||[]).forEach(p => out.push({id:p.id, name:p.name||p.id, platform:'facebook'}));
+  (_postingIgAccounts||[]).forEach(a => out.push({id:a.id, name:'@'+(a.username||a.name||a.id), platform:'instagram', page_id:a.page_id}));
+  (_postingClients||[]).forEach(c => (c.profiles||[]).forEach(p => {
+    if (p.fb_page_id && !out.find(t=>t.id===p.fb_page_id)) out.push({id:p.fb_page_id, name:p.fb_page_name||p.label, platform:'facebook', client:c.name});
+    if (p.ig_account_id && !out.find(t=>t.id===p.ig_account_id)) out.push({id:p.ig_account_id, name:'@'+(p.ig_username||p.ig_account_id), platform:'instagram', page_id:p.fb_page_id, client:c.name});
+  }));
+  return out;
+}
+
+// Append a custom-HTML assistant bubble (no markdown/copy chrome) to posts chat.
+function _appendPostsCard(html) {
+  const msgs = document.getElementById('posts-chat-messages');
+  const welcome = msgs.querySelector('.welcome'); if (welcome) welcome.remove();
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.innerHTML = `<div class="msg-bubble" style="max-width:560px">${html}</div><div class="msg-meta">🔷 Uplinx</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function startUploadWizard() {
+  const pm = document.getElementById('posts-main');
+  if (!pm || pm.style.display === 'none') {
+    enterInterface('posting');
+    setTimeout(()=>{ switchPostsTab('chat'); _uwStart(); }, 400);
+  } else {
+    switchPostsTab('chat'); _uwStart();
+  }
+}
+
+function _uwStart() {
+  _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null };
+  const targets = _buildPostingTargets();
+  if (!targets.length) {
+    _appendPostsCard(`<div style="font-size:14px;font-weight:600;margin-bottom:8px">📤 Let's upload some posts!</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">First, connect a Facebook Page or Instagram account.</div>
+      <button onclick="openPostingConnectModal()" style="padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔗 Connect an account</button>`);
+    return;
+  }
+  const btns = targets.map(t => `<button onclick="uwPickTarget('${t.id}')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:11px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;transition:border-color .12s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+      <span style="font-size:18px">${t.platform==='instagram'?'📷':'📘'}</span>
+      <span style="flex:1"><span style="font-weight:700">${escHtml(t.name)}</span>${t.client?`<span style="color:var(--text-dim);font-size:11px"> · ${escHtml(t.client)}</span>`:''}</span>
+      <span style="color:var(--text-dim)">›</span></button>`).join('');
+  _appendPostsCard(`<div style="font-size:14px;font-weight:600;margin-bottom:4px">📤 Let's upload some posts!</div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Which page or client should I publish to?</div>
+    <div style="display:flex;flex-direction:column;gap:8px">${btns}</div>`);
+}
+
+function uwPickTarget(id) {
+  const t = _buildPostingTargets().find(x => x.id === id);
+  if (!t) return;
+  _uw.target = t;
+  _appendPostsMsg('user', `Post to ${t.platform==='instagram'?'📷':'📘'} ${t.name}`);
+  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(t.name)}</b>. Now add your content from Google Drive:</div>
+    <div class="uw-step">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📁 Drive folder link</label>
+      <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">📝 Captions doc/sheet <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
+      <input type="text" class="uw-text" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px">
+      <button onclick="uwScan(this)" style="padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Scan folder</button>
+      <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim);margin-left:10px"></span>
+    </div>`);
+}
+
+async function uwScan(btn) {
+  const step = btn.closest('.uw-step');
+  const folder = step.querySelector('.uw-folder').value.trim();
+  const text = step.querySelector('.uw-text').value.trim();
+  const status = step.querySelector('.uw-scan-status');
+  if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
+  btn.disabled = true; status.textContent = '🔍 Scanning…';
+  try {
+    const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:text });
+    if (!res || !(res.media||[]).length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
+    _uw.posts = res.media.map((m,i) => {
+      const cap = (res.captions||[])[i] || {};
+      return { caption: cap.caption||'', hashtags: cap.hashtags||[], media:m, media_type: m.is_video?'REELS':'IMAGE', _sched:null };
+    });
+    status.textContent = `Found ${res.media.length} file(s).`;
+    btn.disabled = false;
+    _uwRenderPreview();
+  } catch(e) { status.textContent = 'Error: '+(e.message||e); btn.disabled=false; }
+}
+
+function _uwRenderPreview() {
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${escHtml(_uw.target.name)}</b>. Check each image and caption, then publish.</div>
+    <div class="uw-preview">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+        <select class="uw-sched-mode" onchange="uwSchedChange(this)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px">
+          <option value="now">⚡ Post immediately</option>
+          <option value="later">🕒 Schedule</option>
+        </select>
+        <span class="uw-sched-fields" style="display:none;gap:8px;align-items:center">
+          <input type="datetime-local" class="uw-sched-start" onchange="uwRecalcDates()" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
+          <span style="font-size:12px;color:var(--text-secondary)">every</span>
+          <input type="number" class="uw-sched-int" value="24" min="1" onchange="uwRecalcDates()" style="width:56px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
+          <span style="font-size:12px;color:var(--text-secondary)">hours</span>
+        </span>
+      </div>
+      <div class="uw-cards" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow-y:auto"></div>
+      <button onclick="uwPublish(this)" style="margin-top:14px;width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
+      <div class="uw-pub-status" style="font-size:12px;color:var(--text-dim);margin-top:8px;text-align:center"></div>
+    </div>`);
+  _uw.previewCard = card;
+  _uwRenderCards();
+}
+
+function _uwRenderCards() {
+  const wrap = _uw.previewCard.querySelector('.uw-cards');
+  wrap.innerHTML = _uw.posts.map((p,i) => {
+    const m = p.media;
+    const thumb = m.is_video
+      ? `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🎬</div>`
+      : `<img src="/api/posting/drive/preview/${m.id}?mime=${encodeURIComponent(m.mime_type||'image/jpeg')}" loading="lazy" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--bg-primary)" onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'width:56px;height:56px;border-radius:8px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0',textContent:'🖼️'}))">`;
+    return `<div style="display:flex;gap:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px;align-items:flex-start">
+      ${thumb}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin:3px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${p.caption?escHtml(p.caption):'<em style="color:var(--text-dim)">No caption matched</em>'}</div>
+        <div class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">⚡ Posts immediately</div>
+      </div>
+      <div class="uw-res-${i}" style="font-size:11px;white-space:nowrap;flex-shrink:0;color:var(--text-dim)"></div>
+    </div>`;
+  }).join('');
+  uwRecalcDates();
+}
+
+function uwSchedChange(sel) {
+  _uw.scheduleMode = sel.value;
+  const fields = _uw.previewCard.querySelector('.uw-sched-fields');
+  fields.style.display = sel.value === 'later' ? 'inline-flex' : 'none';
+  uwRecalcDates();
+}
+
+function _uwFmtDate(d) {
+  return d.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+
+function uwRecalcDates() {
+  const card = _uw.previewCard; if (!card) return;
+  if (_uw.scheduleMode !== 'later') {
+    _uw.posts.forEach((p,i)=>{ const el=card.querySelector('.uw-date-'+i); if(el) el.textContent='⚡ Posts immediately'; p._sched=null; });
+    return;
+  }
+  const start = card.querySelector('.uw-sched-start').value;
+  const hrs = parseFloat(card.querySelector('.uw-sched-int').value) || 24;
+  if (!start) { _uw.posts.forEach((p,i)=>{ const el=card.querySelector('.uw-date-'+i); if(el) el.textContent='🕒 pick a start time above'; }); return; }
+  const base = new Date(start).getTime();
+  _uw.posts.forEach((p,i)=>{
+    const d = new Date(base + i*hrs*3600*1000);
+    p._sched = d.toISOString();
+    const el = card.querySelector('.uw-date-'+i); if (el) el.textContent = '🕒 ' + _uwFmtDate(d);
+  });
+}
+
+async function uwPublish(btn) {
+  if (!_uw.posts.length || !_uw.target) return;
+  const card = _uw.previewCard;
+  const status = card.querySelector('.uw-pub-status');
+  if (_uw.scheduleMode === 'later' && !card.querySelector('.uw-sched-start').value) {
+    status.textContent = 'Set a start time, or switch to “Post immediately”.'; return;
+  }
+  const t = _uw.target;
+  const items = _uw.posts.map(p => {
+    const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
+      scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
+      media:[{ drive_file_id:p.media.id, mime_type:p.media.mime_type, filename:p.media.name }] };
+    if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
+    return item;
+  });
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const res = await api('POST', '/api/posting/bulk/drive', { items });
+    if (!res || !res.job_id) { status.textContent='Submit failed — please try again.'; btn.disabled=false; return; }
+    _uw.jobId = res.job_id; status.textContent = res.message || 'Queued!';
+    uwPollJob();
+  } catch(e) { status.textContent='Error: '+(e.message||e); btn.disabled=false; }
+}
+
+async function uwPollJob() {
+  if (!_uw.jobId) return;
+  const card = _uw.previewCard; const status = card.querySelector('.uw-pub-status');
+  try {
+    const job = await fetch(`/api/posting/jobs/${_uw.jobId}`).then(r=>r.ok?r.json():null);
+    if (!job) { status.textContent='Lost track of job.'; return; }
+    (job.results||[]).forEach(r=>{
+      const el = card.querySelector('.uw-res-'+r.index); if(!el) return;
+      if (r.success && r.scheduled){ el.textContent='🕒 Scheduled'; el.style.color='var(--text-secondary)'; }
+      else if (r.success){ el.textContent='✅'; el.style.color='var(--success,#22c55e)'; }
+      else { el.textContent='❌'; el.style.color='var(--accent)'; }
+    });
+    if (job.status==='queued'){ status.textContent = job.position>0?`⏳ ${job.position} job(s) ahead — you can keep chatting`:'⏳ Starting…'; }
+    else if (job.status==='running'){ status.textContent=`🔄 Publishing ${job.completed}/${job.total}…`; }
+    else if (job.status==='done'){ status.textContent=''; _uw.jobId=null;
+      _appendPostsCard(`<div style="font-size:13px">✅ <b>All done!</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.</div>`); return; }
+    else if (job.status==='failed'){ status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null; return; }
+    _uw.pollTimer = setTimeout(uwPollJob, 2000);
+  } catch(e){ _uw.pollTimer = setTimeout(uwPollJob, 3000); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

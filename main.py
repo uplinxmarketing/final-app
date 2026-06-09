@@ -3552,6 +3552,27 @@ async def api_posting_drive_scan(
     return {"media": media, "captions": captions}
 
 
+@app.get("/api/posting/drive/preview/{file_id}")
+async def api_posting_drive_preview(
+    file_id: str,
+    request: Request,
+    mime: str = "image/jpeg",
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a Drive image so the frontend can show a thumbnail before publishing.
+
+    Authenticated to the current session's Google account; nothing is stored on
+    disk and the bytes are streamed straight through to the browser.
+    """
+    safe_mime = mime if mime.startswith("image/") else "image/jpeg"
+    google_token = await get_google_token(request, db)
+    return StreamingResponse(
+        media_bridge.stream_drive_file(file_id, google_token),
+        media_type=safe_mime,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
 class PublishFacebookRequest(BaseModel):
     page_id: str
     caption: str = ""
