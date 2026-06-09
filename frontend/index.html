@@ -849,7 +849,10 @@ a{color:inherit;text-decoration:none}
                 </div>
                 <div>
                   <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Captions doc/sheet URL <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-                  <input type="text" id="bulk-text-url" placeholder="https://docs.google.com/…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <input type="text" id="bulk-text-url" placeholder="https://docs.google.com/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
+                    <button onclick="uwBrowseCaptionsDoc(this,'bulk-text-url')" title="Browse Google Docs/Sheets" style="padding:8px 12px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">📄 Browse</button>
+                  </div>
                 </div>
               </div>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1640,10 +1643,13 @@ a{color:inherit;text-decoration:none}
 
         <div style="margin-bottom:20px">
           <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">📝 Captions document <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-dim)">(optional — Google Doc or Sheet)</span></label>
-          <input type="text" id="qup-text-url" placeholder="https://docs.google.com/…"
-            style="width:100%;background:var(--bg-primary);border:2px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box;transition:border-color .15s"
-            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
-            onkeydown="if(event.key==='Enter')qupScan()">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="qup-text-url" placeholder="https://docs.google.com/…"
+              style="flex:1;background:var(--bg-primary);border:2px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box;transition:border-color .15s"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+              onkeydown="if(event.key==='Enter')qupScan()">
+            <button onclick="uwBrowseCaptionsDoc(this,'qup-text-url')" title="Browse Google Docs/Sheets" style="padding:12px 16px;background:var(--bg-secondary);color:var(--text-primary);border:2px solid var(--border);border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap">📄 Browse</button>
+          </div>
         </div>
 
         <button onclick="qupScan()" id="qup-scan-btn"
@@ -4779,8 +4785,19 @@ function uwBrowseDrive(btn) {
   _openDrivePicker(false);
 }
 
-function uwBrowseCaptionsDoc(btn) {
+// The text input that a caption-doc pick should populate (works inside the
+// wizard, the bulk-scan modal, or the quick-upload popup).
+let _captionDocTargetInput = null;
+
+function uwBrowseCaptionsDoc(btn, inputId) {
   _uwDriveStep = btn.closest('.uw-step');
+  // Resolve the target input: explicit id, sibling in the flex wrapper, or
+  // a nearby caption input.
+  _captionDocTargetInput = inputId
+    ? document.getElementById(inputId)
+    : (btn.parentElement && btn.parentElement.querySelector('input[type="text"]'))
+      || (_uwDriveStep && (_uwDriveStep.querySelector('.uw-text') || _uwDriveStep.querySelector('.uw-text-device')));
+  if (!_uw || typeof _uw !== 'object') _uw = {};
   _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'', captionMode:true };
   _openDrivePicker(true);
 }
@@ -5005,17 +5022,13 @@ function uwUseCaptionsDoc(fileId, mimeType, fileName) {
     url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
   else
     url = `https://drive.google.com/file/d/${fileId}/view`;
-  if (_uwDriveStep) {
-    // Fill whichever caption input is in the currently visible panel
-    const visiblePanel = _uwDriveStep.querySelector('.uw-src-panel:not([style*="display:none"]),.uw-src-panel');
-    const inp = (visiblePanel && (visiblePanel.querySelector('.uw-text') || visiblePanel.querySelector('.uw-text-device')))
-      || _uwDriveStep.querySelector('.uw-text') || _uwDriveStep.querySelector('.uw-text-device');
-    if (inp) {
-      inp.value = url;
-      inp.style.borderColor = 'var(--accent)';
-      setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 1500);
-    }
+  const inp = _captionDocTargetInput;
+  if (inp) {
+    inp.value = url;
+    inp.style.borderColor = 'var(--accent)';
+    setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 1500);
   }
+  _captionDocTargetInput = null;
   closeDrivePicker();
 }
 
