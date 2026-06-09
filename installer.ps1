@@ -33,7 +33,7 @@ try {
 
 # -- Config -------------------------------------------------------------------
 $AppName   = "Uplinx Meta Manager"
-$GithubZip = "https://github.com/uplinxmarketing/ad-upload/archive/refs/heads/main.zip"
+$GithubZip = "https://github.com/uplinxmarketing/final-app/archive/refs/heads/main.zip"
 $DefaultDir = "$env:LOCALAPPDATA\Uplinx"
 
 Write-Log ("DefaultDir: " + $DefaultDir)
@@ -244,7 +244,7 @@ $btnInstall.Add_Click({
 
         # 4 -- Copy files (preserve .env and DB if they exist)
         Step "Copying files..." 55
-        $srcDir = Join-Path $tmpDir "ad-upload-main"
+        $srcDir = Join-Path $tmpDir "final-app-main"
         Get-ChildItem $srcDir | Where-Object {
             $_.Name -notin @('.env','uplinx.db','update.bat')
         } | Copy-Item -Destination $script:InstallDir -Recurse -Force

@@ -12,7 +12,7 @@ echo.
 pause
 
 echo Downloading latest version...
-curl -L -o _update_tmp.zip "https://github.com/uplinxmarketing/ad-upload/archive/refs/heads/main.zip"
+curl -L -o _update_tmp.zip "https://github.com/uplinxmarketing/final-app/archive/refs/heads/main.zip"
 if errorlevel 1 (
     echo.
     echo ERROR: Download failed. Check your internet connection.
@@ -32,7 +32,7 @@ if errorlevel 1 (
 
 echo Applying update (preserving .env and database)...
 powershell -NoProfile -Command ^
-  "Get-ChildItem '_update_dir\ad-upload-main' | Where-Object { $_.Name -notin @('.env','uplinx.db','update.bat') } | Copy-Item -Destination '.' -Recurse -Force"
+  "Get-ChildItem '_update_dir\final-app-main' | Where-Object { $_.Name -notin @('.env','uplinx.db','update.bat') } | Copy-Item -Destination '.' -Recurse -Force"
 
 echo Cleaning up...
 rmdir /S /Q _update_dir 2>nul

@@ -4135,8 +4135,8 @@ async def update_check(response: Response):
     import time as _time
     cache_bust = int(_time.time())
     urls_tried = [
-        f"https://raw.githubusercontent.com/uplinxmarketing/ad-upload/main/version.txt?t={cache_bust}",
-        "https://api.github.com/repos/uplinxmarketing/ad-upload/contents/version.txt",
+        f"https://raw.githubusercontent.com/uplinxmarketing/final-app/main/version.txt?t={cache_bust}",
+        "https://api.github.com/repos/uplinxmarketing/final-app/contents/version.txt",
     ]
     for url in urls_tried:
         try:
@@ -4178,7 +4178,7 @@ async def update_apply():
     import tempfile
     import zipfile
 
-    zip_url = "https://github.com/uplinxmarketing/ad-upload/archive/refs/heads/main.zip"
+    zip_url = "https://github.com/uplinxmarketing/final-app/archive/refs/heads/main.zip"
     preserve = {".env", "uplinx.db", "user_settings.json", "venv", "uploads",
                 "logs", "skills", "_update_dir", "_update_tmp.zip"}
 
@@ -4196,7 +4196,7 @@ async def update_apply():
             with zipfile.ZipFile(zip_path) as zf:
                 zf.extractall(tmp)
 
-            # GitHub zips contain a single top-level folder like "ad-upload-main"
+            # GitHub zips contain a single top-level folder like "final-app-main"
             extracted = [p for p in Path(tmp).iterdir() if p.is_dir()]
             if not extracted:
                 raise RuntimeError("ZIP contained no top-level folder")
