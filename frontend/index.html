@@ -1233,45 +1233,12 @@ a{color:inherit;text-decoration:none}
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
 
-      <!-- Posting App selection -->
-      <div style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">Connect via Posting App</div>
-          <button onclick="closeModal('posting-connect-modal');openMetaAppsModal('posting')"
-            style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">
-            🛠️ Manage Apps
-          </button>
-        </div>
-        <div id="posting-modal-apps-list" style="display:flex;flex-direction:column;gap:6px">
-          <div style="font-size:13px;color:var(--text-dim)">No posting apps configured.</div>
-        </div>
-      </div>
-
-      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
-
-      <!-- Add account -->
+      <!-- Add account — Facebook login only -->
       <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Add Account</div>
-
-      <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🔑 Paste Access Token</div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Page access token or long-lived user token with page + Instagram permissions.</div>
-        <input type="password" id="posting-token-input" placeholder="EAAxxxxxx…" autocomplete="off"
-          style="width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-primary);font-size:13px;margin-bottom:10px;outline:none;box-sizing:border-box"
-          onkeydown="if(event.key==='Enter') connectPostingWithToken()">
-        <button onclick="connectPostingWithToken()" id="connect-posting-token-btn"
-          style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
-          Connect with Token
-        </button>
-        <div id="posting-token-error" style="color:var(--error);font-size:12px;margin-top:8px;display:none"></div>
-      </div>
-
-      <div id="posting-oauth-buttons" style="display:flex;flex-direction:column;gap:6px">
-        <button onclick="openOAuthPopup('/auth/meta/posting')" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);width:100%;box-sizing:border-box;justify-content:center;cursor:pointer"
-          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
-          🔷 Login with Facebook (first posting app)
-        </button>
-      </div>
+      <button onclick="openOAuthPopup('/auth/meta/posting')" style="display:inline-flex;align-items:center;gap:10px;padding:12px 24px;background:#1877F2;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;width:100%;box-sizing:border-box;justify-content:center;cursor:pointer">
+        🔷 Log in with Facebook
+      </button>
+      <div style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:10px">You'll be asked to grant Page &amp; Instagram permissions.</div>
     </div>
   </div>
 </div>
