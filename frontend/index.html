@@ -837,10 +837,7 @@ a{color:inherit;text-decoration:none}
             </div>
             <div style="margin-bottom:14px">
               <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
-              <input type="text" id="posts-target-search" class="select-search" oninput="filterSelect(this)" placeholder="🔍 Search by name…" style="display:none;width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">
-              <select id="posts-target-select" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:13px">
-                <option value="">— Select —</option>
-              </select>
+              <div id="compose-target-host"></div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
@@ -3842,8 +3839,7 @@ function selectPostPage(page) {
   if (_postingConnected) {
     showPostsWorkspace('content');
     selectPostPlatform(page.platform || 'facebook');
-    const sel = document.getElementById('posts-target-select');
-    if (sel) sel.value = page.id;
+    ssSet('compose', page.id);
     switchPostsTab(_postTab);
   } else {
     showPostsWorkspace('connect');
@@ -3947,36 +3943,23 @@ function renderPostingsSidebar() {
     : '<div style="font-size:11px;color:var(--text-dim)">No IG accounts found</div>';
 }
 
-// Search box that filters a native <select>'s options. Returns '' for short
-// lists so we don't clutter selectors with only a few accounts.
-function _selectSearchHtml(count) {
-  if (!count || count < 6) return '';
-  return `<input type="text" class="select-search" oninput="filterSelect(this)" placeholder="🔍 Search by name…" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">`;
-}
-// Hide options of the sibling <select> that don't match the typed text.
-function filterSelect(input) {
-  const sel = input.parentElement.querySelector('select');
-  if (!sel) return;
-  const q = input.value.trim().toLowerCase();
-  Array.from(sel.options).forEach(o => { if (o.value) o.hidden = !!q && !o.text.toLowerCase().includes(q); });
-}
 
 function populatePostTargetSelect() {
-  const sel = document.getElementById('posts-target-select');
-  if (!sel) return;
-  sel.innerHTML = '';
-  const source = _postPlatform === 'facebook' ? _postingPages : _postingIgAccounts;
-  // Show the compose search box only when there are enough accounts to warrant it.
-  const search = document.getElementById('posts-target-search');
-  if (search) { search.style.display = source.length >= 6 ? '' : 'none'; search.value = ''; }
-  if (!source.length) { sel.innerHTML = '<option value="">No accounts found</option>'; return; }
-  source.forEach(p => {
-    const o = document.createElement('option');
-    o.value = p.id;
-    o.textContent = _postPlatform === 'facebook' ? (p.name||p.id) : `@${p.username||p.name}`;
-    sel.appendChild(o);
+  const host = document.getElementById('compose-target-host');
+  if (!host) return;
+  const isFB = _postPlatform === 'facebook';
+  const source = isFB ? _postingPages : _postingIgAccounts;
+  const items = (source||[]).map(p => ({
+    id: p.id,
+    name: isFB ? (p.name||p.id) : '@'+(p.username||p.name||p.id),
+    username: p.username, picture_url: p.picture_url, platform: _postPlatform,
+  }));
+  const selId = (_selectedPostPage && items.some(i => i.id === _selectedPostPage.id)) ? _selectedPostPage.id : null;
+  ssMount('compose-target-host', 'compose', {
+    items, platform: _postPlatform, selId,
+    placeholder: isFB ? 'Select a Facebook Page…' : 'Select an Instagram account…',
+    empty: 'No accounts found',
   });
-  if (_selectedPostPage) sel.value = _selectedPostPage.id;
 }
 
 function selectPostPlatform(platform) {
@@ -4010,13 +3993,13 @@ function selectPostType(type) {
 function selectPostingPage(pageId) {
   const page = _postingPages.find(p => p.id === pageId);
   if (page) { selectPostPage({id: page.id, name: page.name, platform: 'facebook', picture_url: page.picture_url}); }
-  else { selectPostPlatform('facebook'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = pageId; }
+  else { selectPostPlatform('facebook'); ssSet('compose', pageId); }
 }
 
 function selectPostingIG(igId) {
   const acc = _postingIgAccounts.find(a => a.id === igId);
   if (acc) { selectPostPage({id: acc.id, name: '@' + (acc.username || acc.name || acc.id), platform: 'instagram', picture_url: acc.picture_url, page_id: acc.page_id}); }
-  else { selectPostPlatform('instagram'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = igId; }
+  else { selectPostPlatform('instagram'); ssSet('compose', igId); }
 }
 
 // ── Calendar ────────────────────────────────────────────────────────────────
@@ -4123,7 +4106,7 @@ function _pickerRows(items, platform, selId, nameOf, onpickTpl, emptyText) {
 // Filter the rows of the picker menu containing this search input.
 function _filterPickerMenu(input) {
   const q = input.value.trim().toLowerCase();
-  const menu = input.closest('[id$="-menu"]');
+  const menu = input.closest('.ss-menu') || input.closest('[id$="-menu"]');
   if (!menu) return;
   let shown = 0;
   menu.querySelectorAll('.picker-row').forEach(r => {
@@ -4145,6 +4128,61 @@ function _filterPickerMenu(input) {
     none.style.display = 'none';
   }
 }
+
+// ── Generic searchable dropdown (calendar-style) — replaces native <select> ──
+// where inline search matters. _ssState[key] = {items, selId, platform,
+// placeholder, empty, getName, onpick}. Items: {id, name, picture_url, …}.
+const _ssState = {};
+function ssHtml(key) {
+  return `<div class="ss-dd" id="ss-${key}" style="position:relative">
+    <button type="button" onclick="ssToggle('${key}')" id="ss-btn-${key}" style="width:100%;display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
+      <span class="ss-label" style="flex:1;display:flex;align-items:center;gap:8px;min-width:0"></span>
+      <span style="color:var(--text-dim);font-size:11px;flex-shrink:0">▼</span>
+    </button>
+    <div class="ss-menu" id="ss-menu-${key}" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.25);max-height:280px;overflow-y:auto;padding:6px"></div>
+  </div>`;
+}
+function ssMount(hostId, key, cfg) {
+  _ssState[key] = Object.assign({ items:[], selId:null, platform:'facebook', placeholder:'Select…', empty:'No results', getName:(i)=>i.name||i.id, onpick:null }, cfg);
+  const host = document.getElementById(hostId);
+  if (host) host.innerHTML = ssHtml(key);
+  ssRender(key);
+}
+function ssRender(key) {
+  const st = _ssState[key]; if (!st) return;
+  const btn = document.getElementById('ss-btn-'+key);
+  const menu = document.getElementById('ss-menu-'+key);
+  if (!btn || !menu) return;
+  const cur = st.items.find(i => i.id === st.selId);
+  const lab = btn.querySelector('.ss-label');
+  lab.innerHTML = cur
+    ? `${pageAvatar(cur.picture_url, cur.platform||st.platform, 22)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${escHtml(st.getName(cur))}</span>`
+    : `<span style="color:var(--text-dim)">${escHtml(st.placeholder)}</span>`;
+  let html = _pickerSearchHtml(st.items.length);
+  html += _pickerRows(st.items, st.platform, st.selId, st.getName, "ssPick('"+key+"','%ID%')", st.empty);
+  menu.innerHTML = html;
+}
+function ssToggle(key) {
+  document.querySelectorAll('.ss-menu').forEach(m => { if (m.id !== 'ss-menu-'+key) m.style.display = 'none'; });
+  const menu = document.getElementById('ss-menu-'+key); if (!menu) return;
+  const open = menu.style.display !== 'none';
+  menu.style.display = open ? 'none' : 'block';
+  if (!open) { _focusPickerSearch(menu); setTimeout(() => document.addEventListener('click', _ssOutside), 0); }
+}
+function _ssOutside(e) {
+  if (e.target.closest('.ss-dd')) return;
+  document.querySelectorAll('.ss-menu').forEach(m => m.style.display = 'none');
+  document.removeEventListener('click', _ssOutside);
+}
+function ssPick(key, id) {
+  const st = _ssState[key]; if (!st) return;
+  st.selId = (st.selId === id) ? null : id;   // click selected again to clear
+  const menu = document.getElementById('ss-menu-'+key); if (menu) menu.style.display = 'none';
+  ssRender(key);
+  if (st.onpick) st.onpick(st.selId);
+}
+function ssSet(key, id) { const st = _ssState[key]; if (!st) return; st.selId = id || null; ssRender(key); }
+function ssValue(key) { return (_ssState[key] && _ssState[key].selId) || ''; }
 
 function toggleCalendarMenu(which) {
   const menu = document.getElementById(which === 'fb' ? 'calendar-fb-menu' : 'calendar-ig-menu');
@@ -4408,7 +4446,7 @@ function loadFeed() {
 }
 
 async function submitPost() {
-  const target = document.getElementById('posts-target-select').value;
+  const target = ssValue('compose');
   const caption = document.getElementById('post-caption').value.trim();
   const mediaUrl = document.getElementById('post-media-url').value.trim();
   const scheduleTime = document.getElementById('post-schedule-time').value;
@@ -4966,99 +5004,85 @@ function _uwShowTargets() {
     </select>
     <div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
 
+  // Unique keys per wizard run so re-running doesn't collide with old cards.
+  const seq = (window._uwSeq = (window._uwSeq || 0) + 1);
+  const fbKey = 'uwfb' + seq, igKey = 'uwig' + seq;
+  _uw.fbKey = fbPages.length ? fbKey : null;
+  _uw.igKey = igAccts.length ? igKey : null;
+
   const fbBlock = fbPages.length ? `
     <label style="${labelStyle};display:flex;align-items:center;gap:5px">${fbIcon(13)} Facebook Page</label>
-    <div style="margin-bottom:12px">
-      ${_selectSearchHtml(fbPages.length)}
-      <select class="uw-fb-sel" onchange="uwTargetSelChange(this,'facebook');_uwPreviewSel(this,'facebook')" style="${selStyle}">
-        <option value="" data-pic="">— Select a Facebook Page —</option>
-        ${fbPages.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
-      </select>
-    </div>` : '';
-
+    <div id="host-${fbKey}" style="margin-bottom:12px"></div>` : '';
   const igBlock = igAccts.length ? `
     <label style="${labelStyle};display:flex;align-items:center;gap:5px">${igIcon(13)} Instagram Account</label>
-    <div style="margin-bottom:12px">
-      ${_selectSearchHtml(igAccts.length)}
-      <select class="uw-ig-sel" onchange="uwTargetSelChange(this,'instagram');_uwPreviewSel(this,'instagram')" style="${selStyle}">
-        <option value="" data-pic="">— Select an Instagram account —</option>
-        ${igAccts.map(t => `<option value="${escHtml(t.id)}" data-pic="${escHtml(t.picture_url||'')}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
-      </select>
-    </div>` : '';
+    <div id="host-${igKey}" style="margin-bottom:12px"></div>` : '';
 
-  _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
+  const card = _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a client to fill both automatically, or choose a Facebook Page and/or Instagram account — you can select <b>both</b> to post to both at once.</div>
     <div class="uw-target-step">
       ${clientBlock}
       ${fbBlock}
       ${igBlock}
-      <div class="uw-target-chosen" style="display:none;font-size:12px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:10px;color:var(--text-primary)"></div>
+      <div class="uw-target-chosen" style="display:none;font-size:12px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin:4px 0 10px;color:var(--text-primary)"></div>
       <button class="uw-target-continue" onclick="uwContinueTarget(this)" disabled style="width:100%;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;opacity:.5">Continue →</button>
     </div>
     ${changeBtn}`);
+  _uw.targetStepEl = card ? card.querySelector('.uw-target-step') : null;
+
+  // Mount the searchable dropdowns into their hosts.
+  if (fbPages.length) ssMount('host-'+fbKey, fbKey, {
+    items: fbPages.map(t => ({id:t.id, name:t.name+(t.client?' · '+t.client:''), picture_url:t.picture_url, platform:'facebook'})),
+    platform:'facebook', placeholder:'Select a Facebook Page…', empty:'No Facebook Pages',
+    onpick: () => uwTargetPicked(),
+  });
+  if (igAccts.length) ssMount('host-'+igKey, igKey, {
+    items: igAccts.map(t => ({id:t.id, name:t.name+(t.client?' · '+t.client:''), picture_url:t.picture_url, platform:'instagram'})),
+    platform:'instagram', placeholder:'Select an Instagram account…', empty:'No Instagram accounts',
+    onpick: () => uwTargetPicked(),
+  });
+}
+
+// A direct FB/IG pick clears the client shortcut and recomputes targets.
+function uwTargetPicked() {
+  const step = _uw.targetStepEl;
+  const cl = step && step.querySelector('.uw-client-sel');
+  if (cl) cl.value = '';
+  _uwRefreshTargets();
 }
 
 // FB + IG are independent — you can pick one or both (they're linked in Meta
 // Business Suite, so posting to both at once is the common case). The client
 // dropdown is a shortcut that fills both from the client's assigned pages.
-// Show selected page's profile picture as a small preview above the select.
-function _uwPreviewSel(sel, platform) {
-  const opt = sel.options[sel.selectedIndex];
-  const pic = (opt && sel.value) ? (opt.getAttribute('data-pic') || '') : '';
-  const name = (opt && sel.value) ? opt.text.split(' · ')[0] : '';
-  let preview = sel.previousElementSibling;
-  if (!preview || !preview.classList.contains('uw-sel-preview')) {
-    preview = document.createElement('div');
-    preview.className = 'uw-sel-preview';
-    preview.style.cssText = 'display:none;align-items:center;gap:8px;margin-bottom:7px;padding:7px 10px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)';
-    sel.parentNode.insertBefore(preview, sel);
-  }
-  if (sel.value) {
-    preview.innerHTML = `${pageAvatar(pic, platform, 28)}<span style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(name)}</span>`;
-    preview.style.display = 'flex';
-  } else {
-    preview.style.display = 'none';
-    preview.innerHTML = '';
-  }
-}
-
 function uwTargetSelChange(sel, kind) {
-  const step = sel.closest('.uw-target-step');
-  const fb = step.querySelector('.uw-fb-sel');
-  const ig = step.querySelector('.uw-ig-sel');
-  const cl = step.querySelector('.uw-client-sel');
-
-  // Selecting a client auto-fills the FB + IG dropdowns from its assigned pages.
+  // Only the client shortcut is a native <select> now; it fills the FB + IG
+  // searchable dropdowns from the client's assigned pages.
   if (kind === 'client') {
-    if (fb) fb.value = '';
-    if (ig) ig.value = '';
+    let fbId = null, igId = null;
     if (sel.value) {
       const c = (_postingClients||[]).find(x => x.name === sel.value);
       (c?.profiles||[]).forEach(p => {
-        if (p.fb_page_id && fb && [...fb.options].some(o => o.value === p.fb_page_id)) { fb.value = p.fb_page_id; _uwPreviewSel(fb, 'facebook'); }
-        if (p.ig_account_id && ig && [...ig.options].some(o => o.value === p.ig_account_id)) { ig.value = p.ig_account_id; _uwPreviewSel(ig, 'instagram'); }
+        if (p.fb_page_id) fbId = p.fb_page_id;
+        if (p.ig_account_id) igId = p.ig_account_id;
       });
-    } else {
-      if (fb) _uwPreviewSel(fb, 'facebook');
-      if (ig) _uwPreviewSel(ig, 'instagram');
     }
-  } else {
-    // Manually changing FB or IG clears the client shortcut label.
-    if (cl) cl.value = '';
+    if (_uw.fbKey) ssSet(_uw.fbKey, fbId);
+    if (_uw.igKey) ssSet(_uw.igKey, igId);
   }
-  _uwRefreshTargets(step);
+  _uwRefreshTargets();
 }
 
 // Recompute the chosen-target list from whatever the FB + IG dropdowns hold.
-function _uwRefreshTargets(step) {
-  const fb = step.querySelector('.uw-fb-sel');
-  const ig = step.querySelector('.uw-ig-sel');
+function _uwRefreshTargets() {
+  const step = _uw.targetStepEl;
+  if (!step) return;
   const chosen = step.querySelector('.uw-target-chosen');
   const cont = step.querySelector('.uw-target-continue');
   const all = _buildPostingTargets();
+  const fbId = _uw.fbKey ? ssValue(_uw.fbKey) : '';
+  const igId = _uw.igKey ? ssValue(_uw.igKey) : '';
   const targets = [];
-  if (fb && fb.value) { const t = all.find(x => x.id === fb.value && x.platform === 'facebook'); if (t) targets.push(t); }
-  if (ig && ig.value) { const t = all.find(x => x.id === ig.value && x.platform === 'instagram'); if (t) targets.push(t); }
+  if (fbId) { const t = all.find(x => x.id === fbId && x.platform === 'facebook'); if (t) targets.push(t); }
+  if (igId) { const t = all.find(x => x.id === igId && x.platform === 'instagram'); if (t) targets.push(t); }
 
   _uw._pendingTargets = targets;
   if (targets.length) {
