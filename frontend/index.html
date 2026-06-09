@@ -773,6 +773,17 @@ a{color:inherit;text-decoration:none}
 
         <!-- Tab: Calendar -->
         <div id="posts-tab-calendar" style="display:none;flex:1;overflow-y:auto;padding:20px;flex-direction:column">
+          <!-- Page selector (Meta Business Suite style) -->
+          <div id="calendar-page-picker" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-shrink:0;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Viewing</span>
+            <div id="calendar-page-select" style="position:relative;flex:1;min-width:220px;max-width:380px">
+              <button onclick="toggleCalendarPageMenu()" id="calendar-page-btn" style="width:100%;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
+                <span id="calendar-page-btn-label" style="flex:1;display:flex;align-items:center;gap:8px;overflow:hidden">Select a page…</span>
+                <span style="color:var(--text-dim);font-size:11px">▼</span>
+              </button>
+              <div id="calendar-page-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.25);max-height:340px;overflow-y:auto;padding:6px"></div>
+            </div>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0">
             <button onclick="changeCalendarMonth(-1)" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">← Prev</button>
             <div id="calendar-month-label" style="font-size:15px;font-weight:700;color:var(--text-primary)">Month</div>
@@ -793,8 +804,8 @@ a{color:inherit;text-decoration:none}
         <div id="posts-tab-compose" style="display:none;flex:1;overflow-y:auto;padding:20px">
           <div style="max-width:620px;margin:0 auto">
             <div style="display:flex;gap:8px;margin-bottom:16px">
-              <button id="ptab-facebook" onclick="selectPostPlatform('facebook')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer">📘 Facebook Page</button>
-              <button id="ptab-instagram" onclick="selectPostPlatform('instagram')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">📷 Instagram</button>
+              <button id="ptab-facebook" onclick="selectPostPlatform('facebook')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer"><span class="ptab-ico"></span>Facebook Page</button>
+              <button id="ptab-instagram" onclick="selectPostPlatform('instagram')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer"><span class="ptab-ico"></span>Instagram</button>
             </div>
             <div style="margin-bottom:14px">
               <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
@@ -3503,6 +3514,30 @@ let _calMonth = new Date().getMonth() + 1;
 let _calData = {};
 const _MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// ── Platform icons (Meta Business Suite style) ───────────────────────────────
+function fbIcon(size = 16) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:middle;flex-shrink:0"><path fill="#1877F2" d="M24 12c0-6.627-5.373-12-12-12S0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854V15.47H7.078V12h3.047V9.356c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874V12h3.328l-.532 3.469h-2.796v8.385C19.612 22.954 24 17.99 24 12z"/></svg>`;
+}
+function igIcon(size = 16) {
+  const id = 'ig' + Math.random().toString(36).slice(2, 7);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:middle;flex-shrink:0"><defs><radialGradient id="${id}" cx="0.3" cy="1" r="1"><stop offset="0" stop-color="#fdf497"/><stop offset="0.05" stop-color="#fdf497"/><stop offset="0.45" stop-color="#fd5949"/><stop offset="0.6" stop-color="#d6249f"/><stop offset="0.9" stop-color="#285AEB"/></radialGradient></defs><path fill="url(#${id})" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16zM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.31-1.46.72-2.13 1.38C1.35 2.68.94 3.35.63 4.14.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.79.72 1.46 1.38 2.13.67.66 1.34 1.07 2.13 1.38.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.31 1.46-.72 2.13-1.38.66-.67 1.07-1.34 1.38-2.13.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.31-.79-.72-1.46-1.38-2.13C21.32 1.35 20.65.94 19.86.63 19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84zM12 16a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm6.41-10.85a1.44 1.44 0 1 0 1.44 1.44 1.44 1.44 0 0 0-1.44-1.44z"/></svg>`;
+}
+function platformIcon(platform, size = 16) {
+  return platform === 'instagram' ? igIcon(size) : fbIcon(size);
+}
+// Small round avatar with the platform glyph badged on the corner.
+function pageAvatar(pic, platform, size = 28) {
+  const badge = size >= 24 ? Math.round(size * 0.5) : 12;
+  const fallback = platform === 'instagram' ? '📷' : '📘';
+  const img = pic
+    ? `<img src="${escHtml(pic)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${fallback}',style:'font-size:${Math.round(size*0.7)}px;line-height:${size}px'}))">`
+    : `<span style="font-size:${Math.round(size*0.7)}px;line-height:${size}px;width:${size}px;display:inline-block;text-align:center">${fallback}</span>`;
+  return `<span style="position:relative;display:inline-block;width:${size}px;height:${size}px;flex-shrink:0">
+    ${img}
+    <span style="position:absolute;bottom:-2px;right:-3px;width:${badge}px;height:${badge}px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bg-primary)">${platformIcon(platform, badge - 3)}</span>
+  </span>`;
+}
+
 function showInterfaceSelector() {
   const sel = document.getElementById('interface-selector');
   if (sel) sel.style.display = 'flex';
@@ -3796,7 +3831,7 @@ function switchPostsTab(tab) {
     if (state === 'content') {
       if (tab === 'calendar') loadCalendar();
       else if (tab === 'feed') loadFeed();
-      else if (tab === 'compose') loadPostsScheduled();
+      else if (tab === 'compose') { selectPostPlatform(_postPlatform || 'facebook'); loadPostsScheduled(); }
       else if (tab === 'bulk') initBulkComposer();
     }
   }
@@ -3816,12 +3851,12 @@ async function loadPostingPagesAndIG() {
 function renderPostingsSidebar() {
   const pagesEl = document.getElementById('posts-pages-list');
   const igEl = document.getElementById('posts-ig-list');
-  const itemStyle = 'padding:5px 8px;border-radius:6px;font-size:11px;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);cursor:pointer;transition:border-color 0.15s';
+  const itemStyle = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12px;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);cursor:pointer;transition:border-color 0.15s';
   if (pagesEl) pagesEl.innerHTML = _postingPages.length
-    ? _postingPages.map(p => `<div style="${itemStyle}" onclick="selectPostingPage('${p.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">📘 ${p.name||p.id}</div>`).join('')
+    ? _postingPages.map(p => `<div style="${itemStyle}" onclick="selectPostingPage('${p.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${pageAvatar(p.picture_url, 'facebook', 24)}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name||p.id)}</span></div>`).join('')
     : '<div style="font-size:11px;color:var(--text-dim)">No pages found</div>';
   if (igEl) igEl.innerHTML = _postingIgAccounts.length
-    ? _postingIgAccounts.map(a => `<div style="${itemStyle}" onclick="selectPostingIG('${a.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">📷 @${a.username||a.name}</div>`).join('')
+    ? _postingIgAccounts.map(a => `<div style="${itemStyle}" onclick="selectPostingIG('${a.id}')" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${pageAvatar(a.picture_url, 'instagram', 24)}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${escHtml(a.username||a.name)}</span></div>`).join('')
     : '<div style="font-size:11px;color:var(--text-dim)">No IG accounts found</div>';
 }
 
@@ -3843,12 +3878,12 @@ function populatePostTargetSelect() {
 function selectPostPlatform(platform) {
   _postPlatform = platform;
   const isFB = platform === 'facebook';
-  const onStyle = 'padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer';
-  const offStyle = 'padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer';
+  const onStyle = 'display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer';
+  const offStyle = 'display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer';
   const fbBtn = document.getElementById('ptab-facebook');
   const igBtn = document.getElementById('ptab-instagram');
-  if (fbBtn) fbBtn.style.cssText = isFB ? onStyle : offStyle;
-  if (igBtn) igBtn.style.cssText = isFB ? offStyle : onStyle;
+  if (fbBtn) { fbBtn.style.cssText = isFB ? onStyle : offStyle; const i = fbBtn.querySelector('.ptab-ico'); if (i) i.innerHTML = fbIcon(14); }
+  if (igBtn) { igBtn.style.cssText = isFB ? offStyle : onStyle; const i = igBtn.querySelector('.ptab-ico'); if (i) i.innerHTML = igIcon(14); }
   const acctLabel = document.getElementById('posts-acct-label');
   if (acctLabel) acctLabel.textContent = isFB ? 'Facebook Page' : 'Instagram Account';
   const typeRow = document.getElementById('post-type-row');
@@ -3870,29 +3905,88 @@ function selectPostType(type) {
 
 function selectPostingPage(pageId) {
   const page = _postingPages.find(p => p.id === pageId);
-  if (page) { selectPostPage({id: page.id, name: page.name, platform: 'facebook'}); }
+  if (page) { selectPostPage({id: page.id, name: page.name, platform: 'facebook', picture_url: page.picture_url}); }
   else { selectPostPlatform('facebook'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = pageId; }
 }
 
 function selectPostingIG(igId) {
   const acc = _postingIgAccounts.find(a => a.id === igId);
-  if (acc) { selectPostPage({id: acc.id, name: acc.name || acc.username, platform: 'instagram'}); }
+  if (acc) { selectPostPage({id: acc.id, name: '@' + (acc.username || acc.name || acc.id), platform: 'instagram', picture_url: acc.picture_url, page_id: acc.page_id}); }
   else { selectPostPlatform('instagram'); const sel = document.getElementById('posts-target-select'); if (sel) sel.value = igId; }
 }
 
 // ── Calendar ────────────────────────────────────────────────────────────────
 
 async function loadCalendar() {
-  if (!_selectedPostPage) return;
+  renderCalendarPagePicker();
+  if (!_selectedPostPage) {
+    const grid = document.getElementById('calendar-grid');
+    if (grid) grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-dim);font-size:13px">Pick a page above to view its calendar.</div>';
+    return;
+  }
   const label = document.getElementById('calendar-month-label');
   if (label) label.textContent = `${_MONTH_NAMES[_calMonth-1]} ${_calYear}`;
   renderCalendarShell();
   try {
-    const r = await fetch(`/api/posting/calendar?page_id=${encodeURIComponent(_selectedPostPage.id)}&year=${_calYear}&month=${_calMonth}`);
+    const plat = _selectedPostPage.platform || 'facebook';
+    const r = await fetch(`/api/posting/calendar?page_id=${encodeURIComponent(_selectedPostPage.id)}&platform=${plat}&year=${_calYear}&month=${_calMonth}`);
     if (!r.ok) { renderCalendarGrid({}); return; }
     _calData = await r.json();
     renderCalendarGrid(_calData.days || {});
   } catch(e) { renderCalendarGrid({}); }
+}
+
+// Build the Meta-Business-Suite-style page chooser (FB pages + IG accounts).
+function renderCalendarPagePicker() {
+  const labelEl = document.getElementById('calendar-page-btn-label');
+  const menu = document.getElementById('calendar-page-menu');
+  if (!labelEl || !menu) return;
+  if (_selectedPostPage) {
+    labelEl.innerHTML = `${pageAvatar(_selectedPostPage.picture_url, _selectedPostPage.platform, 22)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${escHtml(_selectedPostPage.name || _selectedPostPage.id)}</span>`;
+  } else {
+    labelEl.textContent = 'Select a page…';
+  }
+  const rowStyle = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-primary);transition:background .12s';
+  const mkRow = (item, platform, name, sel) => `<div onclick="pickCalendarPage('${item.id}','${platform}')" style="${rowStyle};background:${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}" onmouseover="this.style.background='var(--bg-primary)'" onmouseout="this.style.background='${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}'">
+    ${pageAvatar(item.picture_url, platform, 26)}
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</span>
+    ${sel?'<span style="color:var(--accent);font-weight:700">✓</span>':''}
+  </div>`;
+  let html = '';
+  if (_postingPages && _postingPages.length) {
+    html += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);padding:6px 10px 4px;display:flex;align-items:center;gap:6px">${fbIcon(13)} Facebook Pages</div>`;
+    html += _postingPages.map(p => mkRow(p, 'facebook', p.name||p.id, _selectedPostPage && _selectedPostPage.id===p.id && _selectedPostPage.platform==='facebook')).join('');
+  }
+  if (_postingIgAccounts && _postingIgAccounts.length) {
+    html += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);padding:10px 10px 4px;display:flex;align-items:center;gap:6px">${igIcon(13)} Instagram</div>`;
+    html += _postingIgAccounts.map(a => mkRow(a, 'instagram', '@'+(a.username||a.name||a.id), _selectedPostPage && _selectedPostPage.id===a.id && _selectedPostPage.platform==='instagram')).join('');
+  }
+  if (!html) html = '<div style="padding:14px;text-align:center;color:var(--text-dim);font-size:12px">No pages or accounts found.</div>';
+  menu.innerHTML = html;
+}
+
+function toggleCalendarPageMenu() {
+  const menu = document.getElementById('calendar-page-menu');
+  if (!menu) return;
+  const open = menu.style.display !== 'none';
+  menu.style.display = open ? 'none' : 'block';
+  if (!open) {
+    setTimeout(() => document.addEventListener('click', _closeCalendarMenuOnce), 0);
+  }
+}
+function _closeCalendarMenuOnce(e) {
+  const wrap = document.getElementById('calendar-page-select');
+  if (wrap && wrap.contains(e.target)) return;
+  const menu = document.getElementById('calendar-page-menu');
+  if (menu) menu.style.display = 'none';
+  document.removeEventListener('click', _closeCalendarMenuOnce);
+}
+
+function pickCalendarPage(id, platform) {
+  const menu = document.getElementById('calendar-page-menu');
+  if (menu) menu.style.display = 'none';
+  if (platform === 'instagram') selectPostingIG(id); else selectPostingPage(id);
+  loadCalendar();
 }
 
 function renderCalendarShell() {
@@ -3916,7 +4010,7 @@ function renderCalendarGrid(days) {
   const today = new Date();
   const isCurrentMonth = today.getFullYear() === _calYear && (today.getMonth() + 1) === _calMonth;
   let cells = '';
-  for (let i = 0; i < firstDow; i++) cells += `<div style="min-height:58px"></div>`;
+  for (let i = 0; i < firstDow; i++) cells += `<div style="min-height:78px"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
     const dayData = days[String(d)] || {scheduled: [], published: []};
     const hasSched = dayData.scheduled.length > 0;
@@ -3925,12 +4019,31 @@ function renderCalendarGrid(days) {
     const isToday = isCurrentMonth && d === today.getDate();
     const baseBorder = isToday ? 'var(--accent)' : 'var(--border)';
     const mouseHandlers = hasPosts ? `onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${baseBorder}'"` : '';
-    cells += `<div onclick="${hasPosts ? 'showCalendarDay(' + d + ')' : ''}" ${mouseHandlers} style="min-height:58px;border-radius:6px;padding:5px 6px;cursor:${hasPosts ? 'pointer' : 'default'};background:${isToday ? 'rgba(220,38,38,0.08)' : 'var(--bg-primary)'};border:1px solid ${baseBorder};transition:border-color 0.12s">
+
+    // Mini post chips: published (with thumbnail if available) then scheduled.
+    const allItems = [
+      ...dayData.published.map(p => ({...p, _kind:'pub'})),
+      ...dayData.scheduled.map(p => ({...p, _kind:'sched'})),
+    ];
+    let chips = '';
+    allItems.slice(0, 2).forEach(it => {
+      const plat = it.platform || 'facebook';
+      const accent = it._kind === 'pub' ? '#22c55e' : '#f59e0b';
+      const thumb = it.image
+        ? `<img src="${escHtml(it.image)}" loading="lazy" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`
+        : `<span style="width:6px;height:6px;border-radius:50%;background:${accent};flex-shrink:0"></span>`;
+      const text = (it._kind==='pub' ? (it.message||'') : (it.caption||'')) || (it._kind==='pub'?'Published':'Scheduled');
+      chips += `<div style="display:flex;align-items:center;gap:3px;background:var(--bg-secondary);border-left:2px solid ${accent};border-radius:3px;padding:1px 3px;overflow:hidden">
+        ${platformIcon(plat, 10)}${thumb}
+        <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(text.slice(0,18))}</span>
+      </div>`;
+    });
+    const more = allItems.length - 2;
+    if (more > 0) chips += `<div style="font-size:9px;color:var(--text-dim);padding:0 3px">+${more} more</div>`;
+
+    cells += `<div onclick="${hasPosts ? 'showCalendarDay(' + d + ')' : ''}" ${mouseHandlers} style="min-height:78px;border-radius:6px;padding:4px 5px;cursor:${hasPosts ? 'pointer' : 'default'};background:${isToday ? 'rgba(220,38,38,0.08)' : 'var(--bg-primary)'};border:1px solid ${baseBorder};transition:border-color 0.12s;display:flex;flex-direction:column;gap:2px;overflow:hidden">
       <div style="font-size:12px;font-weight:${isToday ? 700 : 500};color:${isToday ? 'var(--accent)' : 'var(--text-primary)'}">${d}</div>
-      <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
-        ${hasPub ? '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block" title="' + dayData.published.length + ' published"></span>' : ''}
-        ${hasSched ? '<span style="width:7px;height:7px;border-radius:50%;background:#f59e0b;display:inline-block" title="' + dayData.scheduled.length + ' scheduled"></span>' : ''}
-      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">${chips}</div>
     </div>`;
   }
   grid.innerHTML = headers + cells;
@@ -3945,23 +4058,34 @@ function showCalendarDay(day) {
   if (!dayData.scheduled.length && !dayData.published.length) return;
   if (titleEl) titleEl.textContent = `${_MONTH_NAMES[_calMonth-1]} ${day}, ${_calYear}`;
   let html = '';
-  dayData.published.forEach(p => {
-    html += `<div style="padding:10px 12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid #22c55e">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.5px">✓ Published</span>
-        <span style="font-size:11px;color:var(--text-dim)">${p.created_time ? new Date(p.created_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}</span>
+  const platChip = (plat) => {
+    const name = plat === 'instagram' ? 'Instagram' : 'Facebook';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border);border-radius:20px;padding:2px 8px 2px 5px">${platformIcon(plat,12)}${name}</span>`;
+  };
+  const card = (accent, statusLabel, time, plat, caption, image, link) => {
+    const thumb = image ? `<img src="${escHtml(image)}" loading="lazy" style="width:54px;height:54px;border-radius:8px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : '';
+    const linkBtn = link ? `<a href="${escHtml(link)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap">View ↗</a>` : '';
+    return `<div style="padding:10px 12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid ${accent};display:flex;gap:10px;align-items:flex-start">
+      ${thumb}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
+          <span style="display:inline-flex;align-items:center;gap:6px">
+            ${platChip(plat)}
+            <span style="font-size:11px;font-weight:700;color:${accent};text-transform:uppercase;letter-spacing:.5px">${statusLabel}</span>
+          </span>
+          <span style="font-size:11px;color:var(--text-dim);display:flex;gap:8px;align-items:center">${time}${linkBtn}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.4;word-break:break-word">${escHtml(caption || '(no caption)')}</div>
       </div>
-      <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${p.message || '(no caption)'}</div>
     </div>`;
+  };
+  dayData.published.forEach(p => {
+    const time = p.created_time ? new Date(p.created_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
+    html += card('#22c55e', '✓ Published', time, p.platform || 'facebook', p.message, p.image, p.permalink);
   });
   dayData.scheduled.forEach(p => {
-    html += `<div style="padding:10px 12px;background:var(--bg-secondary);border-radius:8px;border-left:3px solid #f59e0b">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.5px">⏱ Scheduled</span>
-        <span style="font-size:11px;color:var(--text-dim)">${p.time ? new Date(p.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}</span>
-      </div>
-      <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${p.caption || '(no caption)'}</div>
-    </div>`;
+    const time = p.time ? new Date(p.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
+    html += card('#f59e0b', '⏱ Scheduled', time, p.platform || 'facebook', p.caption, null, null);
   });
   if (listEl) listEl.innerHTML = html;
   detailEl.style.display = 'block';

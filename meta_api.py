@@ -171,7 +171,7 @@ async def get_pages(token: str) -> dict[str, Any]:
     url = f"{BASE_URL}/me/accounts"
     all_pages: list[Any] = []
     params: dict[str, Any] = {
-        "fields": "id,name,access_token,category,instagram_business_account{id,name,username}",
+        "fields": "id,name,access_token,category,picture{url},instagram_business_account{id,name,username,profile_picture_url}",
         "access_token": token,
         "limit": "200",
     }
