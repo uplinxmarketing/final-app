@@ -5045,53 +5045,71 @@ function uwPickTargets(targets) {
   const seg = (group, opts) => `<div style="display:inline-flex;gap:4px;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:3px">${
     opts.map((o,idx) => `<button type="button" class="uw-seg uw-seg-${group}" data-val="${o.val}" onclick="uw${group==='img'?'Img':'Cap'}Src(this,'${o.val}')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:7px;border:none;background:${idx===0?'var(--accent)':'transparent'};color:${idx===0?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;cursor:pointer">${o.icon} ${o.text}</button>`).join('')
   }</div>`;
-  _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Great — posting to <b>${escHtml(label)}</b>. Choose where your images and captions come from — you can mix and match (e.g. images from your device, captions from Drive).</div>
+  const cardStyle = 'border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;background:var(--bg-secondary)';
+  const headRow = 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap';
+  const sectionTitle = 'font-size:13px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:7px';
+  const inputStyle = 'flex:1;min-width:0;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box';
+  const browseBtn = 'display:inline-flex;align-items:center;gap:6px;padding:10px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap';
+  const drop = 'border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:border-color .15s';
+
+  _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Add your content</div>
+    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">Posting to <b>${escHtml(label)}</b>. Pick a source for your images and (optionally) captions — you can mix them, e.g. images from your device and captions from Drive.</div>
     <div class="uw-step">
 
-      <!-- IMAGES SECTION -->
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-bottom:6px">🖼️ Images / creatives ${seg('img',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'My Device'}])}</label>
-      <!-- images: drive -->
-      <div class="uw-img-drive" style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
-        <input type="text" class="uw-folder" placeholder="https://drive.google.com/drive/folders/…" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-        <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="display:inline-flex;align-items:center;gap:6px;padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">${gdriveIcon(15)} Browse</button>
-      </div>
-      <!-- images: device -->
-      <div class="uw-img-device" style="display:none;margin-bottom:12px">
-        <div style="border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-          <div style="font-size:26px;margin-bottom:6px">📂</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Click to choose images / videos, or drag &amp; drop</div>
-          <div style="font-size:11px;color:var(--text-dim)">JPG, PNG, GIF, WEBP, MP4, MOV — up to ${window._maxUploadMb||50} MB each</div>
-          <input type="file" multiple accept="image/*,video/*" onchange="uwDeviceFilePicked(this)" style="display:none">
+      <!-- IMAGES CARD -->
+      <div style="${cardStyle}">
+        <div style="${headRow}">
+          <span style="${sectionTitle}">🖼️ Images / creatives</span>
+          ${seg('img',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'Device'}])}
         </div>
-        <div class="uw-device-status" style="font-size:12px;color:var(--text-dim);margin-top:6px"></div>
-        <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        <div class="uw-img-drive" style="display:flex;gap:8px;align-items:center">
+          <input type="text" class="uw-folder" placeholder="Paste a Drive folder link…" style="${inputStyle}">
+          <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="${browseBtn}">${gdriveIcon(15)} Browse</button>
+        </div>
+        <div class="uw-img-device" style="display:none">
+          <div style="${drop}" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            <div style="font-size:26px;margin-bottom:6px">📂</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Click to choose images / videos, or drag &amp; drop</div>
+            <div style="font-size:11px;color:var(--text-dim)">JPG, PNG, GIF, WEBP, MP4, MOV — up to ${window._maxUploadMb||50} MB each</div>
+            <input type="file" multiple accept="image/*,video/*" onchange="uwDeviceFilePicked(this)" style="display:none">
+          </div>
+          <div class="uw-device-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
+          <div class="uw-device-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        </div>
       </div>
 
-      <!-- CAPTIONS SECTION -->
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;margin-bottom:6px">📝 Captions / text <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span> ${seg('cap',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'My Device'}])}</label>
-      <!-- captions: drive -->
-      <div class="uw-cap-drive" style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
-        <input type="text" class="uw-text" placeholder="https://docs.google.com/… (Doc or Sheet)" style="flex:1;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
-        <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="display:inline-flex;align-items:center;gap:6px;padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">${gdriveIcon(15)} Browse</button>
-      </div>
-      <!-- captions: device -->
-      <div class="uw-cap-device" style="display:none;margin-bottom:12px">
-        <div style="border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-          <div style="font-size:24px;margin-bottom:5px">📄</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Upload a captions file from your device</div>
-          <div style="font-size:11px;color:var(--text-dim)">TXT, CSV, Word (.docx), Excel (.xlsx) or PDF · separate posts with a blank line or <code>---</code></div>
-          <input type="file" accept=".txt,.md,.csv,.tsv,.docx,.xlsx,.pdf" onchange="uwCaptionFilePicked(this)" style="display:none">
+      <!-- CAPTIONS CARD -->
+      <div style="${cardStyle}">
+        <div style="${headRow}">
+          <span style="${sectionTitle}">📝 Captions / text <span style="font-weight:400;font-size:11px;color:var(--text-dim)">· optional</span></span>
+          ${seg('cap',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'Device'}])}
         </div>
-        <div class="uw-cap-file-status" style="font-size:12px;color:var(--text-dim);margin-top:6px"></div>
+        <div class="uw-cap-drive" style="display:flex;gap:8px;align-items:center">
+          <input type="text" class="uw-text" placeholder="Paste a Google Doc or Sheet link…" style="${inputStyle}">
+          <button onclick="uwBrowseCaptionsDoc(this)" title="Browse Google Docs/Sheets" style="${browseBtn}">${gdriveIcon(15)} Browse</button>
+        </div>
+        <div class="uw-cap-device" style="display:none">
+          <div style="${drop};padding:16px" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            <div style="font-size:24px;margin-bottom:5px">📄</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Upload a captions file from your device</div>
+            <div style="font-size:11px;color:var(--text-dim)">TXT, CSV, Word, Excel or PDF · one post per blank line or <code>---</code></div>
+            <input type="file" accept=".txt,.md,.csv,.tsv,.docx,.xlsx,.pdf" onchange="uwCaptionFilePicked(this)" style="display:none">
+          </div>
+          <div class="uw-cap-file-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
+        </div>
       </div>
 
-      <!-- INSTRUCTIONS + ACTIONS -->
-      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">💬 Extra instructions for AI <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-      <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only the vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;margin-bottom:12px;resize:vertical;font-family:inherit"></textarea>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button onclick="uwBuildPreview(this)" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
-        <button class="uw-ai-btn" onclick="uwAiHandle(this)" style="padding:10px 18px;background:transparent;border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
-        <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim)"></span>
+      <!-- INSTRUCTIONS -->
+      <div style="margin-bottom:14px">
+        <label style="font-size:13px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:7px;margin-bottom:8px">💬 Extra instructions <span style="font-weight:400;font-size:11px;color:var(--text-dim)">· optional</span></label>
+        <textarea class="uw-instructions" rows="2" placeholder="e.g. add a friendly tone, append #sale, post only vertical images…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit"></textarea>
+      </div>
+
+      <!-- ACTIONS -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:14px">
+        <button onclick="uwBuildPreview(this)" style="padding:11px 20px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
+        <button class="uw-ai-btn" onclick="uwAiHandle(this)" style="padding:11px 18px;background:transparent;border:1px solid var(--accent);border-radius:9px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
+        <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim);flex-basis:100%"></span>
       </div>
 
     </div>`);
