@@ -4490,12 +4490,19 @@ async function startUploadWizard() {
 // chat always reflects the truly-connected account (not a stale flag).
 async function _uwStart() {
   _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null, instructions:'' };
+
+  // Fast path: the posting interface already loaded pages/clients when entered,
+  // so show the picker instantly instead of re-hitting Meta.
+  if (_postingConnected && _buildPostingTargets().length) { _uwShowTargets(); return; }
+
   const loading = _appendPostsCard('<div style="font-size:13px;color:var(--text-secondary)">⏳ Checking your connected Facebook account…</div>');
-  let connected = false;
+  let connected = _postingConnected;
   try {
-    const accounts = await fetch('/api/accounts/posting').then(r => r.ok ? r.json() : []);
-    connected = Array.isArray(accounts) && accounts.length > 0;
-    if (connected) { _postingConnected = true; await loadPostingPagesAndIG(); }
+    if (!connected) {
+      const accounts = await fetch('/api/accounts/posting').then(r => r.ok ? r.json() : []);
+      connected = Array.isArray(accounts) && accounts.length > 0;
+    }
+    if (connected) { _postingConnected = true; if (!_buildPostingTargets().length) await loadPostingPagesAndIG(); }
   } catch(e) {}
   loading.remove();
 

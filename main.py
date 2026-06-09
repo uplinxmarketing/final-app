@@ -3059,24 +3059,18 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
         raise HTTPException(502, result.get("error", "Meta API error"))
     raw = result["data"]
     pages = raw["data"] if isinstance(raw, dict) else raw
+    # IG accounts now come back inline with the single get_pages call (no N+1).
     ig_accounts = []
-    async with httpx.AsyncClient(timeout=15) as client:
-        for page in pages:
-            r = await client.get(
-                f"{settings.meta_graph_base_url}/{page['id']}",
-                params={"fields": "instagram_business_account{id,name,username}", "access_token": token}
-            )
-            if r.status_code == 200:
-                d = r.json()
-                iba = d.get("instagram_business_account")
-                if iba:
-                    ig_accounts.append({
-                        "id": iba["id"],
-                        "name": iba.get("name", ""),
-                        "username": iba.get("username", ""),
-                        "page_id": page["id"],
-                        "page_name": page.get("name", ""),
-                    })
+    for page in pages:
+        iba = page.get("instagram_business_account")
+        if iba:
+            ig_accounts.append({
+                "id": iba["id"],
+                "name": iba.get("name", ""),
+                "username": iba.get("username", ""),
+                "page_id": page["id"],
+                "page_name": page.get("name", ""),
+            })
     return ig_accounts
 
 
