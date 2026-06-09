@@ -41,7 +41,7 @@ from database import (
     Conversation, Message, ActiveContext,
     Skill, QuickCommand, ScheduledPost, ImageCache,
     User, UserPageAssignment, UserClientAssignment,
-    PublishJob,
+    PublishJob, BusinessPortfolio,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -4225,6 +4225,78 @@ async def api_delete_posting_profile(
     if not profile:
         raise HTTPException(404, "Profile not found")
     await db.delete(profile)
+    return {"success": True}
+
+
+# ── Business Portfolios (user-owned page groupings) ─────────────────────────
+
+class BusinessPortfolioRequest(BaseModel):
+    name: str
+    pages: list[dict] = []   # [{platform, id, name}]
+
+
+def _serialize_portfolio(p) -> dict:
+    return {"id": p.id, "name": p.name, "pages": p.pages or []}
+
+
+def _require_user_id(request: Request) -> int:
+    uid = get_session(request).get("user_id")
+    if not uid:
+        raise HTTPException(401, "Sign in to manage portfolios")
+    return uid
+
+
+@app.get("/api/posting/portfolios")
+async def api_list_portfolios(request: Request, db: AsyncSession = Depends(get_db)):
+    """List the current user's business portfolios."""
+    uid = get_session(request).get("user_id")
+    if not uid:
+        return []
+    result = await db.execute(
+        select(BusinessPortfolio).where(BusinessPortfolio.user_id == uid).order_by(BusinessPortfolio.name)
+    )
+    return [_serialize_portfolio(p) for p in result.scalars().all()]
+
+
+@app.post("/api/posting/portfolios", status_code=201)
+async def api_create_portfolio(
+    req: BusinessPortfolioRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    uid = _require_user_id(request)
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Portfolio name is required")
+    p = BusinessPortfolio(user_id=uid, name=name, pages=req.pages or [])
+    db.add(p)
+    await db.flush()
+    return _serialize_portfolio(p)
+
+
+@app.put("/api/posting/portfolios/{portfolio_id}")
+async def api_update_portfolio(
+    portfolio_id: int, req: BusinessPortfolioRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    uid = _require_user_id(request)
+    p = await db.get(BusinessPortfolio, portfolio_id)
+    if not p or p.user_id != uid:
+        raise HTTPException(404, "Portfolio not found")
+    if req.name is not None and req.name.strip():
+        p.name = req.name.strip()
+    if req.pages is not None:
+        p.pages = req.pages
+    await db.flush()
+    return _serialize_portfolio(p)
+
+
+@app.delete("/api/posting/portfolios/{portfolio_id}")
+async def api_delete_portfolio(
+    portfolio_id: int, request: Request, db: AsyncSession = Depends(get_db)
+):
+    uid = _require_user_id(request)
+    p = await db.get(BusinessPortfolio, portfolio_id)
+    if not p or p.user_id != uid:
+        raise HTTPException(404, "Portfolio not found")
+    await db.delete(p)
     return {"success": True}
 
 

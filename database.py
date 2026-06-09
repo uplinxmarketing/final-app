@@ -720,6 +720,31 @@ class UserClientAssignment(Base):
         return f"<UserClientAssignment id={self.id} user_id={self.user_id} client_id={self.client_id}>"
 
 
+class BusinessPortfolio(Base):
+    """A user-owned grouping of Facebook Pages + Instagram accounts.
+
+    Lets a user pick one portfolio to target all its assigned pages at once
+    (e.g. a brand's FB Page + IG account) instead of selecting each one. Pages
+    are stored as a JSON list of ``{platform, id, name}`` entries. Saved per
+    user account so each user organises their own portfolios.
+    """
+
+    __tablename__ = "business_portfolios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    pages: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<BusinessPortfolio id={self.id} user_id={self.user_id} name={self.name!r}>"
+
+
 class MediaProxyToken(Base):
     """A short-lived public token mapping to a Google Drive file.
 
