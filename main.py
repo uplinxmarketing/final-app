@@ -1831,7 +1831,7 @@ async def auth_google_callback(
     existing_session = verify_session_token(existing_token) if existing_token else {}
     existing_session["google_user_id"] = uid
     session_token = create_session_token(existing_session)
-    redirect = RedirectResponse("/?connected=google")
+    redirect = RedirectResponse("/auth/done?type=google")
     redirect.set_cookie(SESSION_COOKIE, session_token, max_age=28800, httponly=True, samesite="lax")
     redirect.delete_cookie("oauth_state_google")
     return redirect
