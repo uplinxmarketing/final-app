@@ -4516,24 +4516,101 @@ async function _uwStart() {
   _uwShowTargets();
 }
 
-// Step 1 — pick the page/client, with an easy "change account" escape hatch.
+// Step 1 — pick the page/client via compact dropdowns, with an easy
+// "change account" escape hatch.
 function _uwShowTargets() {
   const targets = _buildPostingTargets();
-  const changeBtn = `<button onclick="uwChangeAccount()" style="margin-top:12px;padding:8px 14px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:12px;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔄 Change Facebook account</button>`;
+  const changeBtn = `<button onclick="uwChangeAccount()" style="margin-top:14px;padding:8px 14px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:12px;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔄 Change Facebook account</button>`;
   if (!targets.length) {
     _appendPostsCard(`<div style="font-size:13px;margin-bottom:6px">✅ Facebook is connected, but I don't see any Pages or Instagram accounts on it.</div>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">Switch to the Facebook account that has the Pages or clients you want to post to.</div>
       ${changeBtn}`);
     return;
   }
-  const btns = targets.map(t => `<button onclick="uwPickTarget('${t.id}')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:11px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;transition:border-color .12s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-      <span style="font-size:18px">${t.platform==='instagram'?'📷':'📘'}</span>
-      <span style="flex:1"><span style="font-weight:700">${escHtml(t.name)}</span>${t.client?`<span style="color:var(--text-dim);font-size:11px"> · ${escHtml(t.client)}</span>`:''}</span>
-      <span style="color:var(--text-dim)">›</span></button>`).join('');
+
+  const fbPages = targets.filter(t => t.platform === 'facebook');
+  const igAccts = targets.filter(t => t.platform === 'instagram');
+  // Clients with at least one assigned page/account
+  const clients = (_postingClients||[]).filter(c => (c.profiles||[]).some(p => p.fb_page_id || p.ig_account_id));
+
+  const selStyle = "width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;cursor:pointer";
+  const labelStyle = "font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px";
+
+  // Client shortcut (skip manual page select — pages are assigned at creation)
+  const clientBlock = clients.length ? `
+    <label style="${labelStyle}">⭐ Quick pick — by client</label>
+    <select class="uw-client-sel" onchange="uwTargetSelChange(this,'client')" style="${selStyle};margin-bottom:14px">
+      <option value="">— Select a client (auto-fills its page) —</option>
+      ${clients.map(c => `<option value="${escHtml(c.name)}">${escHtml(c.name)}</option>`).join('')}
+    </select>
+    <div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
+
+  const fbBlock = fbPages.length ? `
+    <label style="${labelStyle}">📘 Facebook Page</label>
+    <select class="uw-fb-sel" onchange="uwTargetSelChange(this,'facebook')" style="${selStyle};margin-bottom:12px">
+      <option value="">— Select a Facebook Page —</option>
+      ${fbPages.map(t => `<option value="${escHtml(t.id)}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
+    </select>` : '';
+
+  const igBlock = igAccts.length ? `
+    <label style="${labelStyle}">📷 Instagram Account</label>
+    <select class="uw-ig-sel" onchange="uwTargetSelChange(this,'instagram')" style="${selStyle};margin-bottom:12px">
+      <option value="">— Select an Instagram account —</option>
+      ${igAccts.map(t => `<option value="${escHtml(t.id)}">${escHtml(t.name)}${t.client?' · '+escHtml(t.client):''}</option>`).join('')}
+    </select>` : '';
+
   _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Let's upload some posts!</div>
-    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Which page or client should I publish to?</div>
-    <div style="display:flex;flex-direction:column;gap:8px">${btns}</div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Where should I publish? Pick a client, or choose a page below.</div>
+    <div class="uw-target-step">
+      ${clientBlock}
+      ${fbBlock}
+      ${igBlock}
+      <div class="uw-target-chosen" style="display:none;font-size:12px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:10px;color:var(--text-primary)"></div>
+      <button class="uw-target-continue" onclick="uwContinueTarget(this)" disabled style="width:100%;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;opacity:.5">Continue →</button>
+    </div>
     ${changeBtn}`);
+}
+
+// Coordinate the three dropdowns: selecting one clears the others so there's
+// always exactly one destination, then show a confirmation + enable Continue.
+function uwTargetSelChange(sel, kind) {
+  const step = sel.closest('.uw-target-step');
+  const fb = step.querySelector('.uw-fb-sel');
+  const ig = step.querySelector('.uw-ig-sel');
+  const cl = step.querySelector('.uw-client-sel');
+  const chosen = step.querySelector('.uw-target-chosen');
+  const cont = step.querySelector('.uw-target-continue');
+  // Clear the other dropdowns
+  if (kind !== 'facebook' && fb) fb.value = '';
+  if (kind !== 'instagram' && ig) ig.value = '';
+  if (kind !== 'client' && cl) cl.value = '';
+
+  let target = null;
+  if (kind === 'client' && sel.value) {
+    const c = (_postingClients||[]).find(x => x.name === sel.value);
+    const prof = (c?.profiles||[]).find(p => p.fb_page_id) || (c?.profiles||[]).find(p => p.ig_account_id);
+    if (prof) {
+      if (prof.fb_page_id) target = { id:prof.fb_page_id, name:prof.fb_page_name||prof.label||c.name, platform:'facebook', client:c.name };
+      else target = { id:prof.ig_account_id, name:'@'+(prof.ig_username||prof.ig_account_id), platform:'instagram', page_id:prof.fb_page_id, client:c.name };
+    }
+  } else if (sel.value) {
+    target = _buildPostingTargets().find(t => t.id === sel.value && t.platform === kind);
+  }
+
+  _uw._pendingTarget = target;
+  if (target) {
+    chosen.style.display = '';
+    chosen.innerHTML = `${target.platform==='instagram'?'📷':'📘'} Publishing to <b>${escHtml(target.name)}</b>${target.client?` <span style="color:var(--text-dim)">· ${escHtml(target.client)}</span>`:''}`;
+    cont.disabled = false; cont.style.opacity = '1';
+  } else {
+    chosen.style.display = 'none';
+    cont.disabled = true; cont.style.opacity = '.5';
+  }
+}
+
+function uwContinueTarget(btn) {
+  if (!_uw._pendingTarget) return;
+  uwPickTarget(_uw._pendingTarget.id, _uw._pendingTarget);
 }
 
 // Open the connect modal so the user can add/switch the Facebook account, then
@@ -4544,8 +4621,8 @@ function uwChangeAccount() {
     <button onclick="startUploadWizard()" style="margin-top:10px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↻ Done — continue</button>`);
 }
 
-function uwPickTarget(id) {
-  const t = _buildPostingTargets().find(x => x.id === id);
+function uwPickTarget(id, resolved) {
+  const t = resolved || _buildPostingTargets().find(x => x.id === id);
   if (!t) return;
   _uw.target = t;
   _uw.localMedia = []; // reset local uploads for this step
