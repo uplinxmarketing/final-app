@@ -3622,28 +3622,45 @@ async def api_posting_drive_preview(
 async def api_posting_drive_browse(
     request: Request,
     folder_id: str = "root",
+    q: str = "",
     db: AsyncSession = Depends(get_db),
 ):
-    """List folders (and optionally media files) inside a Drive folder for the in-chat browser."""
+    """List/search folders and media files for the in-chat Drive browser.
+
+    Without ``q`` it lists what's inside ``folder_id``. With ``q`` it searches
+    the user's whole Drive by name (folders + media only).
+    """
     google_token = await get_google_token(request, db)
-    query = f"'{folder_id}' in parents and trashed=false"
+    search = (q or "").strip()
+    if search:
+        # Escape single quotes for the Drive query language.
+        safe = search.replace("\\", "\\\\").replace("'", "\\'")
+        query = f"name contains '{safe}' and trashed=false"
+    else:
+        query = f"'{folder_id}' in parents and trashed=false"
     result = await google_api.list_drive_files(google_token, query=query)
     if not result.get("success"):
         raise HTTPException(502, result.get("error") or "Drive listing failed")
-    items = [
-        {
+    items = []
+    for f in result["files"]:
+        mime = f.get("mimeType", "")
+        is_folder = mime == "application/vnd.google-apps.folder"
+        is_media = mime.startswith(("image/", "video/"))
+        # When searching, only surface folders and media (skip docs/etc).
+        if search and not (is_folder or is_media):
+            continue
+        items.append({
             "id": f["id"],
             "name": f.get("name", ""),
-            "mimeType": f.get("mimeType", ""),
+            "mimeType": mime,
             "size": f.get("size"),
-            "isFolder": f.get("mimeType") == "application/vnd.google-apps.folder",
-            "isMedia": f.get("mimeType", "").startswith(("image/", "video/")),
+            "isFolder": is_folder,
+            "isMedia": is_media,
+            "isVideo": mime.startswith("video/"),
             "modifiedTime": f.get("modifiedTime"),
-        }
-        for f in result["files"]
-    ]
+        })
     items.sort(key=lambda x: (not x["isFolder"], x["name"].lower()))
-    return {"items": items, "folder_id": folder_id}
+    return {"items": items, "folder_id": folder_id, "query": search}
 
 
 @app.post("/api/posting/upload/local")
