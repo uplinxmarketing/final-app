@@ -4765,13 +4765,13 @@ function uwBrowseDrive(btn) {
   _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'' };
   document.getElementById('drive-picker-search').value = '';
   document.getElementById('drive-picker-clear').style.display = 'none';
-  document.getElementById('drive-picker-modal').classList.add('active');
+  document.getElementById('drive-picker-modal').classList.add('open');
   document.body.style.overflow = 'hidden';
   _uwDriveLoad();
 }
 
 function closeDrivePicker() {
-  document.getElementById('drive-picker-modal').classList.remove('active');
+  document.getElementById('drive-picker-modal').classList.remove('open');
   document.body.style.overflow = '';
 }
 
