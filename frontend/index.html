@@ -6181,7 +6181,12 @@ async function _uwAiMatch(posts, captions) {
   if (!(posts||[]).length || !(captions||[]).length) return false;
   try {
     const res = await api('POST', '/api/posting/ai/match', {
-      posts: posts.map((p,i) => ({ index:i, files:p.mediaList.map(m => m.name || '') })),
+      posts: posts.map((p,i) => {
+        const firstImg = p.mediaList.find(m => !m.is_video) || {};
+        return { index:i, files:p.mediaList.map(m => m.name || ''),
+                 drive_id: (!firstImg.local_file_id && firstImg.id) ? firstImg.id : '',
+                 local_id: firstImg.local_file_id || '' };
+      }),
       captions: captions.map((c,i) => ({ index:i, caption:c.caption || '', schedule:c.schedule || null })),
     });
     if (!res || !res.success || !Array.isArray(res.assignments)) return false;
