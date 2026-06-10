@@ -3601,6 +3601,9 @@ _SCHED_TOKEN_PATTERNS = [
     (re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "mdy"),
     # 10.06.2026 13:00 (day first)
     (re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dmy"),
+    # 14/05 — short date with no year (content calendars). Day-first by default;
+    # month-first when only that is valid. Year resolved to the nearest future-ish one.
+    (re.compile(r"^(\d{1,2})[/.\-](\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dm_short"),
 ]
 
 
@@ -3621,11 +3624,23 @@ def _parse_schedule_token(s: str) -> Optional[str]:
         elif order == "mdy":
             a, b, y = int(g[0]), int(g[1]), int(g[2])
             mo, d = (a, b) if a <= 12 else (b, a)
+        elif order == "dm_short":
+            a, b = int(g[0]), int(g[1])
+            d, mo = (a, b) if a > 12 or b <= 12 else (b, a)
+            now = datetime.now()
+            y = now.year
+            try:
+                # If the date is far in the past, the calendar means next year.
+                if datetime(y, mo, d) < now - timedelta(days=90):
+                    y += 1
+            except ValueError:
+                return None
         else:
             d, mo, y = int(g[0]), int(g[1]), int(g[2])
-        hh = int(g[3]) if g[3] else 9
-        mm = int(g[4]) if g[4] else 0
-        ampm = (g[5] or "").lower().replace(".", "")
+        th, tm, tap = (g[2], g[3], g[4]) if order == "dm_short" else (g[3], g[4], g[5])
+        hh = int(th) if th else 9
+        mm = int(tm) if tm else 0
+        ampm = (tap or "").lower().replace(".", "")
         if ampm.startswith("p") and hh < 12:
             hh += 12
         elif ampm.startswith("a") and hh == 12:
@@ -3636,6 +3651,74 @@ def _parse_schedule_token(s: str) -> Optional[str]:
             return None
         return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
     return None
+
+
+# Column-header synonyms for content-calendar sheets. Matched per header cell
+# (word-boundary), in priority order — the caption column is required, others
+# are optional. Columns like "type"/"title" are deliberately NOT folded into
+# the caption: only the caption column is published.
+_COL_SYNONYMS: list[tuple[str, list[str]]] = [
+    ("caption", ["caption", "copy", "post text", "body", "content", "text", "description"]),
+    ("date", ["posting date", "publish date", "date", "day", "when", "schedule"]),
+    ("time", ["posting time", "publish time", "time", "hour"]),
+    ("file", ["file name", "filename", "image name", "image", "file", "visual", "creative", "asset", "design", "graphic", "media"]),
+]
+
+
+def _detect_calendar_header(rows: list) -> tuple[Optional[int], Optional[dict]]:
+    """Find a header row labelling a caption column (within the first 5 rows).
+
+    Returns ``(header_row_index, {role: column_index})`` or ``(None, None)``.
+    """
+    for ri, row in enumerate(rows[:5]):
+        cells = [str(c or "").strip().lower() for c in row]
+        cols: dict[str, int] = {}
+        taken: set[int] = set()
+        for role, keys in _COL_SYNONYMS:
+            for key in keys:
+                hit = next(
+                    (ci for ci, cell in enumerate(cells)
+                     if ci not in taken and re.search(rf"\b{re.escape(key)}\b", cell)),
+                    None,
+                )
+                if hit is not None:
+                    cols[role] = hit
+                    taken.add(hit)
+                    break
+        if "caption" in cols:
+            return ri, cols
+    return None, None
+
+
+def _captions_from_rows(rows: list) -> Optional[list[dict]]:
+    """Build caption blocks from a labelled content-calendar sheet.
+
+    Uses ONLY the caption column for the published text, the date(+time)
+    columns for the schedule, and the image/file column for filename matching.
+    Returns None when no labelled caption column exists (caller falls back to
+    flattening the rows into text blocks).
+    """
+    hi, cols = _detect_calendar_header(rows)
+    if cols is None:
+        return None
+    out: list[dict] = []
+    for row in rows[hi + 1:]:
+        cells = [str(c or "").strip() for c in row]
+        def cell(role: str) -> str:
+            ci = cols.get(role)
+            return cells[ci] if ci is not None and ci < len(cells) else ""
+        caption = cell("caption")
+        if not caption:
+            continue
+        d, t = cell("date"), cell("time")
+        schedule = None
+        if d:
+            schedule = _parse_schedule_token(f"{d} {t}".strip()) or _parse_schedule_token(d)
+        if not schedule:
+            caption, schedule = _extract_block_schedule(caption)
+        tags = re.findall(r"#\w+", caption)
+        out.append({"caption": caption, "hashtags": tags, "schedule": schedule, "file": cell("file")})
+    return out or None
 
 
 def _extract_block_schedule(block: str) -> tuple[str, Optional[str]]:
@@ -3748,18 +3831,21 @@ async def _read_captions_from_drive(text_url: str, google_token: str) -> list[di
     text_result = await google_api.read_by_url(text_url, google_token)
     raw_text = ""
     content = text_result.get("content")
-    if isinstance(content, str):
+    rows = None
+    if isinstance(content, dict) and content.get("rows"):
+        rows = content["rows"]
+    elif text_result.get("rows"):
+        rows = text_result["rows"]
+    if rows:
+        # Labelled content calendar → per-column parsing (caption/date/file).
+        structured = _captions_from_rows(rows)
+        if structured is not None:
+            return structured
+        raw_text = "\n---\n".join(" ".join(str(c) for c in row if c) for row in rows)
+    if not raw_text and isinstance(content, str):
         raw_text = content
-    elif isinstance(content, dict):
+    elif not raw_text and isinstance(content, dict):
         raw_text = content.get("text", "")
-        if not raw_text and content.get("rows"):
-            raw_text = "\n---\n".join(
-                " ".join(str(c) for c in row if c) for row in content["rows"]
-            )
-    if not raw_text and text_result.get("rows"):
-        raw_text = "\n---\n".join(
-            " ".join(str(c) for c in row if c) for row in text_result["rows"]
-        )
     if not raw_text:
         # Binary / non-native file (docx, xlsx, csv, pdf, txt): download + extract.
         name = text_result.get("name", "")
@@ -4126,8 +4212,12 @@ def _xlsx_cell_value(raw: str) -> str:
     return raw
 
 
-def _extract_xlsx_text(data: bytes) -> str:
-    """Extract rows from a .xlsx (Open XML) without openpyxl. One row per line."""
+def _extract_xlsx_rows(data: bytes) -> list[list[str]]:
+    """Extract cell rows from a .xlsx (Open XML) without openpyxl.
+
+    Cells are positioned by their column reference so empty cells keep the
+    columns aligned (required for header-based calendar parsing).
+    """
     import io
     import zipfile
     from xml.etree import ElementTree as ET
@@ -4142,26 +4232,47 @@ def _extract_xlsx_text(data: bytes) -> str:
         # First worksheet
         sheet_names = [n for n in zf.namelist() if re.match(r"xl/worksheets/sheet\d+\.xml", n)]
         if not sheet_names:
-            return ""
+            return []
         wroot = ET.fromstring(zf.read(sorted(sheet_names)[0]))
-    rows: list[str] = []
+
+    def col_index(ref: str) -> Optional[int]:
+        letters = "".join(ch for ch in (ref or "") if ch.isalpha()).upper()
+        if not letters:
+            return None
+        idx = 0
+        for ch in letters:
+            idx = idx * 26 + (ord(ch) - 64)
+        return idx - 1
+
+    rows: list[list[str]] = []
     for row in wroot.iter(f"{S}row"):
-        cells: list[str] = []
+        cells: dict[int, str] = {}
+        pos = 0
         for c in row.iter(f"{S}c"):
+            ci = col_index(c.get("r", ""))
+            if ci is None:
+                ci = pos
+            pos = ci + 1
             v = c.find(f"{S}v")
             if v is None or v.text is None:
                 continue
             if c.get("t") == "s":  # shared-string index
                 try:
-                    cells.append(shared[int(v.text)])
+                    cells[ci] = shared[int(v.text)]
                 except (ValueError, IndexError):
                     pass
             else:
-                cells.append(_xlsx_cell_value(v.text))
+                cells[ci] = _xlsx_cell_value(v.text)
         if cells:
-            rows.append(" ".join(cells))
-    # Each row is its own caption block.
-    return "\n---\n".join(rows)
+            width = max(cells) + 1
+            rows.append([cells.get(i, "") for i in range(width)])
+    return rows
+
+
+def _extract_xlsx_text(data: bytes) -> str:
+    """Flatten .xlsx rows into caption blocks (fallback when no header row)."""
+    rows = _extract_xlsx_rows(data)
+    return "\n---\n".join(" ".join(c for c in row if c) for row in rows if any(row))
 
 
 def _extract_caption_text(data: bytes, filename: str) -> str:
@@ -4211,7 +4322,23 @@ async def api_posting_upload_captions(
     if len(data) > max_bytes:
         raise HTTPException(413, "Caption file is too large.")
     try:
+        # Tabular files with a labelled header row get per-column parsing
+        # (caption/date/time/image columns) — same as Google Sheets from Drive.
+        rows: list = []
+        if ext == ".xlsx":
+            rows = _extract_xlsx_rows(data)
+        elif ext in (".csv", ".tsv"):
+            import csv
+            import io
+            sep = "\t" if ext == ".tsv" else ","
+            rows = list(csv.reader(io.StringIO(data.decode("utf-8", errors="replace")), delimiter=sep))
+        if rows:
+            structured = _captions_from_rows(rows)
+            if structured is not None:
+                return {"captions": structured, "blocks": len(structured)}
         raw_text = _extract_caption_text(data, file.filename or "")
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(422, f"Could not read caption file: {exc}")
     captions = _split_caption_blocks(raw_text)

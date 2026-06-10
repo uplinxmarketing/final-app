@@ -6180,10 +6180,14 @@ function _uwGroupPosts(media, captions) {
     const names = p.mediaList.map(m => m.name || '').filter(Boolean);
     for (let k=0; k<caps.length; k++) {
       if (used[k]) continue;
-      const hit = names.find(n => _uwCapMentionsFile(caps[k].caption || '', n));
-      if (hit) {
+      // Prefer the sheet's image/file column; fall back to a mention in the text.
+      const fileHint = (caps[k].file || '').trim();
+      let via = null;
+      if (fileHint && names.some(n => _uwNamesMatch(fileHint, n))) via = 'col';
+      else if (names.some(n => _uwCapMentionsFile(caps[k].caption || '', n))) via = 'text';
+      if (via) {
         applyCap(p, caps[k], k, true);
-        p.caption = _uwStripFileTokens(p.caption, names);
+        if (via === 'text') p.caption = _uwStripFileTokens(p.caption, names);
         used[k] = true;
         break;
       }
@@ -6214,6 +6218,14 @@ function _uwFileTokenRegex(fname, flags) {
 function _uwCapMentionsFile(caption, fname) {
   const rx = _uwFileTokenRegex(fname);
   return rx ? rx.test(caption) : false;
+}
+// Loose filename equality for a sheet's image column vs the actual file:
+// case/extension/separator-insensitive, allowing one to contain the other.
+function _uwNamesMatch(a, b) {
+  const norm = s => String(s || '').toLowerCase().replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, '');
+  const na = norm(a), nb = norm(b);
+  if (na.length < 3 || nb.length < 3) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
 }
 // Remove matched filename tokens from a caption (a sheet's "image name" column
 // shouldn't be published as part of the text).
