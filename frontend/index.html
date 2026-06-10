@@ -733,7 +733,8 @@ a{color:inherit;text-decoration:none}
       </div>
 
       <!-- AI Chat tab — always accessible regardless of account/page state -->
-      <div id="posts-tab-chat" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div id="posts-tab-chat" style="display:none;flex:1;flex-direction:row;overflow:hidden">
+       <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0">
         <div id="posts-chat-messages" class="messages" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px">
           <div class="welcome" style="height:100%">
             <div style="font-size:32px">🔷</div>
@@ -760,6 +761,21 @@ a{color:inherit;text-decoration:none}
               onmouseover="if(!this.disabled)this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">Send →</button>
           </div>
         </div>
+       </div>
+
+       <!-- Feed mockup: click a post in the upload preview to see how it will
+            look on the Facebook / Instagram feed. -->
+       <div id="uw-feed-panel" style="display:none;width:min(420px,44%);flex-shrink:0;flex-direction:column;border-left:1px solid var(--border);background:var(--bg-secondary);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <span id="uw-feed-title" style="font-size:13px;font-weight:800;color:var(--text-primary)">Post preview</span>
+          <span style="display:inline-flex;gap:6px;align-items:center">
+            <button id="uw-feed-tab-instagram" onclick="uwFeedMode('instagram')" style="padding:5px 12px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">📸 Instagram</button>
+            <button id="uw-feed-tab-facebook" onclick="uwFeedMode('facebook')" style="padding:5px 12px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">📘 Facebook</button>
+            <button onclick="uwFeedClose()" title="Close preview" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;padding:5px 9px;cursor:pointer">✕</button>
+          </span>
+        </div>
+        <div id="uw-feed-body" style="flex:1;overflow-y:auto;padding:16px"></div>
+       </div>
       </div>
 
       <!-- Page-dependent content: state banners + calendar/compose/feed tabs -->
@@ -3881,7 +3897,7 @@ function switchPostsTab(tab) {
 
   // Chat panel is always present at workspace level — show/hide it
   const chatPanel = document.getElementById('posts-tab-chat');
-  if (chatPanel) { chatPanel.style.display = isChat ? 'flex' : 'none'; if (isChat) chatPanel.style.flexDirection = 'column'; }
+  if (chatPanel) { chatPanel.style.display = isChat ? 'flex' : 'none'; if (isChat) chatPanel.style.flexDirection = 'row'; }
 
   // Page-content area (connect banner, no-page, calendar/compose/feed/bulk)
   const pageContent = document.getElementById('posts-page-content');
@@ -6336,6 +6352,7 @@ function _uwPostKind(p) {
 
 function _uwMediaKey(m) { return m.local_file_id ? ('local:'+m.local_file_id) : ('drive:'+m.id); }
 function _uwPostType(p) {
+  if (!p.mediaList.length) return { icon:'➕', label:'New post — add an image below' };
   if (p.mediaList.length > 1) return { icon:'🖼️', label:`Carousel · ${p.mediaList.length} images` };
   if (p.mediaList[0] && p.mediaList[0].is_video) return { icon:'🎬', label:'Reel' };
   return { icon:'📷', label:'Image' };
@@ -6368,7 +6385,8 @@ function _uwRenderPreview() {
     <div class="uw-preview">
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${schedHint}</div>
       <div class="uw-cards" style="display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px"></div>
-      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button onclick="uwAddPost()" style="width:100%;margin-top:10px;padding:10px;background:transparent;border:1px dashed var(--border);border-radius:10px;color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">＋ Add another post</button>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button onclick="uwPublish(this)" style="flex:1;min-width:180px;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
         <button onclick="uwCancel(this)" style="padding:12px 18px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">✕ Cancel</button>
       </div>
@@ -6383,6 +6401,9 @@ function uwCancel(btn) {
   const card = btn.closest('.msg');
   if (card) card.remove();
   _uw.posts = []; _uw.previewCard = null;
+  _uwFeed.open = false; _uwFeed.i = null;
+  const fp = document.getElementById('uw-feed-panel');
+  if (fp) fp.style.display = 'none';
   _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Okay, cancelled — nothing was published.</div>
     <button onclick="startUploadWizard()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
 }
@@ -6390,6 +6411,11 @@ function uwCancel(btn) {
 function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
   wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardHtml(p,i)).join('');
+  // Keep the feed mockup in sync with whatever it points at.
+  if (_uwFeed.open) {
+    if (_uwFeed.i == null || _uwFeed.i >= _uw.posts.length) uwFeedClose();
+    else _uwRenderFeed();
+  }
 }
 
 function _uwThumbSrc(m) {
@@ -6415,13 +6441,19 @@ function _uwThumbHtml(m, i, j) {
 function _uwPostCardHtml(p, i) {
   const t = _uwPostType(p);
   const thumbs = p.mediaList.map((m,j) => _uwThumbHtml(m,i,j)).join('');
-  return `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px">
+  const sel = _uwFeed.open && _uwFeed.i === i;
+  return `<div class="uw-post-card" data-i="${i}" style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : 'var(--border)'};border-radius:10px;padding:10px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-primary)">${t.icon} ${t.label}</span>
+      <span onclick="uwShowFeedPreview(${i})" title="Click to see how this post will look on the feed" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:15px;font-weight:800;color:var(--text-primary)">Post ${i+1}</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:3px 9px">${t.icon} ${t.label}</span>
+      </span>
       <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">${p._schedLocal ? '🕒' : '⚡ now'}</span>
         <input type="datetime-local" class="uw-when-${i}" value="${p._schedLocal || ''}" onchange="uwSetPostTime(${i}, this.value)" title="Schedule this post — leave empty to post immediately" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:4px 6px;color:var(--text-primary);font-size:11px">
         <button onclick="uwClearPostTime(${i})" title="Clear — post immediately" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:10px;padding:4px 7px;cursor:pointer">✕</button>
+        <button onclick="uwShowFeedPreview(${i})" title="See how this post will look on the feed" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-secondary);font-size:10px;padding:4px 8px;cursor:pointer;font-weight:600">👁 Preview</button>
+        <button onclick="uwRemovePost(${i})" title="Remove this post from the upload" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:10px;padding:4px 8px;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🗑 Remove</button>
         <span class="uw-res-${i}" style="font-size:11px;color:var(--text-dim)"></span>
       </span>
     </div>
@@ -6434,7 +6466,7 @@ function _uwPostCardHtml(p, i) {
       <label style="font-size:10px;font-weight:700;letter-spacing:.4px;color:var(--text-dim);text-transform:uppercase">Caption</label>
       <span class="uw-clen-${i}" style="font-size:10px;color:var(--text-dim)">${(p.caption||'').length} chars</span>
     </div>
-    <textarea oninput="uwEditCaption(${i}, this.value);this.style.height='auto';this.style.height=(this.scrollHeight+2)+'px'" placeholder="Write a caption…" rows="${_uwCapRows(p.caption)}" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text-primary);font-size:13px;line-height:1.5;resize:vertical;font-family:inherit;outline:none;margin-top:4px;overflow:hidden" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
+    <textarea oninput="uwEditCaption(${i}, this.value);this.style.height='auto';this.style.height=(this.scrollHeight+2)+'px'" placeholder="Write a caption…" rows="${_uwCapRows(p.caption)}" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text-primary);font-size:13px;line-height:1.5;resize:vertical;font-family:inherit;outline:none;margin-top:4px;overflow-y:auto" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
     <label style="display:block;font-size:10px;font-weight:700;letter-spacing:.4px;color:var(--text-dim);text-transform:uppercase;margin-top:6px">Hashtags</label>
     <input type="text" value="${escHtml((p.hashtags||[]).join(' '))}" placeholder="#hashtags — appended after the caption" oninput="uwEditTags(${i}, this.value)" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--accent);font-size:12px;font-family:inherit;outline:none;margin-top:4px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
   </div>`;
@@ -6485,6 +6517,153 @@ function uwCarAddPick(i, key){
   if (m) { _uw.posts[i].mediaList.push(m); _uwRecountType(); _uwRenderCards(); }
 }
 
+// Add a brand-new empty post to the preview — pick its image(s) from the
+// media pool, type the caption directly in the card.
+function uwAddPost() {
+  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null });
+  _uwRenderCards();
+  const i = _uw.posts.length - 1;
+  const wrap = _uw.previewCard.querySelector('.uw-cards');
+  const card = wrap && wrap.querySelector(`.uw-post-card[data-i="${i}"]`);
+  if (card) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  uwCarAddOpen(i);
+}
+
+// Remove a whole post from the upload (its files stay in the pool, so they
+// can be re-added to another post via ＋).
+function uwRemovePost(i) {
+  if (!_uw.posts[i]) return;
+  _uw.posts.splice(i, 1);
+  if (_uwFeed.open) {
+    if (_uwFeed.i === i) uwFeedClose();
+    else if (_uwFeed.i > i) _uwFeed.i--;
+  }
+  if (!_uw.posts.length) { uwCancel(_uw.previewCard.querySelector('.uw-preview button')); return; }
+  _uwRenderCards();
+}
+
+// ── Feed mockup: how a post will look on the Facebook / Instagram feed ──────
+let _uwFeed = { open:false, i:null, mode:'', slide:0 };
+
+function uwShowFeedPreview(i) {
+  if (!_uw.posts[i]) return;
+  if (!_uwFeed.mode) {
+    const plats = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => t.platform);
+    _uwFeed.mode = plats.includes('instagram') ? 'instagram' : 'facebook';
+  }
+  _uwFeed.open = true; _uwFeed.i = i; _uwFeed.slide = 0;
+  const panel = document.getElementById('uw-feed-panel');
+  if (panel) panel.style.display = 'flex';
+  _uwRenderFeed();
+  _uwRenderCards();
+}
+
+function uwFeedMode(mode) {
+  _uwFeed.mode = mode;
+  if (_uwFeed.open) _uwRenderFeed();
+}
+
+function uwFeedClose() {
+  _uwFeed.open = false; _uwFeed.i = null;
+  const panel = document.getElementById('uw-feed-panel');
+  if (panel) panel.style.display = 'none';
+  if (_uw.previewCard) _uwRenderCards();
+}
+
+function uwFeedSlide(d) {
+  const p = _uw.posts[_uwFeed.i];
+  if (!p || !p.mediaList.length) return;
+  _uwFeed.slide = (_uwFeed.slide + d + p.mediaList.length) % p.mediaList.length;
+  _uwRenderFeed();
+}
+
+// Re-render the mockup if it's showing this post (live caption/tag editing).
+function _uwFeedRefresh(i) {
+  if (_uwFeed.open && _uwFeed.i === i) _uwRenderFeed();
+}
+
+function _uwRenderFeed() {
+  const body = document.getElementById('uw-feed-body');
+  const p = _uw.posts[_uwFeed.i];
+  if (!body || !p) return;
+  const mode = _uwFeed.mode || 'instagram';
+  ['instagram', 'facebook'].forEach(m => {
+    const tab = document.getElementById('uw-feed-tab-' + m);
+    if (tab) {
+      tab.style.background = m === mode ? 'var(--accent)' : 'transparent';
+      tab.style.color = m === mode ? '#fff' : 'var(--text-secondary)';
+      tab.style.borderColor = m === mode ? 'var(--accent)' : 'var(--border)';
+    }
+  });
+  const title = document.getElementById('uw-feed-title');
+  if (title) title.textContent = `Post ${_uwFeed.i + 1} preview`;
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+  const target = targets.find(t => t.platform === mode) || targets[0] || {};
+  const name = target.name || (mode === 'instagram' ? 'yourbusiness' : 'Your Page');
+  const handle = mode === 'instagram' ? name.toLowerCase().replace(/[^a-z0-9._]+/g, '') || 'yourbusiness' : name;
+  const when = p._schedLocal
+    ? new Date(p._schedLocal).toLocaleString(undefined, { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+    : 'Just now';
+  const n = p.mediaList.length;
+  const slide = Math.min(_uwFeed.slide, Math.max(0, n - 1));
+  const m = p.mediaList[slide];
+  const isIg = mode === 'instagram';
+  const mediaHtml = !n
+    ? `<div style="width:100%;aspect-ratio:1;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:34px;color:var(--text-dim)">🖼️<div style="font-size:12px;margin-top:6px">No image yet</div></div>`
+    : (m.is_video
+      ? `<div style="width:100%;aspect-ratio:${isIg ? '1' : '16/10'};background:#000;display:flex;align-items:center;justify-content:center;font-size:44px">🎬</div>`
+      : `<img src="${_uwThumbSrc(m)}" style="width:100%;aspect-ratio:${isIg ? '1' : 'auto'};object-fit:${isIg ? 'cover' : 'contain'};display:block;background:#000">`);
+  const nav = n > 1 ? `
+    <button onclick="uwFeedSlide(-1)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:rgba(255,255,255,.85);color:#222;font-size:14px;cursor:pointer;font-weight:700">‹</button>
+    <button onclick="uwFeedSlide(1)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;border:none;background:rgba(255,255,255,.85);color:#222;font-size:14px;cursor:pointer;font-weight:700">›</button>
+    <span style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;font-weight:700;border-radius:12px;padding:3px 9px">${slide + 1}/${n}</span>
+    <div style="position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:4px">${p.mediaList.map((_, k) => `<span style="width:6px;height:6px;border-radius:50%;background:${k === slide ? '#fff' : 'rgba(255,255,255,.45)'}"></span>`).join('')}</div>` : '';
+  const avatar = `<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#f97316);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0">${escHtml((name[0] || 'P').toUpperCase())}</div>`;
+  const tags = (p.hashtags || []).join(' ');
+  const capHtml = escHtml(p.caption || '').replace(/\n/g, '<br>');
+  const tagsHtml = tags ? `<span style="color:#3b5fd9">${escHtml(tags)}</span>` : '';
+  if (isIg) {
+    body.innerHTML = `
+      <div style="max-width:380px;margin:0 auto;background:#fff;border:1px solid #dbdbdb;border-radius:12px;overflow:hidden;color:#111;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+          ${avatar}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(handle)}</div>
+          </div>
+          <span style="font-size:18px;letter-spacing:2px;color:#333">⋯</span>
+        </div>
+        <div style="position:relative">${mediaHtml}${nav}</div>
+        <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;font-size:20px">
+          <span>♥</span><span style="transform:scaleX(-1);display:inline-block">💬</span><span>➤</span>
+          <span style="margin-left:auto">🔖</span>
+        </div>
+        <div style="padding:0 12px 6px;font-size:13px;font-weight:700">128 likes</div>
+        <div style="padding:0 12px 8px;font-size:13px;line-height:1.45;word-wrap:break-word"><b>${escHtml(handle)}</b> ${capHtml}${tags ? '<br>' + tagsHtml : ''}</div>
+        <div style="padding:0 12px 12px;font-size:11px;color:#8e8e8e;text-transform:uppercase">${escHtml(when)}</div>
+      </div>`;
+  } else {
+    body.innerHTML = `
+      <div style="max-width:400px;margin:0 auto;background:#fff;border:1px solid #d4d6da;border-radius:10px;overflow:hidden;color:#111;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 8px">
+          ${avatar}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(name)}</div>
+            <div style="font-size:12px;color:#65676b">${escHtml(when)} · 🌐</div>
+          </div>
+          <span style="font-size:18px;letter-spacing:2px;color:#65676b">⋯</span>
+        </div>
+        ${(p.caption || tags) ? `<div style="padding:2px 14px 10px;font-size:14px;line-height:1.45;word-wrap:break-word">${capHtml}${tags ? (p.caption ? '<br><br>' : '') + tagsHtml : ''}</div>` : ''}
+        <div style="position:relative">${mediaHtml}${nav}</div>
+        <div style="display:flex;justify-content:space-between;padding:8px 14px;font-size:12px;color:#65676b;border-bottom:1px solid #e4e6eb">
+          <span>👍❤️ 86</span><span>12 comments · 4 shares</span>
+        </div>
+        <div style="display:flex;justify-content:space-around;padding:6px 8px;font-size:13px;font-weight:600;color:#65676b">
+          <span>👍 Like</span><span>💬 Comment</span><span>↪ Share</span>
+        </div>
+      </div>`;
+  }
+}
+
 // Inline caption/hashtag editing in the preview — works for both Drive and
 // device uploads, so text can be fixed directly without re-editing the doc.
 // Hashtags live in their own field and are appended at publish time.
@@ -6494,6 +6673,7 @@ function uwEditCaption(i, value) {
   p.caption = value;
   const len = _uw.previewCard && _uw.previewCard.querySelector('.uw-clen-'+i);
   if (len) len.textContent = value.length + ' chars';
+  _uwFeedRefresh(i);
 }
 
 function uwEditTags(i, value) {
@@ -6501,13 +6681,15 @@ function uwEditTags(i, value) {
   if (!p) return;
   p.hashtags = (value || '').split(/[\s,]+/).filter(Boolean)
     .map(t => t.startsWith('#') ? t : '#' + t);
+  _uwFeedRefresh(i);
 }
 
-// Initial textarea height that fits the caption (it auto-grows while typing).
+// Initial textarea height that fits the whole caption (it auto-grows while
+// typing; the resize handle + scrollbar cover manual shrinking).
 function _uwCapRows(caption) {
   const s = caption || '';
   const lines = s.split('\n').reduce((n, l) => n + 1 + Math.floor(l.length / 65), 0);
-  return Math.min(14, Math.max(3, lines));
+  return Math.min(60, Math.max(3, lines));
 }
 
 // Set/clear an individual post's schedule. An empty value = post immediately.
@@ -6517,6 +6699,7 @@ function uwSetPostTime(i, val) {
   p._sched = val ? new Date(val).toISOString() : null;
   const el = _uw.previewCard && _uw.previewCard.querySelector('.uw-date-'+i);
   if (el) el.textContent = val ? '🕒' : '⚡ now';
+  _uwFeedRefresh(i);
 }
 
 function uwClearPostTime(i) {
@@ -6530,6 +6713,11 @@ async function uwPublish(btn) {
   if (!_uw.posts.length || !targets.length) return;
   const card = _uw.previewCard;
   const status = card.querySelector('.uw-pub-status');
+  const empty = _uw.posts.findIndex(p => !p.mediaList.length);
+  if (empty >= 0) {
+    status.textContent = `Post ${empty + 1} has no image — add one with ＋ or remove the post.`;
+    return;
+  }
   // One item per (post × target) — posting to both FB and IG creates two items.
   // A post's media array may hold multiple files (carousel).
   const items = [];
