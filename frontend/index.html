@@ -6514,26 +6514,14 @@ function uwCarAddOpen(i){
   const pool = _uw.previewCard.querySelector('.uw-add-pool-'+i);
   if (!pool) return;
   if (pool.style.display !== 'none') { pool.style.display='none'; return; }
-  const used = new Set(_uw.posts[i].mediaList.map(_uwMediaKey));
-  const avail = (_uw.mediaPool||[]).filter(m => !used.has(_uwMediaKey(m)));
+  const driveLogo = `<svg width="14" height="14" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0-1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.5l5.85 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>`;
   const btnBase = 'display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap';
-  const poolSection = avail.length
-    ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:5px">Or pick from loaded files:</div>
-       <div style="display:flex;gap:6px;flex-wrap:wrap">${avail.map(m => {
-         const k = _uwMediaKey(m);
-         const inner = m.is_video
-           ? `<div style="width:44px;height:44px;border-radius:6px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:16px">🎬</div>`
-           : `<img src="${_uwThumbSrc(m)}" loading="lazy" style="width:44px;height:44px;border-radius:6px;object-fit:cover;background:var(--bg-primary)">`;
-         return `<div onclick="uwCarAddPick(${i},'${k}')" title="${escHtml(m.name||'')}" style="cursor:pointer">${inner}</div>`;
-       }).join('')}</div>`
-    : '';
   pool.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <button onclick="uwAddPostBrowseDrive(${i})" style="${btnBase}">📁 Browse Drive</button>
+      <button onclick="uwAddPostBrowseDrive(${i})" style="${btnBase}">${driveLogo} Browse Drive</button>
       <button onclick="uwAddPostUploadDevice(${i})" style="${btnBase}">💻 Upload from device</button>
     </div>
-    <div id="uw-add-pool-status-${i}" style="font-size:12px;color:var(--text-dim);margin-bottom:4px"></div>
-    ${poolSection}`;
+    <div id="uw-add-pool-status-${i}" style="font-size:12px;color:var(--text-dim);margin-bottom:4px"></div>`;
   pool.style.display='';
 }
 function uwCarAddPick(i, key){
@@ -6750,11 +6738,14 @@ function _uwRenderFeed() {
   const dots = n > 1 ? `<div style="display:flex;justify-content:center;gap:4px;padding:8px 0 0">${p.mediaList.map((_, k) => `<span style="width:6px;height:6px;border-radius:50%;background:${k === slide ? '#0095f6' : '#c7c7c7'}"></span>`).join('')}</div>` : '';
   const tags = (p.hashtags || []).join(' ');
   const capHtml = escHtml(p.caption || '').replace(/\n/g, '<br>');
-  // The caption is editable right here in the mockup — changes flow back to
-  // the post and its card without re-rendering (so the cursor stays put).
-  const editable = `contenteditable="true" oninput="uwFeedEditCaption(${_uwFeed.i}, this)" spellcheck="false"
-    data-ph="Write a caption…" style="outline:none;min-width:40px;border-radius:4px"
+  const editableStyle = `outline:none;min-width:40px;border-radius:4px;onfocus="this.style.boxShadow='0 0 0 2px rgba(0,149,246,.35)'" onblur="this.style.boxShadow='none'"`;
+  const edCap = `contenteditable="true" oninput="uwFeedEditCaption(${_uwFeed.i}, this)" spellcheck="false"
+    style="outline:none;min-width:40px;border-radius:4px"
     onfocus="this.style.boxShadow='0 0 0 2px rgba(0,149,246,.35)'" onblur="this.style.boxShadow='none'"`;
+  const edTags = `contenteditable="true" oninput="uwFeedEditTags(${_uwFeed.i}, this)" spellcheck="false"
+    style="outline:none;border-radius:4px"
+    onfocus="this.style.boxShadow='0 0 0 2px rgba(0,149,246,.35)'" onblur="this.style.boxShadow='none'"`;
+  const tagsHtml = escHtml(tags);
   if (isIg) {
     const ic = _uwIgIcons();
     body.innerHTML = `
@@ -6773,11 +6764,11 @@ function _uwRenderFeed() {
           ${ic.heart}${ic.comment}${ic.share}<span style="margin-left:auto">${ic.save}</span>
         </div>
         <div style="padding:0 12px 4px;font-size:13px;font-weight:600">128 likes</div>
-        <div style="padding:0 12px 6px;font-size:13px;line-height:1.5;word-wrap:break-word"><b style="margin-right:5px">${escHtml(handle)}</b><span ${editable}>${capHtml}</span>${tags ? `<br><span style="color:#00376b">${escHtml(tags)}</span>` : ''}</div>
+        <div style="padding:0 12px 6px;font-size:13px;line-height:1.5;word-wrap:break-word"><b style="margin-right:5px">${escHtml(handle)}</b><span ${edCap}>${capHtml}</span>${tags ? `<br><span style="color:#00376b" ${edTags}>${tagsHtml}</span>` : ''}</div>
         <div style="padding:0 12px 4px;font-size:13px;color:#8e8e8e">View all 12 comments</div>
         <div style="padding:0 12px 12px;font-size:10px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.2px">${escHtml(when)}</div>
       </div>
-      <div style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:10px">✏️ Tip — click the caption above to edit it right here.</div>`;
+      <div style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:10px">✏️ Tip — click caption or hashtags to edit them here.</div>`;
   } else {
     const ic = _uwFbIcons();
     body.innerHTML = `
@@ -6790,7 +6781,7 @@ function _uwRenderFeed() {
           </div>
           <span style="font-size:16px;letter-spacing:1px;color:#65676b;font-weight:700">···</span>
         </div>
-        <div style="padding:2px 14px 10px;font-size:14px;line-height:1.45;word-wrap:break-word"><span ${editable}>${capHtml}</span>${tags ? `${p.caption ? '<br><br>' : ''}<span style="color:#216fdb">${escHtml(tags)}</span>` : ''}</div>
+        <div style="padding:2px 14px 10px;font-size:14px;line-height:1.45;word-wrap:break-word"><span ${edCap}>${capHtml}</span>${tags ? `${p.caption ? '<br><br>' : ''}<span style="color:#216fdb" ${edTags}>${tagsHtml}</span>` : ''}</div>
         <div style="position:relative">${mediaHtml}${nav}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:13px;color:#65676b">
           <span style="display:inline-flex;align-items:center">
@@ -6806,7 +6797,7 @@ function _uwRenderFeed() {
           <span style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:14px;font-weight:600;color:#65676b">${ic.share} Share</span>
         </div>
       </div>
-      <div style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:10px">✏️ Tip — click the caption above to edit it right here.</div>`;
+      <div style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:10px">✏️ Tip — click caption or hashtags to edit them here.</div>`;
   }
 }
 
@@ -6824,6 +6815,20 @@ function uwFeedEditCaption(i, el) {
   }
   const len = _uw.previewCard.querySelector('.uw-clen-' + i);
   if (len) len.textContent = p.caption.length + ' chars';
+}
+
+// Hashtags edited directly in the feed mockup \u2014 syncs back to the post card.
+function uwFeedEditTags(i, el) {
+  const p = _uw.posts[i];
+  if (!p) return;
+  const raw = (el.innerText || '').replace(/\u00a0/g, ' ').replace(/\s+$/, '');
+  p.hashtags = raw.split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : '#' + t);
+  if (!_uw.previewCard) return;
+  const card = _uw.previewCard.querySelector(`.uw-post-card[data-i="${i}"]`);
+  if (card) {
+    const tagInput = card.querySelector('input[type="text"]');
+    if (tagInput) tagInput.value = p.hashtags.join(' ');
+  }
 }
 
 // Inline caption/hashtag editing in the preview — works for both Drive and
