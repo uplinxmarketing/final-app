@@ -595,8 +595,7 @@ a{color:inherit;text-decoration:none}
             <button onclick="loadPostingPortfolios().then(renderPostingPortfolioSidebar)" title="Refresh" style="background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:3px 5px;line-height:1;border-radius:4px" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">↻</button>
           </div>
         </div>
-        <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition);margin-bottom:6px" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
-        <button onclick="openPortfolioModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:var(--transition)">🗂️ New / Manage Portfolios</button>
+        <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
       </div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
@@ -987,14 +986,14 @@ a{color:inherit;text-decoration:none}
           <div style="max-width:620px;width:100%;margin:0 auto">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
               <div style="font-size:18px;font-weight:700;color:var(--text-primary)">🗂️ Business Portfolios</div>
-              <button onclick="newPortfolio()" style="flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(220,38,38,.25);transition:transform .12s,box-shadow .12s" onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 14px rgba(220,38,38,.35)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(220,38,38,.25)'">➕ New Portfolio</button>
+              <button onclick="newPortfolio()" style="flex-shrink:0;display:inline-flex;align-items:center;gap:7px;padding:9px 16px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(220,38,38,.25);transition:transform .12s,box-shadow .12s" onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 14px rgba(220,38,38,.35)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(220,38,38,.25)'"><span style="font-size:17px;font-weight:400;line-height:1;margin-top:-1px">+</span> New Portfolio</button>
             </div>
             <div style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;line-height:1.5">Group a Facebook Page and Instagram account under one name, then select that portfolio anywhere — in Calendar, Feed, Compose or AI Chat — instead of picking each page. Saved to your account.</div>
             <!-- Existing portfolios -->
             <div id="portfolio-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px"></div>
-            <!-- Create / edit form -->
-            <div id="portfolio-form" style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--bg-secondary)">
-              <div id="portfolio-form-title" style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:12px">➕ New portfolio</div>
+            <!-- Create / edit form (hidden until "+ New Portfolio" or Edit is clicked) -->
+            <div id="portfolio-form" style="display:none;border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--bg-secondary)">
+              <div id="portfolio-form-title" style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:12px">New portfolio</div>
               <input type="hidden" id="portfolio-edit-id" value="">
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Portfolio name</label>
               <input type="text" id="portfolio-name-input" placeholder="e.g. Cherricup" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;margin-bottom:14px">
@@ -1004,7 +1003,7 @@ a{color:inherit;text-decoration:none}
               <div id="portfolio-ig-list" style="margin-bottom:16px"></div>
               <div style="display:flex;gap:8px">
                 <button onclick="savePortfolio()" id="portfolio-save-btn" style="flex:1;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save portfolio</button>
-                <button onclick="resetPortfolioForm()" style="padding:11px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">Clear</button>
+                <button onclick="cancelPortfolioForm()" style="padding:11px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">Cancel</button>
               </div>
               <div id="portfolio-form-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
             </div>
@@ -3989,18 +3988,23 @@ function selectSidebarPortfolio(id) {
 // Open the Portfolios tab (replaces the old modal). Sidebar buttons call this.
 function openPortfolioModal() { switchPostsTab('portfolios'); }
 
-// Called by switchPostsTab when the Portfolios tab becomes active.
+// Called by switchPostsTab when the Portfolios tab becomes active. The form
+// starts hidden — it only opens via "+ New Portfolio" or an Edit click.
 function openPortfolioTab() {
   resetPortfolioForm();
+  _hidePortfolioForm();
   if (!_portfoliosLoaded) loadPostingPortfolios().then(renderPortfolioList);
   else renderPortfolioList();
 }
+function _showPortfolioForm() { const f = document.getElementById('portfolio-form'); if (f) f.style.display = ''; }
+function _hidePortfolioForm() { const f = document.getElementById('portfolio-form'); if (f) f.style.display = 'none'; }
+function cancelPortfolioForm() { resetPortfolioForm(); _hidePortfolioForm(); }
 
 function renderPortfolioList() {
   const el = document.getElementById('portfolio-list');
   if (!el) return;
   if (!_postingPortfolios.length) {
-    el.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No portfolios yet — create one below.</div>';
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No portfolios yet — click “+ New Portfolio” to create one.</div>';
     return;
   }
   el.innerHTML = _postingPortfolios.map(p => {
@@ -4052,16 +4056,16 @@ function renderPortfolioForm(selected) {
 function resetPortfolioForm() {
   document.getElementById('portfolio-edit-id').value = '';
   document.getElementById('portfolio-name-input').value = '';
-  document.getElementById('portfolio-form-title').textContent = '➕ New portfolio';
+  document.getElementById('portfolio-form-title').textContent = 'New portfolio';
   document.getElementById('portfolio-save-btn').textContent = 'Save portfolio';
   document.getElementById('portfolio-form-status').textContent = '';
   renderPortfolioForm([]);
 }
 
-// "➕ New Portfolio" button — clear the form for a fresh entry, then scroll to
-// it and focus the name field.
+// "+ New Portfolio" button — open the form fresh, scroll to it, focus the name.
 function newPortfolio() {
   resetPortfolioForm();
+  _showPortfolioForm();
   const form = document.getElementById('portfolio-form');
   if (form) form.scrollIntoView({ behavior:'smooth', block:'start' });
   const input = document.getElementById('portfolio-name-input');
@@ -4077,6 +4081,9 @@ function editPortfolio(id) {
   document.getElementById('portfolio-save-btn').textContent = 'Update portfolio';
   document.getElementById('portfolio-form-status').textContent = '';
   renderPortfolioForm(p.pages || []);
+  _showPortfolioForm();
+  const form = document.getElementById('portfolio-form');
+  if (form) form.scrollIntoView({ behavior:'smooth', block:'start' });
   document.getElementById('portfolio-name-input').focus();
 }
 
@@ -4109,6 +4116,7 @@ async function savePortfolio() {
     await loadPostingPortfolios();
     renderPortfolioList();
     resetPortfolioForm();
+    _hidePortfolioForm();
     status.textContent = '';
     toast('Portfolio saved', 'success');
   } catch(e) { status.textContent = 'Error: ' + (e.message||e); }
@@ -4121,7 +4129,7 @@ async function deletePortfolio(id) {
     await loadPostingPortfolios();
     renderPortfolioList();
     const editing = document.getElementById('portfolio-edit-id').value;
-    if (String(id) === editing) resetPortfolioForm();
+    if (String(id) === editing) { resetPortfolioForm(); _hidePortfolioForm(); }
   } catch(e) { toast('Delete failed: '+(e.message||e), 'error'); }
 }
 
