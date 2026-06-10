@@ -3911,12 +3911,19 @@ def _media_entry(f: dict, group: str = "") -> dict:
     return entry
 
 
-async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
-    """List a folder's media including one level of subfolders.
+# Carousel naming convention — tolerant of carousel/carrousel/carousell.
+_CAROUSEL_NAME_RE = re.compile(r"carr?ou?sell?", re.I)
 
-    Each subfolder that contains media becomes a carousel group: its files
-    carry ``group: <subfolder name>`` so the frontend bundles them into one
-    multi-image post, ordered by filename.
+
+async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
+    """List a folder's media including carousel subfolders one level down.
+
+    Only subfolders that follow the carousel convention are auto-imported:
+    the folder name contains "carousel" (any spelling), or at least half of
+    the files inside do. Their files carry ``group: <subfolder name>`` so the
+    frontend bundles them into one multi-image post ordered by filename.
+    Other subfolders (other clients' materials, asset archives) are left
+    alone — select them explicitly if needed.
     """
     listing = await google_api.list_drive_folder(folder_id, google_token)
     if not listing.get("success"):
@@ -3935,12 +3942,20 @@ async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
         if not sub.get("success"):
             continue
         items = [
-            _media_entry(f, group=sf.get("name", "") or "carousel")
-            for f in sub.get("files", [])
+            f for f in sub.get("files", [])
             if f.get("mimeType", "").startswith(("image/", "video/"))
         ]
-        items.sort(key=lambda m: m["name"].lower())
-        media.extend(items)
+        if not items:
+            continue
+        sub_name = sf.get("name", "")
+        named_caro = bool(_CAROUSEL_NAME_RE.search(sub_name))
+        files_caro = sum(1 for f in items if _CAROUSEL_NAME_RE.search(f.get("name", "")))
+        if not named_caro and files_caro < max(1, len(items) / 2):
+            continue  # not carousel-named — don't swallow unrelated materials
+        group = (sub_name or "carousel") if len(items) > 1 else ""
+        entries = [_media_entry(f, group=group) for f in items]
+        entries.sort(key=lambda m: m["name"].lower())
+        media.extend(entries)
     return media
 
 
