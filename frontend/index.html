@@ -5234,7 +5234,7 @@ async function qupPollJob() {
 // Guided posting flow that lives INSIDE the AI chat: pick a page → paste Drive
 // links → preview each matched image + caption (+ scheduled date) → publish.
 
-let _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null };
+let _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null };
 
 function _buildPostingTargets() {
   const out = [];
@@ -5276,7 +5276,7 @@ async function startUploadWizard() {
 // Step 0 — verify the Facebook connection is real before anything else, so the
 // chat always reflects the truly-connected account (not a stale flag).
 async function _uwStart() {
-  _uw = { target:null, posts:[], scheduleMode:'now', jobId:null, pollTimer:null, previewCard:null, instructions:'' };
+  _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null, instructions:'' };
 
   // Fast path: the posting interface already loaded pages/clients when entered,
   // so show the picker instantly instead of re-hitting Meta.
@@ -5946,7 +5946,7 @@ async function uwBuildPreview(btn) {
     } else if (_uw.capSrc === 'drive') {
       const text = (step.querySelector('.uw-text')?.value || '').trim();
       if (text) {
-        const r = await api('POST', '/api/posting/drive/scan', { folder_url:text, text_url:text });
+        const r = await api('POST', '/api/posting/drive/scan', { folder_url:'', text_url:text });
         captions = r.captions || [];
       }
     }
@@ -6013,26 +6013,31 @@ function _uwGroupPosts(media, captions) {
     const mediaList = g.items.map(x => x.m);
     const isReel = mediaList.length === 1 && mediaList[0].is_video;
     return {
-      mediaList, media_type: isReel ? 'REELS' : 'IMAGE', caption:'', hashtags:[], _sched:null,
+      mediaList, media_type: isReel ? 'REELS' : 'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null,
       _label: g.kind === 'car' ? ('carousel'+g.cid) : (g.postNum != null ? ('post'+g.postNum) : null),
     };
   });
   // 1) label-based caption matching
   const caps = captions || [];
   const used = new Array(caps.length).fill(false);
+  const applyCap = (p, c) => {
+    p.caption = c.caption || '';
+    p.hashtags = c.hashtags || [];
+    if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
+  };
   posts.forEach(p => {
     if (!p._label) return;
     for (let k=0; k<caps.length; k++) {
       if (used[k]) continue;
-      if (_uwCaptionLabel(caps[k].caption) === p._label) { p.caption = caps[k].caption||''; p.hashtags = caps[k].hashtags||[]; used[k]=true; break; }
+      if (_uwCaptionLabel(caps[k].caption) === p._label) { applyCap(p, caps[k]); used[k]=true; break; }
     }
   });
   // 2) remaining posts get remaining captions in order
   let ci = 0;
   posts.forEach(p => {
-    if (p.caption) return;
+    if (p.caption || p._sched) return;
     while (ci < caps.length && used[ci]) ci++;
-    if (ci < caps.length) { p.caption = caps[ci].caption||''; p.hashtags = caps[ci].hashtags||[]; used[ci]=true; ci++; }
+    if (ci < caps.length) { applyCap(p, caps[ci]); used[ci]=true; ci++; }
   });
   posts.forEach(p => { delete p._label; });
   return posts;
@@ -6050,22 +6055,14 @@ function _uwRecountType() {
 
 function _uwRenderPreview() {
   const destLabel = (_uw.targets||[_uw.target]).map(t => escHtml(t.name)).join(' + ');
-  _uw.scheduleMode = 'later'; // default to scheduling — that's the common case
-  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image and caption, set the schedule, then publish.</div>
+  const fromDoc = _uw.posts.filter(p => p._schedLocal).length;
+  const schedHint = fromDoc
+    ? `🕒 ${fromDoc === _uw.posts.length ? 'Schedule times were taken from your captions file' : fromDoc + ' schedule time(s) were taken from your captions file'} — adjust any post's date below.`
+    : `🕒 Set each post's date below — leave it empty to post immediately.`;
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image, caption and time, then publish.</div>
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview">
-      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-        <select class="uw-sched-mode" onchange="uwSchedChange(this)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px">
-          <option value="later" selected>🕒 Schedule</option>
-          <option value="now">⚡ Post immediately</option>
-        </select>
-        <span class="uw-sched-fields" style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="datetime-local" class="uw-sched-start" value="${_uwDefaultSchedStart()}" onchange="uwRecalcDates()" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
-          <span style="font-size:12px;color:var(--text-secondary)">every</span>
-          <input type="number" class="uw-sched-int" value="24" min="1" onchange="uwRecalcDates()" style="width:56px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px">
-          <span style="font-size:12px;color:var(--text-secondary)">hours</span>
-        </span>
-      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${schedHint}</div>
       <div class="uw-cards" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow-y:auto"></div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button onclick="uwPublish(this)" style="flex:1;min-width:180px;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
@@ -6075,14 +6072,6 @@ function _uwRenderPreview() {
     </div>`);
   _uw.previewCard = card;
   _uwRenderCards();
-}
-
-// Sensible default schedule start — next full hour.
-function _uwDefaultSchedStart() {
-  const d = new Date(Date.now() + 60*60*1000);
-  d.setMinutes(0,0,0);
-  const pad = n => String(n).padStart(2,'0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // Abort the upload — discard this preview and offer a fresh start.
@@ -6097,7 +6086,6 @@ function uwCancel(btn) {
 function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
   wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardHtml(p,i)).join('');
-  uwRecalcDates();
 }
 
 function _uwThumbSrc(m) {
@@ -6124,10 +6112,12 @@ function _uwPostCardHtml(p, i) {
   const t = _uwPostType(p);
   const thumbs = p.mediaList.map((m,j) => _uwThumbHtml(m,i,j)).join('');
   return `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-primary)">${t.icon} ${t.label}</span>
-      <span style="display:inline-flex;align-items:center;gap:8px">
-        <span class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">⚡ Posts immediately</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">${p._schedLocal ? '🕒' : '⚡ now'}</span>
+        <input type="datetime-local" class="uw-when-${i}" value="${p._schedLocal || ''}" onchange="uwSetPostTime(${i}, this.value)" title="Schedule this post — leave empty to post immediately" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:4px 6px;color:var(--text-primary);font-size:11px">
+        <button onclick="uwClearPostTime(${i})" title="Clear — post immediately" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:10px;padding:4px 7px;cursor:pointer">✕</button>
         <span class="uw-res-${i}" style="font-size:11px;color:var(--text-dim)"></span>
       </span>
     </div>
@@ -6196,32 +6186,19 @@ function uwEditCaption(i, value) {
   p.hashtags = [];
 }
 
-function uwSchedChange(sel) {
-  _uw.scheduleMode = sel.value;
-  const fields = _uw.previewCard.querySelector('.uw-sched-fields');
-  fields.style.display = sel.value === 'later' ? 'inline-flex' : 'none';
-  uwRecalcDates();
+// Set/clear an individual post's schedule. An empty value = post immediately.
+function uwSetPostTime(i, val) {
+  const p = _uw.posts[i]; if (!p) return;
+  p._schedLocal = val || null;
+  p._sched = val ? new Date(val).toISOString() : null;
+  const el = _uw.previewCard && _uw.previewCard.querySelector('.uw-date-'+i);
+  if (el) el.textContent = val ? '🕒' : '⚡ now';
 }
 
-function _uwFmtDate(d) {
-  return d.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
-}
-
-function uwRecalcDates() {
-  const card = _uw.previewCard; if (!card) return;
-  if (_uw.scheduleMode !== 'later') {
-    _uw.posts.forEach((p,i)=>{ const el=card.querySelector('.uw-date-'+i); if(el) el.textContent='⚡ Posts immediately'; p._sched=null; });
-    return;
-  }
-  const start = card.querySelector('.uw-sched-start').value;
-  const hrs = parseFloat(card.querySelector('.uw-sched-int').value) || 24;
-  if (!start) { _uw.posts.forEach((p,i)=>{ const el=card.querySelector('.uw-date-'+i); if(el) el.textContent='🕒 pick a start time above'; }); return; }
-  const base = new Date(start).getTime();
-  _uw.posts.forEach((p,i)=>{
-    const d = new Date(base + i*hrs*3600*1000);
-    p._sched = d.toISOString();
-    const el = card.querySelector('.uw-date-'+i); if (el) el.textContent = '🕒 ' + _uwFmtDate(d);
-  });
+function uwClearPostTime(i) {
+  const inp = _uw.previewCard && _uw.previewCard.querySelector('.uw-when-'+i);
+  if (inp) inp.value = '';
+  uwSetPostTime(i, '');
 }
 
 async function uwPublish(btn) {
@@ -6229,9 +6206,6 @@ async function uwPublish(btn) {
   if (!_uw.posts.length || !targets.length) return;
   const card = _uw.previewCard;
   const status = card.querySelector('.uw-pub-status');
-  if (_uw.scheduleMode === 'later' && !card.querySelector('.uw-sched-start').value) {
-    status.textContent = 'Set a start time, or switch to "Post immediately".'; return;
-  }
   // One item per (post × target) — posting to both FB and IG creates two items.
   // A post's media array may hold multiple files (carousel).
   const items = [];
@@ -6241,7 +6215,7 @@ async function uwPublish(btn) {
       : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name });
     targets.forEach(t => {
       const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
-        scheduled_time: _uw.scheduleMode==='later' ? p._sched : null,
+        scheduled_time: p._sched || null,
         media: mediaArr };
       if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
       items.push(item);

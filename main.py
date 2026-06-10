@@ -3579,12 +3579,99 @@ class DriveScanRequest(BaseModel):
 
 _CAPTION_SEPARATOR = re.compile(r"\n\s*(?:---+|===+|###+|\*\*\*+)\s*\n")
 
+# "Schedule:", "Date:", "Posting time -" … prefixes before a date in a captions doc.
+_SCHED_LABEL = re.compile(
+    r"^\s*(?:schedule[d]?|date(?:\s*&?\s*time)?|time|when|post(?:ing)?\s*(?:date|time|at)?)\s*[:\-–]\s*",
+    re.I,
+)
+_SCHED_LABEL_TAIL = re.compile(
+    r"(?:schedule[d]?|date(?:\s*&?\s*time)?|time|when|post(?:ing)?\s*(?:date|time|at)?)\s*[:\-–]?\s*$",
+    re.I,
+)
+# Date + optional time anywhere in a block (used when the date isn't on its own line).
+_INLINE_SCHED = re.compile(
+    r"(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{4}-\d{1,2}-\d{1,2})"
+    r"(?:[T ,]+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?))?",
+    re.I,
+)
+_SCHED_TOKEN_PATTERNS = [
+    # 2026-06-10 13:00 / 2026-06-10T13:00:00
+    (re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "ymd"),
+    # 06/10/2026 01:00 PM (or 06-10-2026 13:00); day-first assumed when first number > 12
+    (re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "mdy"),
+    # 10.06.2026 13:00 (day first)
+    (re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dmy"),
+]
+
+
+def _parse_schedule_token(s: str) -> Optional[str]:
+    """Parse a date(/time) string into naive local ``YYYY-MM-DDTHH:MM``.
+
+    Returns None if the string is not a recognised date. Date-only values
+    default to 09:00 so a scheduled post never fires at midnight.
+    """
+    s = (s or "").strip().rstrip(".")
+    for rx, order in _SCHED_TOKEN_PATTERNS:
+        m = rx.match(s)
+        if not m:
+            continue
+        g = m.groups()
+        if order == "ymd":
+            y, mo, d = int(g[0]), int(g[1]), int(g[2])
+        elif order == "mdy":
+            a, b, y = int(g[0]), int(g[1]), int(g[2])
+            mo, d = (a, b) if a <= 12 else (b, a)
+        else:
+            d, mo, y = int(g[0]), int(g[1]), int(g[2])
+        hh = int(g[3]) if g[3] else 9
+        mm = int(g[4]) if g[4] else 0
+        ampm = (g[5] or "").lower().replace(".", "")
+        if ampm.startswith("p") and hh < 12:
+            hh += 12
+        elif ampm.startswith("a") and hh == 12:
+            hh = 0
+        try:
+            datetime(y, mo, d, hh, mm)
+        except ValueError:
+            return None
+        return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
+    return None
+
+
+def _extract_block_schedule(block: str) -> tuple[str, Optional[str]]:
+    """Pull a schedule date/time out of a caption block, if present.
+
+    Tries a dedicated line first (optionally labelled "Schedule:", "Date:" …,
+    time optional), then an inline date+time anywhere in the text. Returns
+    ``(caption_without_the_date, "YYYY-MM-DDTHH:MM" | None)``.
+    """
+    lines = block.split("\n")
+    for idx, line in enumerate(lines):
+        candidate = _SCHED_LABEL.sub("", line.strip())
+        sched = _parse_schedule_token(candidate)
+        if sched:
+            del lines[idx]
+            return "\n".join(lines).strip(), sched
+    m = _INLINE_SCHED.search(block)
+    if m and m.group(2):  # inline matches need an explicit time to avoid false positives
+        sched = _parse_schedule_token(m.group(0))
+        if sched:
+            start, end = m.span()
+            label = _SCHED_LABEL_TAIL.search(block[:start])
+            if label:
+                start = label.start()
+            cleaned = (block[:start].rstrip() + " " + block[end:].lstrip()).strip()
+            return cleaned, sched
+    return block, None
+
 
 def _split_caption_blocks(text: str) -> list[dict]:
     """Split a captions doc into per-post blocks, separating trailing hashtags.
 
     Blocks are separated by --- / === / ### / *** lines (or blank lines as a
-    fallback). Each block returns ``{"caption": ..., "hashtags": [...]}``.
+    fallback). Each block returns ``{"caption", "hashtags", "schedule"}`` where
+    ``schedule`` is a naive local ``YYYY-MM-DDTHH:MM`` string parsed from the
+    block (or None) — the browser interprets it in the user's timezone.
     """
     text = (text or "").strip()
     if not text:
@@ -3598,9 +3685,12 @@ def _split_caption_blocks(text: str) -> list[dict]:
         block = block.strip()
         if not block:
             continue
+        block, schedule = _extract_block_schedule(block)
+        if not block and not schedule:
+            continue
         # Collect hashtags but keep them in caption too (user can trim in UI)
         tags = re.findall(r"#\w+", block)
-        out.append({"caption": block, "hashtags": tags})
+        out.append({"caption": block, "hashtags": tags, "schedule": schedule})
     return out
 
 
@@ -3616,23 +3706,30 @@ async def api_posting_drive_scan(
     auto-match them and let the user adjust before bulk-publishing.
     """
     google_token = await get_google_token(request, db)
-    folder_id = google_api.extract_folder_id_from_url(req.folder_url) or req.folder_url.strip()
-    listing = await google_api.list_drive_folder(folder_id, google_token)
-    if not listing.get("success"):
-        raise HTTPException(502, listing.get("error") or "Could not list Drive folder")
-
-    media = [
-        {
-            "id": f["id"],
-            "name": f.get("name", ""),
-            "mime_type": f.get("mimeType", ""),
-            "size": f.get("size"),
-            "is_video": f.get("mimeType", "").startswith("video/"),
-        }
-        for f in listing["files"]
-        if f.get("mimeType", "").startswith(("image/", "video/"))
-    ]
-    media.sort(key=lambda m: m["name"].lower())
+    media: list[dict] = []
+    folder_raw = req.folder_url.strip()
+    # Captions-only scans pass an empty folder_url (or reuse the doc link in
+    # older clients) — skip the folder listing instead of asking Drive to list
+    # a document as a folder, which fails with "File not found".
+    folder_id = google_api.extract_folder_id_from_url(folder_raw)
+    if not folder_id and folder_raw and folder_raw != req.text_url.strip():
+        folder_id = folder_raw
+    if folder_id:
+        listing = await google_api.list_drive_folder(folder_id, google_token)
+        if not listing.get("success"):
+            raise HTTPException(502, listing.get("error") or "Could not list Drive folder")
+        media = [
+            {
+                "id": f["id"],
+                "name": f.get("name", ""),
+                "mime_type": f.get("mimeType", ""),
+                "size": f.get("size"),
+                "is_video": f.get("mimeType", "").startswith("video/"),
+            }
+            for f in listing["files"]
+            if f.get("mimeType", "").startswith(("image/", "video/"))
+        ]
+        media.sort(key=lambda m: m["name"].lower())
 
     captions: list[dict] = []
     if req.text_url.strip():
@@ -3798,6 +3895,25 @@ def _extract_docx_text(data: bytes) -> str:
     return "\n".join(paragraphs)
 
 
+def _xlsx_cell_value(raw: str) -> str:
+    """Render a numeric xlsx cell, converting plausible Excel date serials.
+
+    Excel stores dates as days since 1899-12-30; without parsing cell styles we
+    use a range heuristic (≈2023–2078) so schedule columns come through as
+    readable dates instead of numbers like ``46091.54``.
+    """
+    try:
+        num = float(raw)
+    except (TypeError, ValueError):
+        return raw or ""
+    if 45000 <= num <= 65000:
+        dt = datetime(1899, 12, 30) + timedelta(days=num)
+        if num % 1:
+            return dt.strftime("%m/%d/%Y %H:%M")
+        return dt.strftime("%m/%d/%Y")
+    return raw
+
+
 def _extract_xlsx_text(data: bytes) -> str:
     """Extract rows from a .xlsx (Open XML) without openpyxl. One row per line."""
     import io
@@ -3829,7 +3945,7 @@ def _extract_xlsx_text(data: bytes) -> str:
                 except (ValueError, IndexError):
                     pass
             else:
-                cells.append(v.text)
+                cells.append(_xlsx_cell_value(v.text))
         if cells:
             rows.append(" ".join(cells))
     # Each row is its own caption block.
