@@ -605,6 +605,7 @@ a{color:inherit;text-decoration:none}
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="switchPostsTab('bulk')" onmouseout="if(_postTab!=='bulk'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload Posts</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
         <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="switchPostsTab('chat')" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
+        <button id="ptab-btn-portfolios" class="ptab-nav-btn" onclick="switchPostsTab('portfolios')" onmouseout="if(_postTab!=='portfolios'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">🗂️ <span>Portfolios</span></button>
         <!-- Admin-only: slide toggle to hide/open the right column (skills + token usage panel) -->
         <div id="posts-workspace-toggle-wrap" style="display:none;align-items:center;justify-content:space-between;padding:9px 4px 2px;margin-top:5px;border-top:1px solid var(--border)">
           <span style="font-size:12px;color:var(--text-secondary);font-weight:600">📊 Side panel</span>
@@ -797,7 +798,7 @@ a{color:inherit;text-decoration:none}
           <div id="calendar-page-picker" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-shrink:0;flex-wrap:wrap">
             <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Viewing</span>
             <!-- Business Portfolio quick-select -->
-            <select id="calendar-portfolio-sel" onchange="pickCalendarPortfolio(this.value)" style="flex:0 1 auto;min-width:150px;max-width:220px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text-primary);font-size:13px;cursor:pointer"></select>
+            <div id="cal-pf-mount" style="flex:0 1 auto;min-width:170px;max-width:240px"></div>
             <!-- Facebook selector -->
             <div id="calendar-fb-select" style="position:relative;flex:1;min-width:190px;max-width:300px">
               <button onclick="toggleCalendarMenu('fb')" id="calendar-fb-btn" style="width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
@@ -951,7 +952,7 @@ a{color:inherit;text-decoration:none}
           <!-- FB + IG page selectors (separate, like the calendar) -->
           <div id="feed-page-picker" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-shrink:0;flex-wrap:wrap">
             <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Feeds</span>
-            <select id="feed-portfolio-sel" onchange="pickFeedPortfolio(this.value)" style="flex:0 1 auto;min-width:150px;max-width:220px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text-primary);font-size:13px;cursor:pointer"></select>
+            <div id="feed-pf-mount" style="flex:0 1 auto;min-width:170px;max-width:240px"></div>
             <div id="feed-fb-select" style="position:relative;flex:1;min-width:190px;max-width:300px">
               <button onclick="toggleFeedMenu('fb')" id="feed-fb-btn" style="width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
                 <span id="feed-fb-label" style="flex:1;display:flex;align-items:center;gap:8px;min-width:0">Facebook Page…</span>
@@ -977,6 +978,32 @@ a{color:inherit;text-decoration:none}
             <div style="flex:1;min-width:280px">
               <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px"><span id="feed-ig-col-title" style="display:flex;align-items:center;gap:7px"></span></div>
               <div id="posts-feed-list-ig" style="display:flex;flex-direction:column;gap:10px"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Business Portfolios -->
+        <div id="posts-tab-portfolios" style="display:none;flex:1;overflow-y:auto;padding:20px;flex-direction:column">
+          <div style="max-width:620px;width:100%;margin:0 auto">
+            <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🗂️ Business Portfolios</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;line-height:1.5">Group a Facebook Page and Instagram account under one name, then select that portfolio anywhere — in Calendar, Feed, Compose or AI Chat — instead of picking each page. Saved to your account.</div>
+            <!-- Existing portfolios -->
+            <div id="portfolio-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px"></div>
+            <!-- Create / edit form -->
+            <div id="portfolio-form" style="border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--bg-secondary)">
+              <div id="portfolio-form-title" style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:12px">➕ New portfolio</div>
+              <input type="hidden" id="portfolio-edit-id" value="">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Portfolio name</label>
+              <input type="text" id="portfolio-name-input" placeholder="e.g. Cherricup" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;margin-bottom:14px">
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-fb-ico"></span> Facebook Page</label>
+              <div id="portfolio-fb-list" style="margin-bottom:14px"></div>
+              <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-ig-ico"></span> Instagram Account</label>
+              <div id="portfolio-ig-list" style="margin-bottom:16px"></div>
+              <div style="display:flex;gap:8px">
+                <button onclick="savePortfolio()" id="portfolio-save-btn" style="flex:1;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save portfolio</button>
+                <button onclick="resetPortfolioForm()" style="padding:11px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">Clear</button>
+              </div>
+              <div id="portfolio-form-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
             </div>
           </div>
         </div>
@@ -1248,36 +1275,6 @@ a{color:inherit;text-decoration:none}
 </div>
 
 <!-- Business Portfolios Modal -->
-<div class="modal-overlay" id="business-portfolio-modal">
-  <div class="modal" style="max-width:520px">
-    <div class="modal-header">
-      <div class="modal-title">🗂️ Business Portfolios</div>
-      <button class="modal-close" onclick="closeModal('business-portfolio-modal')">×</button>
-    </div>
-    <div class="modal-body">
-      <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">Group a Facebook Page and Instagram account under one name, then select that portfolio anywhere instead of picking each page. Saved to your account.</div>
-      <!-- List of portfolios -->
-      <div id="portfolio-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
-      <!-- Create / edit form -->
-      <div id="portfolio-form" style="border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--bg-secondary)">
-        <div id="portfolio-form-title" style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">➕ New portfolio</div>
-        <input type="hidden" id="portfolio-edit-id" value="">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Portfolio name</label>
-        <input type="text" id="portfolio-name-input" placeholder="e.g. Cherricup" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text-primary);font-size:13px;outline:none;margin-bottom:12px">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-fb-ico"></span> Facebook Page</label>
-        <div id="portfolio-fb-list" style="margin-bottom:12px"></div>
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:6px"><span id="portfolio-ig-ico"></span> Instagram Account</label>
-        <div id="portfolio-ig-list" style="margin-bottom:14px"></div>
-        <div style="display:flex;gap:8px">
-          <button onclick="savePortfolio()" id="portfolio-save-btn" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save portfolio</button>
-          <button onclick="resetPortfolioForm()" style="padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">Clear</button>
-        </div>
-        <div id="portfolio-form-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- ── MODALS ── -->
 
 <!-- New Client Modal -->
@@ -3847,7 +3844,7 @@ function switchPostsTab(tab) {
   const isChat = tab === 'chat';
 
   // Update tab button highlight
-  ['calendar','compose','bulk','feed','chat'].forEach(t => {
+  ['calendar','compose','bulk','feed','chat','portfolios'].forEach(t => {
     const btn = document.getElementById(`ptab-btn-${t}`);
     const active = t === tab;
     if (btn) {
@@ -3866,15 +3863,15 @@ function switchPostsTab(tab) {
   if (pageContent) pageContent.style.display = isChat ? 'none' : 'flex';
 
   if (!isChat) {
-    // Bulk, Calendar and Feed have their own page pickers, so they only need a
-    // connected account (no sidebar page selection required).
-    const selfContained = tab === 'bulk' || tab === 'calendar' || tab === 'feed';
+    // Bulk, Calendar, Feed and Portfolios have their own pickers, so they only
+    // need a connected account (no sidebar page selection required).
+    const selfContained = tab === 'bulk' || tab === 'calendar' || tab === 'feed' || tab === 'portfolios';
     const state = !_postingConnected ? 'connect' : ((_selectedPostPage || selfContained) ? 'content' : 'no-page');
     const banner = document.getElementById('posts-connect-banner');
     const noPage = document.getElementById('posts-no-page-state');
     if (banner) banner.style.display = state === 'connect' ? 'flex' : 'none';
     if (noPage) noPage.style.display = state === 'no-page' ? 'flex' : 'none';
-    ['calendar','compose','bulk','feed'].forEach(t => {
+    ['calendar','compose','bulk','feed','portfolios'].forEach(t => {
       const panel = document.getElementById(`posts-tab-${t}`);
       const active = t === tab && state === 'content';
       if (panel) { panel.style.display = active ? 'flex' : 'none'; if (active) panel.style.flexDirection = 'column'; }
@@ -3884,6 +3881,7 @@ function switchPostsTab(tab) {
       else if (tab === 'feed') loadFeed();
       else if (tab === 'compose') { selectPostPlatform(_postPlatform || 'facebook'); loadPostsScheduled(); }
       else if (tab === 'bulk') initBulkComposer();
+      else if (tab === 'portfolios') openPortfolioTab();
     }
   }
 }
@@ -3976,16 +3974,19 @@ function selectSidebarPortfolio(id) {
   _feedFbPage = fb || null; _feedIgPage = ig || null;
   if (fb) selectPostingPage(fb.id);
   else if (ig) selectPostingIG(ig.id);
-  const calSel = document.getElementById('calendar-portfolio-sel'); if (calSel) calSel.value = String(id);
-  const feedSel = document.getElementById('feed-portfolio-sel'); if (feedSel) feedSel.value = String(id);
+  _pfDropSetSel('cal', id); _pfDropSetSel('feed', id);
   if (_postTab === 'calendar') loadCalendar();
   else if (_postTab === 'feed') loadFeed();
 }
 
-function openPortfolioModal() {
-  openModal('business-portfolio-modal');
+// Open the Portfolios tab (replaces the old modal). Sidebar buttons call this.
+function openPortfolioModal() { switchPostsTab('portfolios'); }
+
+// Called by switchPostsTab when the Portfolios tab becomes active.
+function openPortfolioTab() {
   resetPortfolioForm();
-  loadPostingPortfolios().then(renderPortfolioList);
+  if (!_portfoliosLoaded) loadPostingPortfolios().then(renderPortfolioList);
+  else renderPortfolioList();
 }
 
 function renderPortfolioList() {
@@ -4014,51 +4015,31 @@ function renderPortfolioList() {
   }).join('');
 }
 
-// Selected page ids for the portfolio form (single FB + single IG).
-let _pfSel = { facebook:null, instagram:null };
-
-// Inline searchable single-select list (no floating menu → no modal clipping).
-function _renderPfPicker(listId, items, platform) {
-  const el = document.getElementById(listId);
-  if (!el) return;
-  if (!items.length) { el.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">None connected.</div>`; return; }
-  const search = items.length >= 6
-    ? `<input type="text" class="pf-search" oninput="_pfFilter(this)" placeholder="🔍 Search by name…" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:6px">`
-    : '';
-  const rows = items.map(it => {
-    const id = it.id;
-    const name = platform === 'facebook' ? (it.name||id) : '@'+(it.username||it.name||id);
-    const sel = _pfSel[platform] === id;
-    return `<div class="pf-row" data-search="${escHtml(name.toLowerCase())}" onclick="_pfPick('${platform}','${escHtml(id)}')" style="display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-primary);background:${sel?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}" onmouseover="if(!this.dataset.sel)this.style.background='var(--bg-primary)'" onmouseout="if(!this.dataset.sel)this.style.background='transparent'" ${sel?'data-sel="1"':''}>
-      ${pageAvatar(it.picture_url, platform, 22)}
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</span>
-      ${sel?'<span style="color:var(--accent);font-weight:700">✓</span>':''}
-    </div>`;
-  }).join('');
-  el.innerHTML = `${search}<div class="pf-rows" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">${rows}</div>`;
-}
-function _pfFilter(input){
-  const q = input.value.trim().toLowerCase();
-  const box = input.parentElement.querySelector('.pf-rows');
-  if (!box) return;
-  box.querySelectorAll('.pf-row').forEach(r => { r.style.display = (!q || (r.getAttribute('data-search')||'').includes(q)) ? '' : 'none'; });
-}
-function _pfPick(platform, id){
-  _pfSel[platform] = (_pfSel[platform] === id) ? null : id;
-  _renderPfPicker(platform === 'facebook' ? 'portfolio-fb-list' : 'portfolio-ig-list',
-    platform === 'facebook' ? (_postingPages||[]) : (_postingIgAccounts||[]), platform);
-}
-
+// The portfolio form uses the SAME searchable dropdown (ss*) as every other
+// page picker — floating menu with a 🔍 search box. The Portfolios tab is a
+// full page (not a modal), so the floating menu no longer clips.
 function renderPortfolioForm(selected) {
   const sel = selected || [];
-  _pfSel = {
-    facebook: (sel.find(x => x.platform === 'facebook') || {}).id || null,
-    instagram: (sel.find(x => x.platform === 'instagram') || {}).id || null,
-  };
+  const fbSel = (sel.find(x => x.platform === 'facebook') || {}).id || null;
+  const igSel = (sel.find(x => x.platform === 'instagram') || {}).id || null;
   const fbIco = document.getElementById('portfolio-fb-ico'); if (fbIco) fbIco.innerHTML = fbIcon(13);
   const igIco = document.getElementById('portfolio-ig-ico'); if (igIco) igIco.innerHTML = igIcon(13);
-  _renderPfPicker('portfolio-fb-list', _postingPages||[], 'facebook');
-  _renderPfPicker('portfolio-ig-list', _postingIgAccounts||[], 'instagram');
+
+  const fbItems = (_postingPages||[]).map(p => ({ id:p.id, name:p.name||p.id, picture_url:p.picture_url||'', platform:'facebook' }));
+  const igItems = (_postingIgAccounts||[]).map(a => ({ id:a.id, name:'@'+(a.username||a.name||a.id), picture_url:a.picture_url||'', platform:'instagram' }));
+
+  const fbHost = document.getElementById('portfolio-fb-list');
+  if (fbHost) {
+    if (!fbItems.length) fbHost.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">No Facebook Pages connected.</div>`;
+    else ssMount('portfolio-fb-list', 'pffb', { items:fbItems, platform:'facebook', placeholder:'Select a Facebook Page…', empty:'No Facebook Pages' });
+  }
+  const igHost = document.getElementById('portfolio-ig-list');
+  if (igHost) {
+    if (!igItems.length) igHost.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">No Instagram accounts connected.</div>`;
+    else ssMount('portfolio-ig-list', 'pfig', { items:igItems, platform:'instagram', placeholder:'Select an Instagram account…', empty:'No Instagram accounts' });
+  }
+  if (fbItems.length) ssSet('pffb', fbSel);
+  if (igItems.length) ssSet('pfig', igSel);
 }
 
 function resetPortfolioForm() {
@@ -4084,13 +4065,15 @@ function editPortfolio(id) {
 
 function _gatherPortfolioPages() {
   const pages = [];
-  if (_pfSel.facebook) {
-    const p = (_postingPages||[]).find(x => x.id === _pfSel.facebook);
-    pages.push({ platform:'facebook', id:_pfSel.facebook, name:(p && p.name) || _pfSel.facebook });
+  const fbId = ssValue('pffb');
+  const igId = ssValue('pfig');
+  if (fbId) {
+    const p = (_postingPages||[]).find(x => x.id === fbId);
+    pages.push({ platform:'facebook', id:fbId, name:(p && p.name) || fbId });
   }
-  if (_pfSel.instagram) {
-    const a = (_postingIgAccounts||[]).find(x => x.id === _pfSel.instagram);
-    pages.push({ platform:'instagram', id:_pfSel.instagram, name:a ? ('@'+(a.username||a.name||a.id)) : _pfSel.instagram });
+  if (igId) {
+    const a = (_postingIgAccounts||[]).find(x => x.id === igId);
+    pages.push({ platform:'instagram', id:igId, name:a ? ('@'+(a.username||a.name||a.id)) : igId });
   }
   return pages;
 }
@@ -4246,7 +4229,7 @@ async function loadCalendar() {
 // Build the two separate page choosers (one Facebook, one Instagram).
 // Each is set independently; the calendar shows whichever are selected.
 function renderCalendarPagePicker() {
-  _syncPortfolioSelect('calendar-portfolio-sel');
+  _pfDropEnsure('cal-pf-mount', 'cal', id => pickCalendarPortfolio(id));
   // ── Facebook selector ──
   const fbLabel = document.getElementById('calendar-fb-label');
   const fbMenu = document.getElementById('calendar-fb-menu');
@@ -4420,25 +4403,105 @@ function pickCalendarPage(id, platform) {
     _calIgPage = (_calIgPage && _calIgPage.id === id) ? null : (acct || {id, name:id, picture_url:'', username:''});
     const m = document.getElementById('calendar-ig-menu'); if (m) m.style.display = 'none';
   }
-  const sel = document.getElementById('calendar-portfolio-sel'); if (sel) sel.value = '';
+  _pfDropClearSel('cal');
   renderCalendarPagePicker();
   loadCalendar();
 }
 
-// Build the "🗂️ Portfolio…" option list for a picker select.
-function _portfolioOptionsHtml() {
-  if (!_postingPortfolios.length) return '';
-  return '<option value="">🗂️ Portfolio…</option>' +
-    _postingPortfolios.map(p => `<option value="${p.id}">🗂️ ${escHtml(p.name)}</option>`).join('');
+// ── Searchable portfolio drop-down widget ─────────────────────────────────────
+// Replaces native <select> for portfolio pickers in calendar, feed and AI wizard.
+const _pfDropState = {}; // scope → selectedId
+
+function _pfDropBuildHtml(scope) {
+  return `<div id="${scope}-pf-widget" class="pf-drop-widget" style="position:relative;width:100%">
+    <button id="${scope}-pf-btn" onclick="event.stopPropagation();_pfDropToggle('${scope}')" style="width:100%;display:flex;align-items:center;gap:7px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--text-primary);font-size:13px;text-align:left">
+      <span id="${scope}-pf-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🗂️ Portfolio…</span>
+      <span style="color:var(--text-dim);font-size:11px;flex-shrink:0">▼</span>
+    </button>
+    <div id="${scope}-pf-menu" class="pf-drop-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:230px;z-index:60;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:7px">
+      <input oninput="_pfDropFilter(this,'${scope}')" placeholder="🔍 Search portfolio…" style="width:100%;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:6px 9px;color:var(--text-primary);font-size:12px;outline:none;margin-bottom:5px">
+      <div id="${scope}-pf-rows" style="max-height:220px;overflow-y:auto"></div>
+    </div>
+  </div>`;
 }
-function _syncPortfolioSelect(selId) {
-  const sel = document.getElementById(selId);
-  if (!sel) return;
-  if (!_postingPortfolios.length) { sel.style.display = 'none'; return; }
-  sel.style.display = '';
-  const cur = sel.value;
-  sel.innerHTML = _portfolioOptionsHtml();
-  sel.value = cur;
+
+function _pfDropEnsure(hostId, scope, onpick) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  if (!_postingPortfolios.length) { host.style.display='none'; return; }
+  host.style.display = '';
+  if (!document.getElementById(scope+'-pf-widget')) {
+    host.innerHTML = _pfDropBuildHtml(scope);
+  }
+  const widget = document.getElementById(scope+'-pf-widget');
+  if (widget) widget._pfOnpick = onpick;
+  _pfDropPopulate(scope);
+}
+
+function _pfDropPopulate(scope) {
+  const rows = document.getElementById(scope+'-pf-rows');
+  if (!rows) return;
+  const selId = String(_pfDropState[scope]||'');
+  rows.innerHTML = _postingPortfolios.map(p =>
+    `<div class="pf-dr" data-id="${p.id}" data-search="${escHtml(p.name.toLowerCase())}" onclick="_pfDropPick('${scope}',${p.id})" style="display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;background:${String(p.id)===selId?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'};color:var(--text-primary)" onmouseover="this.style.background='var(--bg-primary)'" onmouseout="this.style.background='${String(p.id)===selId?'var(--accent-soft,rgba(220,38,38,.1))':'transparent'}'">
+      <span style="font-size:14px">🗂️</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</span>
+      ${String(p.id)===selId?'<span style="color:var(--accent);font-size:11px">✓</span>':''}
+    </div>`
+  ).join('');
+}
+
+function _pfDropToggle(scope) {
+  const menu = document.getElementById(scope+'-pf-menu');
+  if (!menu) return;
+  const opening = menu.style.display === 'none';
+  document.querySelectorAll('.pf-drop-menu').forEach(m => m.style.display='none');
+  if (opening) {
+    menu.style.display = '';
+    const inp = menu.querySelector('input');
+    if (inp) { inp.value=''; _pfDropFilter(inp, scope); inp.focus(); }
+    setTimeout(() => document.addEventListener('click', _pfDropOutside, {once:true}), 0);
+  }
+}
+function _pfDropOutside(e) {
+  if (!e.target.closest('.pf-drop-widget')) document.querySelectorAll('.pf-drop-menu').forEach(m => m.style.display='none');
+  else setTimeout(() => document.addEventListener('click', _pfDropOutside, {once:true}), 0);
+}
+
+function _pfDropFilter(input, scope) {
+  const q = (input.value||'').trim().toLowerCase();
+  const rows = document.getElementById(scope+'-pf-rows');
+  if (!rows) return;
+  rows.querySelectorAll('.pf-dr').forEach(r => {
+    r.style.display = (!q || (r.dataset.search||'').includes(q)) ? '' : 'none';
+  });
+}
+
+function _pfDropPick(scope, id) {
+  _pfDropState[scope] = id;
+  const p = _postingPortfolios.find(x => String(x.id) === String(id));
+  const label = document.getElementById(scope+'-pf-label');
+  if (label) label.textContent = p ? '🗂️ '+p.name : '🗂️ Portfolio…';
+  const menu = document.getElementById(scope+'-pf-menu');
+  if (menu) menu.style.display = 'none';
+  _pfDropPopulate(scope);
+  const widget = document.getElementById(scope+'-pf-widget');
+  if (widget && widget._pfOnpick) widget._pfOnpick(id, p);
+}
+
+function _pfDropSetSel(scope, id) {
+  _pfDropState[scope] = id;
+  _pfDropPopulate(scope);
+  const p = _postingPortfolios.find(x => String(x.id) === String(id));
+  const label = document.getElementById(scope+'-pf-label');
+  if (label) label.textContent = p ? '🗂️ '+p.name : '🗂️ Portfolio…';
+}
+
+function _pfDropClearSel(scope) {
+  delete _pfDropState[scope];
+  const label = document.getElementById(scope+'-pf-label');
+  if (label) label.textContent = '🗂️ Portfolio…';
+  _pfDropPopulate(scope);
 }
 
 function pickCalendarPortfolio(id) {
@@ -4570,7 +4633,7 @@ let _feedFbPage = null;
 let _feedIgPage = null;
 
 function renderFeedPagePicker() {
-  _syncPortfolioSelect('feed-portfolio-sel');
+  _pfDropEnsure('feed-pf-mount', 'feed', id => pickFeedPortfolio(id));
   const fbLabel = document.getElementById('feed-fb-label');
   const fbMenu = document.getElementById('feed-fb-menu');
   if (fbLabel && fbMenu) {
@@ -4628,7 +4691,7 @@ function pickFeedPage(id, platform) {
     _feedIgPage = (_feedIgPage && _feedIgPage.id === id) ? null : (acct || {id, name:id, picture_url:'', username:''});
     const m = document.getElementById('feed-ig-menu'); if (m) m.style.display = 'none';
   }
-  const sel = document.getElementById('feed-portfolio-sel'); if (sel) sel.value = '';
+  _pfDropClearSel('feed');
   renderFeedPagePicker();
   loadFeed();
 }
@@ -5242,21 +5305,20 @@ function _uwShowTargets() {
   const selStyle = "width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:10px 11px;color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box;cursor:pointer";
   const labelStyle = "font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px";
 
-  // Client shortcut (skip manual page select — pages are assigned at creation)
-  const portfolioBlock = (_postingPortfolios && _postingPortfolios.length) ? `
-    <label style="${labelStyle};display:flex;align-items:center;gap:5px">🗂️ Quick pick — Business Portfolio</label>
-    <select class="uw-portfolio-sel" onchange="uwPickPortfolio(this)" style="${selStyle};margin-bottom:14px">
-      <option value="">— Select a portfolio (auto-fills its pages) —</option>
-      ${_postingPortfolios.map(p => `<option value="${p.id}">🗂️ ${escHtml(p.name)}</option>`).join('')}
-    </select>` : '';
-
-  const orDivider = portfolioBlock ? `<div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
-
   // Unique keys per wizard run so re-running doesn't collide with old cards.
   const seq = (window._uwSeq = (window._uwSeq || 0) + 1);
+  const pfScope = 'uw' + seq;
   const fbKey = 'uwfb' + seq, igKey = 'uwig' + seq;
   _uw.fbKey = fbPages.length ? fbKey : null;
   _uw.igKey = igAccts.length ? igKey : null;
+  _uw.pfScope = pfScope;
+
+  const hasPf = !!((_postingPortfolios) && _postingPortfolios.length);
+  const portfolioBlock = hasPf ? `
+    <label style="${labelStyle};display:flex;align-items:center;gap:5px">🗂️ Quick pick — Business Portfolio</label>
+    <div id="${pfScope}-pf-mount" style="margin-bottom:14px"></div>` : '';
+
+  const orDivider = hasPf ? `<div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:12px">— or pick a page directly —</div>` : '';
 
   const fbBlock = fbPages.length ? `
     <label style="${labelStyle};display:flex;align-items:center;gap:5px">${fbIcon(13)} Facebook Page</label>
@@ -5278,6 +5340,9 @@ function _uwShowTargets() {
     ${changeBtn}`);
   _uw.targetStepEl = card ? card.querySelector('.uw-target-step') : null;
 
+  // Mount the portfolio searchable picker.
+  if (hasPf) _pfDropEnsure(pfScope+'-pf-mount', pfScope, (id) => uwPickPortfolioById(id));
+
   // Mount the searchable dropdowns into their hosts.
   if (fbPages.length) ssMount('host-'+fbKey, fbKey, {
     items: fbPages.map(t => ({id:t.id, name:t.name+(t.client?' · '+t.client:''), picture_url:t.picture_url, platform:'facebook'})),
@@ -5291,21 +5356,15 @@ function _uwShowTargets() {
   });
 }
 
-// A direct FB/IG pick clears the client/portfolio shortcuts and recomputes targets.
+// A direct FB/IG pick clears the portfolio shortcut and recomputes targets.
 function uwTargetPicked() {
-  const step = _uw.targetStepEl;
-  if (step) {
-    const cl = step.querySelector('.uw-client-sel'); if (cl) cl.value = '';
-    const pf = step.querySelector('.uw-portfolio-sel'); if (pf) pf.value = '';
-  }
+  if (_uw.pfScope) _pfDropClearSel(_uw.pfScope);
   _uwRefreshTargets();
 }
 
 // Quick-pick a Business Portfolio → fill the FB + IG dropdowns from its pages.
-function uwPickPortfolio(sel) {
-  const step = sel.closest('.uw-target-step');
-  const cl = step && step.querySelector('.uw-client-sel'); if (cl) cl.value = '';
-  const p = _postingPortfolios.find(x => String(x.id) === String(sel.value));
+function uwPickPortfolioById(id) {
+  const p = _postingPortfolios.find(x => String(x.id) === String(id));
   const t = p ? _portfolioTargets(p) : { fb:null, ig:null };
   if (_uw.fbKey) ssSet(_uw.fbKey, t.fb ? t.fb.id : null);
   if (_uw.igKey) ssSet(_uw.igKey, t.ig ? t.ig.id : null);
