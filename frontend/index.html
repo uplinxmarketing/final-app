@@ -498,10 +498,10 @@ a{color:inherit;text-decoration:none}
   </div>
 
   <!-- Option B: OAuth -->
-  <button onclick="openOAuthPopup('/auth/meta')" style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:500;transition:var(--transition);cursor:pointer"
-    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
-    🔷 Login with Facebook (requires app domain)
+  <button onclick="openOAuthPopup('/auth/meta')" style="display:inline-flex;align-items:center;gap:10px;padding:0 20px;height:48px;background:#1877F2;color:#fff;border:none;border-radius:var(--radius);font-size:15px;font-weight:700;transition:background .15s,box-shadow .15s;cursor:pointer;box-shadow:0 2px 8px rgba(24,119,242,.3);letter-spacing:.2px"
+    onmouseover="this.style.background='#166FE5';this.style.boxShadow='0 4px 14px rgba(24,119,242,.4)'"
+    onmouseout="this.style.background='#1877F2';this.style.boxShadow='0 2px 8px rgba(24,119,242,.3)'">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" style="vertical-align:middle;flex-shrink:0"><path d="M22.675 0H1.325C.593 0 0 .593 0 1.325v21.351C0 23.407.593 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.593 1.323-1.325V1.325C24 .593 23.407 0 22.675 0z"/></svg> Continue with Facebook
   </button>
 
   <!-- Skip option — chat works without Meta -->
@@ -1266,8 +1266,8 @@ a{color:inherit;text-decoration:none}
 
       <!-- Add account — Facebook login only -->
       <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Add Account</div>
-      <button onclick="openOAuthPopup('/auth/meta/posting')" style="display:inline-flex;align-items:center;gap:10px;padding:12px 24px;background:#1877F2;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;width:100%;box-sizing:border-box;justify-content:center;cursor:pointer">
-        🔷 Log in with Facebook
+      <button onclick="openOAuthPopup('/auth/meta/posting')" style="display:inline-flex;align-items:center;gap:10px;padding:0 18px;height:48px;background:#1877F2;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;width:100%;box-sizing:border-box;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(24,119,242,.3);transition:background .15s,box-shadow .15s;letter-spacing:.2px" onmouseover="this.style.background='#166FE5';this.style.boxShadow='0 4px 14px rgba(24,119,242,.4)'" onmouseout="this.style.background='#1877F2';this.style.boxShadow='0 2px 8px rgba(24,119,242,.3)'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" style="vertical-align:middle;flex-shrink:0"><path d="M22.675 0H1.325C.593 0 0 .593 0 1.325v21.351C0 23.407.593 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.593 1.323-1.325V1.325C24 .593 23.407 0 22.675 0z"/></svg> Continue with Facebook
       </button>
       <div style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:10px">You'll be asked to grant Page &amp; Instagram permissions.</div>
     </div>
@@ -3569,6 +3569,10 @@ const _MONTH_NAMES = ['January','February','March','April','May','June','July','
 // ── Platform icons (Meta Business Suite style) ───────────────────────────────
 function fbIcon(size = 16) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:middle;flex-shrink:0"><path fill="#1877F2" d="M24 12c0-6.627-5.373-12-12-12S0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854V15.47H7.078V12h3.047V9.356c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874V12h3.328l-.532 3.469h-2.796v8.385C19.612 22.954 24 17.99 24 12z"/></svg>`;
+}
+// White Facebook "f" glyph — for use on the solid blue (#1877F2) login button.
+function fbLogoWhite(size = 20) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="#fff" style="vertical-align:middle;flex-shrink:0"><path d="M22.675 0H1.325C.593 0 0 .593 0 1.325v21.351C0 23.407.593 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.593 1.323-1.325V1.325C24 .593 23.407 0 22.675 0z"/></svg>`;
 }
 function igIcon(size = 16) {
   const id = 'ig' + Math.random().toString(36).slice(2, 7);
@@ -6435,17 +6439,24 @@ async function loadPostingAccountsList() {
       el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No accounts connected yet.</div>';
       return;
     }
-    el.innerHTML = accounts.map(a => `
+    // Every account in this list is active/connected → green dot. The
+    // "Active" pill flags whichever one this session is currently posting as
+    // (falls back to the only account when the session id isn't carried).
+    const anyCurrent = accounts.some(a => a.is_current);
+    el.innerHTML = accounts.map(a => {
+      const isCurrent = a.is_current || (!anyCurrent && accounts.length === 1);
+      return `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <div style="width:7px;height:7px;border-radius:50%;background:${a.is_current?'var(--success)':'var(--text-dim)'}"></div>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.user_name||a.facebook_user_id}</div>
-            <div style="font-size:11px;color:var(--text-dim)">${a.user_email||''}</div>
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <div title="Connected" style="width:8px;height:8px;border-radius:50%;background:var(--success,#22c55e);box-shadow:0 0 0 3px rgba(34,197,94,.18);flex-shrink:0"></div>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px">${fbIcon(13)} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_name||a.facebook_user_id}</span>${isCurrent?'<span style="font-size:10px;font-weight:700;color:var(--success,#22c55e);background:rgba(34,197,94,.12);padding:1px 7px;border-radius:10px;flex-shrink:0">● Active</span>':''}</div>
+            <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_email||''}</div>
           </div>
         </div>
-        <button onclick="disconnectPostingAccount(${a.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">Disconnect</button>
-      </div>`).join('');
+        <button onclick="disconnectPostingAccount(${a.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
+      </div>`;
+    }).join('');
   } catch(e) { /* silent */ }
 }
 
@@ -6479,6 +6490,7 @@ async function disconnectPostingAccount(id) {
   await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
   loadPostingAccountsList();
   loadPostingInterface();
+  updateStatusIndicators();
 }
 
 function openOAuthPopup(url) {
@@ -6727,10 +6739,10 @@ async function loadConnectionsApps() {
     if (postingOAuthButtons && posting.length > 0) {
       postingOAuthButtons.innerHTML = posting.map(a => `
         <button onclick="openOAuthPopup('/auth/meta/posting?app=${a.id}')"
-          style="display:inline-flex;align-items:center;gap:10px;padding:11px 24px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:500;transition:var(--transition);width:100%;box-sizing:border-box;justify-content:center;cursor:pointer"
-          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
-          🔷 Login with Facebook via "${a.name}"
+          style="display:inline-flex;align-items:center;gap:10px;padding:0 18px;height:48px;background:#1877F2;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;transition:background .15s,box-shadow .15s;width:100%;box-sizing:border-box;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(24,119,242,.3);letter-spacing:.2px"
+          onmouseover="this.style.background='#166FE5';this.style.boxShadow='0 4px 14px rgba(24,119,242,.4)'"
+          onmouseout="this.style.background='#1877F2';this.style.boxShadow='0 2px 8px rgba(24,119,242,.3)'">
+          ${fbLogoWhite(20)} Continue with Facebook via "${a.name}"
         </button>`).join('');
     }
   } catch(e) { console.warn('loadConnectionsApps:', e); }
