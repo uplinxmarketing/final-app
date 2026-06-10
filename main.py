@@ -3869,6 +3869,44 @@ def _extract_block_schedule(block: str) -> tuple[str, Optional[str]]:
     return block, None
 
 
+# A caption block that begins with a calendar row's leftover prefix —
+# "14/05 Static post Actual caption…" — carries the date and type inline
+# (happens when a sheet's columns couldn't be detected and rows were flattened).
+_LEAD_DATE = re.compile(
+    r"^\s*(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?)"
+    r"(?:[\s,]+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?))?[\s:,\-–—]+"
+)
+_LEAD_TYPE = re.compile(
+    r"^\s*(static(?:\s+post)?|carr?ou?sell?(?:\s+post)?|reels?(?:\s+post)?|video(?:\s+post)?)\b[\s:,\-–—]*",
+    re.I,
+)
+
+
+def _strip_block_prefix(block: str) -> tuple[str, Optional[str], str]:
+    """Strip a leading "14/05 Static post " calendar prefix from a caption block.
+
+    Returns ``(cleaned_block, schedule|None, type)``. The type token is only
+    stripped when a date came right before it, or when it is a whole line by
+    itself — captions that legitimately start with "Video…" are left alone.
+    """
+    schedule = None
+    ptype = ""
+    m = _LEAD_DATE.match(block)
+    if m:
+        token = m.group(1) + ((" " + m.group(2)) if m.group(2) else "")
+        sched = _parse_schedule_token(token, day_first=True)
+        if sched:
+            schedule = sched
+            block = block[m.end():]
+    t = _LEAD_TYPE.match(block)
+    if t:
+        first_line = block.split("\n", 1)[0].strip()
+        if schedule or t.end() >= len(first_line):
+            ptype = _normalize_post_type(t.group(1))
+            block = block[t.end():]
+    return block.strip(), schedule, ptype
+
+
 def _split_caption_blocks(text: str) -> list[dict]:
     """Split a captions doc into per-post blocks, separating trailing hashtags.
 
@@ -3889,12 +3927,14 @@ def _split_caption_blocks(text: str) -> list[dict]:
         block = block.strip()
         if not block:
             continue
-        block, schedule = _extract_block_schedule(block)
+        block, schedule, ptype = _strip_block_prefix(block)
+        if not schedule:
+            block, schedule = _extract_block_schedule(block)
         if not block and not schedule:
             continue
         # Collect hashtags but keep them in caption too (user can trim in UI)
         tags = re.findall(r"#\w+", block)
-        out.append({"caption": block, "hashtags": tags, "schedule": schedule})
+        out.append({"caption": block, "hashtags": tags, "schedule": schedule, "type": ptype})
     return out
 
 
@@ -4010,7 +4050,10 @@ async def _read_captions_from_drive(text_url: str, google_token: str) -> list[di
         structured = _captions_from_rows(rows)
         if structured is not None:
             return structured
-        raw_text = "\n---\n".join(" ".join(str(c) for c in row if c) for row in rows)
+        # Cell-per-line so a leading date/type cell stays strippable as a prefix.
+        raw_text = "\n---\n".join(
+            "\n".join(str(c).strip() for c in row if str(c or "").strip()) for row in rows
+        )
     if not raw_text and isinstance(content, str):
         raw_text = content
     elif not raw_text and isinstance(content, dict):
@@ -4031,6 +4074,22 @@ async def _read_captions_from_drive(text_url: str, google_token: str) -> list[di
                     data = dl.get("bytes")
         if data:
             try:
+                # Tabular files get the same per-column calendar parsing as
+                # native Google Sheets before falling back to text blocks.
+                ext = Path(name or "").suffix.lower()
+                tab_rows: list = []
+                if ext == ".xlsx":
+                    tab_rows = _extract_xlsx_rows(bytes(data))
+                elif ext in (".csv", ".tsv"):
+                    import csv as _csv
+                    import io as _io
+                    sep = "\t" if ext == ".tsv" else ","
+                    tab_rows = list(_csv.reader(
+                        _io.StringIO(bytes(data).decode("utf-8", errors="replace")), delimiter=sep))
+                if tab_rows:
+                    structured = _captions_from_rows(tab_rows)
+                    if structured is not None:
+                        return structured
                 raw_text = _extract_caption_text(bytes(data), name or "captions.txt")
             except Exception as exc:
                 logger.warning("Caption extraction failed for %s: %s", name, exc)
@@ -4463,7 +4522,8 @@ def _extract_xlsx_rows(data: bytes) -> list[list[str]]:
 def _extract_xlsx_text(data: bytes) -> str:
     """Flatten .xlsx rows into caption blocks (fallback when no header row)."""
     rows = _extract_xlsx_rows(data)
-    return "\n---\n".join(" ".join(c for c in row if c) for row in rows if any(row))
+    # Cell-per-line so a leading date/type cell stays strippable as a prefix.
+    return "\n---\n".join("\n".join(c.strip() for c in row if c.strip()) for row in rows if any(row))
 
 
 def _extract_caption_text(data: bytes, filename: str) -> str:
@@ -4476,7 +4536,8 @@ def _extract_caption_text(data: bytes, filename: str) -> str:
         import csv
         import io
         rows = list(csv.reader(io.StringIO(data.decode("utf-8", errors="replace")), delimiter=sep))
-        return "\n---\n".join(" ".join(c for c in row if c) for row in rows if any(row))
+        # Try column-aware calendar parsing first; fall back to cell-per-line blocks.
+        return "\n---\n".join("\n".join(c.strip() for c in row if c.strip()) for row in rows if any(row))
     if ext == ".docx":
         return _extract_docx_text(data)
     if ext == ".xlsx":
