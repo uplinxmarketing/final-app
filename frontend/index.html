@@ -6394,10 +6394,20 @@ function _uwRenderPreview() {
   const schedHint = fromDoc
     ? `🕒 ${fromDoc === _uw.posts.length ? 'Schedule times were taken from your captions file' : fromDoc + ' schedule time(s) were taken from your captions file'} — adjust any post's date below.`
     : `🕒 Set each post's date below — leave it empty to post immediately.`;
-  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:12px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image, caption and time, then publish.</div>
-    ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
-    <div class="uw-preview">
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${schedHint}</div>
+  _uw.viewMode = _uw.viewMode || 'list';
+  const vBtn = (id, label, mode, icon) =>
+    `<button id="${id}" onclick="uwSetViewMode('${mode}')" title="${label}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">${icon} ${label}</button>`;
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:8px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image, caption and time, then publish.</div>
+    ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:8px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
+    <div class="uw-preview" style="position:relative">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="font-size:12px;color:var(--text-secondary);flex:1;min-width:0">${schedHint}</div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          ${vBtn('uw-view-list-btn','List','list','≡')}
+          ${vBtn('uw-view-grid-btn','Grid','grid','⊞')}
+          <button onclick="uwToggleWide()" title="Drag right edge to resize, or click to toggle full width" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">⇔ Width</button>
+        </div>
+      </div>
       <div class="uw-cards" style="display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px"></div>
       <button onclick="uwAddPost()" style="width:100%;margin-top:10px;padding:10px;background:transparent;border:1px dashed var(--border);border-radius:10px;color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">＋ Add another post</button>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
@@ -6405,6 +6415,10 @@ function _uwRenderPreview() {
         <button onclick="uwCancel(this)" style="padding:12px 18px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">✕ Cancel</button>
       </div>
       <div class="uw-pub-status" style="font-size:12px;color:var(--text-dim);margin-top:8px;text-align:center"></div>
+      <div class="uw-card-resize-grip" onmousedown="uwCardResizeStart(event)"
+        style="position:absolute;right:-14px;top:0;bottom:0;width:14px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;z-index:10">
+        <div style="width:4px;height:48px;background:var(--border);border-radius:3px;pointer-events:none"></div>
+      </div>
     </div>`);
   _uw.previewCard = card;
   _uwRenderCards();
@@ -6424,12 +6438,95 @@ function uwCancel(btn) {
 
 function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
-  wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardHtml(p,i)).join('');
+  const isGrid = _uw.viewMode === 'grid';
+  wrap.style.cssText = isGrid
+    ? 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px'
+    : 'display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px';
+  wrap.innerHTML = _uw.posts.map((p,i) => isGrid ? _uwPostCardGridHtml(p,i) : _uwPostCardHtml(p,i)).join('');
+  // Update toggle button active styles
+  const listBtn = _uw.previewCard.querySelector('#uw-view-list-btn');
+  const gridBtn = _uw.previewCard.querySelector('#uw-view-grid-btn');
+  if (listBtn) { listBtn.style.background = isGrid ? '' : 'var(--accent)'; listBtn.style.color = isGrid ? '' : '#fff'; listBtn.style.borderColor = isGrid ? '' : 'var(--accent)'; }
+  if (gridBtn) { gridBtn.style.background = isGrid ? 'var(--accent)' : ''; gridBtn.style.color = isGrid ? '#fff' : ''; gridBtn.style.borderColor = isGrid ? 'var(--accent)' : ''; }
   // Keep the feed mockup in sync with whatever it points at.
   if (_uwFeed.open) {
     if (_uwFeed.i == null || _uwFeed.i >= _uw.posts.length) uwFeedClose();
     else _uwRenderFeed();
   }
+}
+
+// Switch between list and grid view for post cards.
+function uwSetViewMode(mode) {
+  _uw.viewMode = mode;
+  _uwRenderCards();
+}
+
+// Toggle full-width on the preview card (the .msg bubble).
+function uwToggleWide() {
+  if (!_uw.previewCard) return;
+  const isWide = _uw.previewCard.dataset.wide === '1';
+  _uw.previewCard.dataset.wide = isWide ? '0' : '1';
+  _uw.previewCard.style.maxWidth = isWide ? '' : '100%';
+  _uw.previewCard.style.width = isWide ? '' : '100%';
+}
+
+// Drag the right-edge grip to freely resize the preview card width.
+let _uwResizing = false;
+function uwCardResizeStart(e) {
+  e.preventDefault();
+  const msgEl = _uw.previewCard;
+  if (!msgEl) return;
+  const startX = e.clientX;
+  const startW = msgEl.offsetWidth;
+  _uwResizing = true;
+  function onMove(ev) {
+    const dx = ev.clientX - startX;
+    const parentW = msgEl.parentElement ? msgEl.parentElement.offsetWidth : 9999;
+    const newW = Math.min(Math.max(startW + dx, 300), parentW - 24);
+    msgEl.style.maxWidth = newW + 'px';
+    msgEl.style.width = newW + 'px';
+  }
+  function onUp() {
+    _uwResizing = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Compact grid card — thumbnail, post #, type, date, 2-line caption excerpt.
+function _uwPostCardGridHtml(p, i) {
+  const t = _uwPostType(p);
+  const sel = _uwFeed.open && _uwFeed.i === i;
+  const firstImg = p.mediaList[0];
+  const n = p.mediaList.length;
+  const thumb = firstImg
+    ? (firstImg.is_video
+        ? `<div style="width:100%;aspect-ratio:1;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--text-dim)">🎬</div>`
+        : `<img src="${_uwThumbSrc(firstImg)}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--bg-secondary)" onerror="this.replaceWith(Object.assign(document.createElement('div'),{textContent:'🖼️',style:'width:100%;aspect-ratio:1;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:28px'}))">`)
+    : `<div style="width:100%;aspect-ratio:1;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--text-dim)">🖼️</div>`;
+  const excerpt = (p.caption || '').split(/\n/)[0].slice(0, 100) + ((p.caption||'').length > 100 ? '…' : '');
+  const when = p._schedLocal
+    ? new Date(p._schedLocal).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+    : 'Post now';
+  return `<div class="uw-post-card" data-i="${i}" onclick="uwCardClick(event,${i})" title="Click to preview on feed"
+    style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : 'var(--border)'};border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+    onmouseover="if(!${sel})this.style.borderColor='var(--text-dim)'" onmouseout="this.style.borderColor='${sel ? 'var(--accent)' : 'var(--border)'}'">
+    <div style="position:relative">
+      ${thumb}
+      ${n > 1 ? `<span style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:2px 6px">⧉ ${n}</span>` : ''}
+    </div>
+    <div style="padding:7px 8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:3px">
+        <span style="font-size:12px;font-weight:800;color:var(--text-primary)">Post ${i+1}</span>
+        <button onclick="uwRemovePost(${i});event.stopPropagation()" title="Remove" style="background:transparent;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:0;line-height:1">🗑</button>
+      </div>
+      <span style="font-size:9px;font-weight:600;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:1px 6px;color:var(--text-secondary)">${t.icon} ${t.label}</span>
+      <div style="font-size:9px;color:var(--text-dim);margin-top:3px">${escHtml(when)}</div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;word-break:break-word">${escHtml(excerpt) || '<span style="color:var(--text-dim);font-style:italic">No caption</span>'}</div>
+    </div>
+  </div>`;
 }
 
 function _uwThumbSrc(m) {
