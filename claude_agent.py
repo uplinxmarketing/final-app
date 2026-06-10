@@ -91,7 +91,18 @@ _META_WORD_RE = _re.compile(
     r'objective|pause\s+ad|activate\s+ad|create\s+ad|list\s+ad|ad\s+upload|'
     r'google\s+drive|drive\.google|drive\s+link|drive\s+folder|'
     r'google\s+doc|google\s+sheet|spreadsheet|docs\.google|sheets\.google|'
-    r'drive\.google\.com|gdoc|gsheet)\b',
+    r'drive\.google\.com|gdoc|gsheet|'
+    r'posts?|publish|preview|portfolio|captions?|calendar|drive|folders?|'
+    r'sheets?|docs?|files?|match|prepare|select)\b',
+    _re.IGNORECASE,
+)
+
+# Action verbs that mean the user wants something DONE, not discussed. On the
+# first model call of such a turn we force a tool call so the model cannot just
+# narrate ("I will call search_drive...") without acting.
+_ACTION_RE = _re.compile(
+    r'\b(find|search|select|use|prepare|match|upload|publish|schedule|post|'
+    r'show|load|read|scan|create|make|set\s+up|list)\b',
     _re.IGNORECASE,
 )
 
@@ -127,11 +138,11 @@ _TOOL_GROUPS = {
 }
 
 _GROUP_PATTERNS = {
-    "drive": _re.compile(r"\b(drive|google\s+doc|google\s+sheet|docs\.google|sheets\.google|spreadsheet|pdf|folder|file|document)\b", _re.IGNORECASE),
+    "drive": _re.compile(r"\b(drive|google\s+doc|google\s+sheet|docs\.google|sheets\.google|spreadsheet|pdf|folders?|files?|document|sheets?|calendar|match|select)\b", _re.IGNORECASE),
     "campaigns": _re.compile(r"\b(campaign|ad\s*set|adset|objective|budget|pause|activate|delete|create|targeting)\b", _re.IGNORECASE),
     "ads": _re.compile(r"\b(upload|creative|ad\s+image|new\s+ad|ads?\b)\b", _re.IGNORECASE),
     "analytics": _re.compile(r"\b(report|performance|analytics|spend|roas|cpm|cpc|ctr|impression|conversion|metrics?)\b", _re.IGNORECASE),
-    "posting": _re.compile(r"\b(schedule|post|reel|publish|caption|portfolio|preview|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
+    "posting": _re.compile(r"\b(schedule|posts?|reel|publish|captions?|portfolio|preview|match|prepare|upload|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
 }
 
 
@@ -758,6 +769,9 @@ class ClaudeAgent:
                     )
                     if tool_definitions:
                         claude_kwargs["tools"] = tool_definitions
+                        # Action-shaped request → the first call must act, not narrate.
+                        if turn == 0 and _ACTION_RE.search(user_message):
+                            claude_kwargs["tool_choice"] = {"type": "any"}
                     async with self.client.messages.stream(**claude_kwargs) as stream:
                         current_tool_id: Optional[str] = None
                         current_tool_name: Optional[str] = None
@@ -853,7 +867,10 @@ class ClaudeAgent:
                     )
                     if oai_tools:
                         create_kwargs["tools"] = oai_tools
-                        create_kwargs["tool_choice"] = "auto"
+                        # Action-shaped request → the first call must act, not narrate.
+                        create_kwargs["tool_choice"] = (
+                            "required" if turn == 0 and _ACTION_RE.search(user_message) else "auto"
+                        )
                     async for chunk in await self._openai_client.chat.completions.create(
                         **create_kwargs
                     ):
