@@ -5919,6 +5919,13 @@ function _uwDriveUpdateFooter(folderMediaCount) {
 
 // Whole folder selected → add it to the list (multiple folders supported).
 function uwUseDriveFolder(folderId) {
+  // If we're picking for a specific post (Add another post flow), scan immediately.
+  if (_uwPickingForPost !== null) {
+    closeDrivePicker();
+    _uwDriveAddToPost(_uwPickingForPost, [], [{ id: folderId, name: _uw.drive.folderName || 'Drive folder' }]);
+    _uwPickingForPost = null;
+    return;
+  }
   _uw.driveFolders = _uw.driveFolders || [];
   if (!_uw.driveFolders.some(f => f.id === folderId))
     _uw.driveFolders.push({ id: folderId, name: _uw.drive.folderName || 'Drive folder' });
@@ -5932,6 +5939,13 @@ function uwUseSelectedFiles() {
   const files = Object.values(_uw.drive.selected);
   const folders = Object.values(_uw.drive.selectedFolders || {});
   if (!files.length && !folders.length) return;
+  // If we're picking for a specific post (Add another post flow), scan immediately.
+  if (_uwPickingForPost !== null) {
+    closeDrivePicker();
+    _uwDriveAddToPost(_uwPickingForPost, files, folders);
+    _uwPickingForPost = null;
+    return;
+  }
   // The picker was pre-seeded with the existing selection, so replacing both
   // lists wholesale handles adding and removing alike.
   _uw.driveSelected = files.map(m => ({ id:m.id, name:m.name, mime_type:m.mimeType, is_video:!!m.is_video || !!m.isVideo }));
@@ -6493,22 +6507,33 @@ function uwCarRemove(i,j){
   if (!_uw.posts.length) { uwCancel(_uw.previewCard.querySelector('.uw-preview button')); return; }
   _uwRenderCards();
 }
+// Post-index for "add media to specific post" mode in the Drive picker.
+let _uwPickingForPost = null;
+
 function uwCarAddOpen(i){
   const pool = _uw.previewCard.querySelector('.uw-add-pool-'+i);
   if (!pool) return;
   if (pool.style.display !== 'none') { pool.style.display='none'; return; }
   const used = new Set(_uw.posts[i].mediaList.map(_uwMediaKey));
   const avail = (_uw.mediaPool||[]).filter(m => !used.has(_uwMediaKey(m)));
-  pool.innerHTML = `<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Tap a file to add it to this post:</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${
-      avail.length ? avail.map(m => {
-        const k = _uwMediaKey(m);
-        const inner = m.is_video
-          ? `<div style="width:48px;height:48px;border-radius:6px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:18px">🎬</div>`
-          : `<img src="${_uwThumbSrc(m)}" loading="lazy" style="width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--bg-primary)">`;
-        return `<div onclick="uwCarAddPick(${i},'${k}')" title="${escHtml(m.name||'')}" style="cursor:pointer">${inner}</div>`;
-      }).join('') : '<div style="font-size:12px;color:var(--text-dim)">All files are already used in other posts.</div>'
-    }</div>`;
+  const btnBase = 'display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap';
+  const poolSection = avail.length
+    ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:5px">Or pick from loaded files:</div>
+       <div style="display:flex;gap:6px;flex-wrap:wrap">${avail.map(m => {
+         const k = _uwMediaKey(m);
+         const inner = m.is_video
+           ? `<div style="width:44px;height:44px;border-radius:6px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;font-size:16px">🎬</div>`
+           : `<img src="${_uwThumbSrc(m)}" loading="lazy" style="width:44px;height:44px;border-radius:6px;object-fit:cover;background:var(--bg-primary)">`;
+         return `<div onclick="uwCarAddPick(${i},'${k}')" title="${escHtml(m.name||'')}" style="cursor:pointer">${inner}</div>`;
+       }).join('')}</div>`
+    : '';
+  pool.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <button onclick="uwAddPostBrowseDrive(${i})" style="${btnBase}">📁 Browse Drive</button>
+      <button onclick="uwAddPostUploadDevice(${i})" style="${btnBase}">💻 Upload from device</button>
+    </div>
+    <div id="uw-add-pool-status-${i}" style="font-size:12px;color:var(--text-dim);margin-bottom:4px"></div>
+    ${poolSection}`;
   pool.style.display='';
 }
 function uwCarAddPick(i, key){
@@ -6516,8 +6541,73 @@ function uwCarAddPick(i, key){
   if (m) { _uw.posts[i].mediaList.push(m); _uwRecountType(); _uwRenderCards(); }
 }
 
-// Add a brand-new empty post to the preview — pick its image(s) from the
-// media pool, type the caption directly in the card.
+// Open the Drive picker to add images directly to post i.
+function uwAddPostBrowseDrive(i) {
+  _uwPickingForPost = i;
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, selectedFolders:{}, search:'', captionMode:false };
+  _openDrivePicker(false);
+}
+
+// Trigger a local file input to upload images directly to post i.
+function uwAddPostUploadDevice(i) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*,video/*';
+  inp.multiple = true;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.onchange = () => { _uwAddPostLocalUpload(i, inp); inp.remove(); };
+  inp.click();
+}
+
+async function _uwAddPostLocalUpload(postIdx, input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  const statusEl = document.getElementById('uw-add-pool-status-'+postIdx);
+  if (statusEl) statusEl.textContent = `⏳ Uploading ${files.length} file(s)…`;
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  try {
+    const res = await fetch('/api/posting/upload/local', { method:'POST', body:fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const newMedia = data.media || [];
+    _uw.mediaPool = (_uw.mediaPool || []).concat(newMedia);
+    const post = _uw.posts[postIdx];
+    if (post) { post.mediaList = post.mediaList.concat(newMedia); _uwRecountType(); }
+    _uwRenderCards();
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'Upload error: ' + (e.message || e);
+  }
+}
+
+// Scan Drive files/folders and add them to a specific post's mediaList.
+async function _uwDriveAddToPost(postIdx, files, folders) {
+  const statusEl = document.getElementById('uw-add-pool-status-'+postIdx);
+  const pool = _uw.previewCard && _uw.previewCard.querySelector('.uw-add-pool-'+postIdx);
+  if (pool) pool.style.display = '';
+  if (statusEl) statusEl.textContent = '⏳ Loading from Drive…';
+  try {
+    const seen = new Set((_uw.mediaPool||[]).map(m => m.id || m.local_file_id));
+    const newMedia = [];
+    for (const folder of folders) {
+      const res = await api('POST', '/api/posting/drive/scan', { folder_url: folder.id, text_url: '' });
+      (res.media || []).forEach(m => { if (!seen.has(m.id)) { seen.add(m.id); newMedia.push(m); } });
+    }
+    files.forEach(f => {
+      const m = { id:f.id, name:f.name, mime_type:f.mimeType, is_video:!!f.is_video||!!f.isVideo };
+      if (!seen.has(m.id)) { seen.add(m.id); newMedia.push(m); }
+    });
+    _uw.mediaPool = (_uw.mediaPool || []).concat(newMedia);
+    const post = _uw.posts[postIdx];
+    if (post) { post.mediaList = post.mediaList.concat(newMedia); _uwRecountType(); }
+    _uwRenderCards();
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'Error: ' + (e.message || e);
+  }
+}
+
+// Add a brand-new empty post to the preview — pick its image(s) from Drive or device.
 function uwAddPost() {
   _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null });
   _uwRenderCards();
