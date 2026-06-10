@@ -111,6 +111,7 @@ _TOOL_GROUPS = {
         "read_google_doc", "read_google_sheet", "read_google_drive_folder",
         "read_pdf", "read_local_folder", "match_post_story_pairs",
         "upload_ads_from_drive", "search_drive", "prepare_upload_preview",
+        "list_business_portfolios",
     ],
     "campaigns": [
         "create_campaign", "get_campaigns", "pause_campaign",
@@ -121,6 +122,7 @@ _TOOL_GROUPS = {
     "posting": [
         "schedule_post", "schedule_reel", "get_scheduled_posts",
         "cancel_scheduled_post", "search_drive", "prepare_upload_preview",
+        "list_business_portfolios",
     ],
 }
 
@@ -129,7 +131,7 @@ _GROUP_PATTERNS = {
     "campaigns": _re.compile(r"\b(campaign|ad\s*set|adset|objective|budget|pause|activate|delete|create|targeting)\b", _re.IGNORECASE),
     "ads": _re.compile(r"\b(upload|creative|ad\s+image|new\s+ad|ads?\b)\b", _re.IGNORECASE),
     "analytics": _re.compile(r"\b(report|performance|analytics|spend|roas|cpm|cpc|ctr|impression|conversion|metrics?)\b", _re.IGNORECASE),
-    "posting": _re.compile(r"\b(schedule|post|reel|publish|caption|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
+    "posting": _re.compile(r"\b(schedule|post|reel|publish|caption|portfolio|preview|instagram\s+post|facebook\s+post)\b", _re.IGNORECASE),
 }
 
 
@@ -178,6 +180,15 @@ verify how captions or dates correspond to the images.
 
 Only call tools when the user explicitly asks for an action; reply directly for questions.
 Use the Active Context IDs below — never invent account data.
+
+CRITICAL — HOW TO USE TOOLS:
+When you decide to use a tool you MUST invoke it through the tool-calling interface. \
+NEVER write a tool name with arguments as plain text in your reply, and never say \
+"I will call X" or "please wait while I search" — text that merely describes a tool \
+call performs NOTHING. If the user asks you to act (find files, prepare posts, select \
+a portfolio), call the tools immediately in the same turn, then report the results. \
+When the user names a Business Portfolio as the destination, call list_business_portfolios \
+(or pass portfolio_name to prepare_upload_preview) to resolve it — do not ask for page ids.
 
 EFFICIENCY — avoid wasted tool calls:
 If a tool requires information you don't have (e.g. a specific Drive folder URL, an ad set ID), \
@@ -1845,9 +1856,26 @@ class ClaudeAgent:
                         "page_name": {"type": "string", "description": "Facebook page name."},
                         "instagram_id": {"type": "string", "description": "Instagram business account id to post to."},
                         "instagram_name": {"type": "string", "description": "Instagram account name."},
+                        "portfolio_name": {
+                            "type": "string",
+                            "description": (
+                                "Name of a saved Business Portfolio to post to — resolves to its "
+                                "Facebook page + Instagram account automatically. Prefer this when "
+                                "the user names a portfolio."
+                            ),
+                        },
                     },
                     "required": [],
                 },
+            },
+            {
+                "name": "list_business_portfolios",
+                "description": (
+                    "List the user's saved Business Portfolios (named groupings of a "
+                    "Facebook page + Instagram account) with their page ids. Use this to "
+                    "resolve a portfolio the user names into posting targets."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
             },
             {
                 "name": "read_local_folder",

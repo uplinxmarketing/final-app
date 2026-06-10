@@ -742,6 +742,51 @@ async def search_drive(session_id: str, query: str, kind: str = "any") -> str:
     return f"Found {len(out)} Drive item(s) matching '{query}':\n" + "\n".join(out)
 
 
+async def _load_portfolios() -> list[dict]:
+    """All saved Business Portfolios, newest first.
+
+    The agent runs under the Meta user id, which doesn't map to the web
+    ``user_id`` that owns portfolios — like the Google-token fallback above we
+    treat the deployment as effectively single-tenant and search across all.
+    """
+    from database import BusinessPortfolio
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(BusinessPortfolio).order_by(BusinessPortfolio.created_at.desc())
+        )
+        return [{"name": p.name, "pages": p.pages or []} for p in result.scalars().all()]
+
+
+async def _find_portfolio_by_name(name: str) -> Optional[dict]:
+    target = (name or "").strip().lower()
+    if not target:
+        return None
+    best = None
+    for p in await _load_portfolios():
+        pn = (p["name"] or "").strip().lower()
+        if pn == target:
+            return p
+        if best is None and (target in pn or pn in target):
+            best = p
+    return best
+
+
+@mcp.tool()
+async def list_business_portfolios(session_id: str) -> str:
+    """List the user's saved Business Portfolios (named groupings of a Facebook
+    page + Instagram account). Use this to resolve a portfolio the user names
+    (e.g. "the Blinks portfolio") into the page/instagram ids to post to."""
+    portfolios = await _load_portfolios()
+    if not portfolios:
+        return "No Business Portfolios saved yet. Ask the user for the page/Instagram account instead."
+    lines = [f"Found {len(portfolios)} Business Portfolio(s):"]
+    for p in portfolios:
+        pages = ", ".join(f"{x.get('platform','?')}: {x.get('name','?')} (id {x.get('id','?')})" for x in p["pages"])
+        lines.append(f"  - {p['name']} → {pages or 'no pages assigned'}")
+    return "\n".join(lines)
+
+
 # Preview payloads prepared by the agent, waiting for the frontend to pick up.
 # Keyed by session_id (the Meta user id the agent runs under).
 PENDING_PREVIEWS: dict[str, dict] = {}
@@ -757,6 +802,7 @@ async def prepare_upload_preview(
     page_name: str = "",
     instagram_id: str = "",
     instagram_name: str = "",
+    portfolio_name: str = "",
 ) -> str:
     """Build an interactive upload preview in the user's chat from Drive content.
     Pass the Drive folder URLs (and/or individual file URLs) holding the images/videos,
@@ -814,9 +860,16 @@ async def prepare_upload_preview(
         captions = _split_caption_blocks(raw_text)
 
     targets = []
-    if page_id:
+    if portfolio_name:
+        portfolio = await _find_portfolio_by_name(portfolio_name)
+        if portfolio:
+            targets.extend(dict(x) for x in portfolio["pages"] if x.get("id"))
+        else:
+            return (f"Error: no Business Portfolio matching '{portfolio_name}' was found. "
+                    "Call list_business_portfolios to see the saved ones, or pass page_id/instagram_id directly.")
+    if page_id and not any(t.get("id") == page_id for t in targets):
         targets.append({"platform": "facebook", "id": page_id, "name": page_name or page_id})
-    if instagram_id:
+    if instagram_id and not any(t.get("id") == instagram_id for t in targets):
         targets.append({"platform": "instagram", "id": instagram_id, "name": instagram_name or instagram_id})
 
     PENDING_PREVIEWS[session_id or ""] = {"media": media, "captions": captions, "targets": targets,
