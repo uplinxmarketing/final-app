@@ -4913,12 +4913,13 @@ function buildBulkPosts(media, captions) {
   const defTarget = document.getElementById('bulk-target-select')?.value || '';
   _bulkPosts = groups.map((g, i) => {
     const cap = captions[i] || {};
+    const st = _uwSplitTags(cap.caption || '');
     const hasVideo = g.some(m => m.is_video);
     return {
       platform: defPlatform,
       target_id: defTarget,
-      caption: cap.caption || '',
-      hashtags: cap.hashtags || [],
+      caption: st.text,
+      hashtags: st.tags,
       media: g,
       media_type: hasVideo ? (g.length === 1 ? 'REELS' : 'IMAGE') : 'IMAGE',
       scheduled_time: '',
@@ -5138,9 +5139,10 @@ async function qupScan() {
     if (!_qupMedia.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
     _qupPosts = _qupMedia.map((m,i) => {
       const cap = _qupCaptions[i] || {};
+      const st = _uwSplitTags(cap.caption || '');
       return {
-        caption: cap.caption || '',
-        hashtags: cap.hashtags || [],
+        caption: st.text,
+        hashtags: st.tags,
         media: [m],
         media_type: m.is_video ? 'REELS' : 'IMAGE',
       };
@@ -6170,8 +6172,11 @@ function _uwGroupPosts(media, captions) {
   const caps = captions || [];
   const used = new Array(caps.length).fill(false);
   const applyCap = (p, c, k, lock) => {
-    p.caption = c.caption || '';
-    p.hashtags = c.hashtags || [];
+    // Trailing hashtag lines move to the editable hashtags field; they're
+    // re-appended at publish, so they must not stay in the caption text too.
+    const st = _uwSplitTags(c.caption || '');
+    p.caption = st.text;
+    p.hashtags = st.tags;
     p._capIdx = k;
     if (lock) p._matchLocked = true;
     if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
@@ -6296,13 +6301,31 @@ async function _uwAiMatch(posts, captions) {
       const p = posts[pair[0]];
       const c = pair[1] == null ? null : captions[pair[1]];
       if (!p || p._matchLocked || !c) return;
-      p.caption = c.caption || '';
-      p.hashtags = c.hashtags || [];
+      const st = _uwSplitTags(c.caption || '');
+      p.caption = st.text;
+      p.hashtags = st.tags;
       p._capIdx = pair[1];
       if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
     });
     return true;
   } catch(e) { return false; }
+}
+
+// Peel trailing hashtag-only lines off a caption into a separate tag list.
+// Inline hashtags mid-sentence stay in the text; only a trailing tag block
+// (the usual "caption … \n\n #tag1 #tag2" layout) moves to the hashtags field.
+function _uwSplitTags(caption) {
+  let text = (caption || '').replace(/\s+$/, '');
+  const tags = [];
+  for (;;) {
+    const nl = text.lastIndexOf('\n');
+    const line = text.slice(nl + 1).trim();
+    if (!line || !/^(#\w+[\s,.]*)+$/.test(line)) break;
+    tags.unshift(...(line.match(/#\w+/g) || []));
+    if (nl < 0) { text = ''; break; }
+    text = text.slice(0, nl).replace(/\s+$/, '');
+  }
+  return { text, tags };
 }
 
 // A post's kind for type-aware caption matching (mirrors the sheet's type column).
@@ -6344,7 +6367,7 @@ function _uwRenderPreview() {
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:12px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview">
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${schedHint}</div>
-      <div class="uw-cards" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow-y:auto"></div>
+      <div class="uw-cards" style="display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px"></div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button onclick="uwPublish(this)" style="flex:1;min-width:180px;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish all posts</button>
         <button onclick="uwCancel(this)" style="padding:12px 18px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">✕ Cancel</button>
@@ -6407,7 +6430,13 @@ function _uwPostCardHtml(p, i) {
       <button onclick="uwCarAddOpen(${i})" title="Add an image to this post" style="flex:0 0 auto;width:56px;height:56px;border-radius:8px;border:1px dashed var(--border);background:var(--bg-secondary);color:var(--text-dim);font-size:22px;cursor:pointer">＋</button>
     </div>
     <div class="uw-add-pool-${i}" style="display:none;margin-top:6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:8px"></div>
-    <textarea oninput="uwEditCaption(${i}, this.value)" placeholder="Write a caption…" rows="2" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:6px 8px;color:var(--text-primary);font-size:12px;line-height:1.4;resize:vertical;font-family:inherit;outline:none;margin-top:8px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+      <label style="font-size:10px;font-weight:700;letter-spacing:.4px;color:var(--text-dim);text-transform:uppercase">Caption</label>
+      <span class="uw-clen-${i}" style="font-size:10px;color:var(--text-dim)">${(p.caption||'').length} chars</span>
+    </div>
+    <textarea oninput="uwEditCaption(${i}, this.value);this.style.height='auto';this.style.height=(this.scrollHeight+2)+'px'" placeholder="Write a caption…" rows="${_uwCapRows(p.caption)}" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text-primary);font-size:13px;line-height:1.5;resize:vertical;font-family:inherit;outline:none;margin-top:4px;overflow:hidden" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">${p.caption?escHtml(p.caption):''}</textarea>
+    <label style="display:block;font-size:10px;font-weight:700;letter-spacing:.4px;color:var(--text-dim);text-transform:uppercase;margin-top:6px">Hashtags</label>
+    <input type="text" value="${escHtml((p.hashtags||[]).join(' '))}" placeholder="#hashtags — appended after the caption" oninput="uwEditTags(${i}, this.value)" style="width:100%;box-sizing:border-box;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--accent);font-size:12px;font-family:inherit;outline:none;margin-top:4px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
   </div>`;
 }
 
@@ -6456,15 +6485,29 @@ function uwCarAddPick(i, key){
   if (m) { _uw.posts[i].mediaList.push(m); _uwRecountType(); _uwRenderCards(); }
 }
 
-// Inline caption editing in the preview — works for both Drive and device
-// uploads, so captions can be typed directly without a Google Doc. When the
-// user types their own caption we fold any doc-parsed hashtags into the text
-// once, then clear them to avoid double-appending at publish time.
+// Inline caption/hashtag editing in the preview — works for both Drive and
+// device uploads, so text can be fixed directly without re-editing the doc.
+// Hashtags live in their own field and are appended at publish time.
 function uwEditCaption(i, value) {
   const p = _uw.posts[i];
   if (!p) return;
   p.caption = value;
-  p.hashtags = [];
+  const len = _uw.previewCard && _uw.previewCard.querySelector('.uw-clen-'+i);
+  if (len) len.textContent = value.length + ' chars';
+}
+
+function uwEditTags(i, value) {
+  const p = _uw.posts[i];
+  if (!p) return;
+  p.hashtags = (value || '').split(/[\s,]+/).filter(Boolean)
+    .map(t => t.startsWith('#') ? t : '#' + t);
+}
+
+// Initial textarea height that fits the caption (it auto-grows while typing).
+function _uwCapRows(caption) {
+  const s = caption || '';
+  const lines = s.split('\n').reduce((n, l) => n + 1 + Math.floor(l.length / 65), 0);
+  return Math.min(14, Math.max(3, lines));
 }
 
 // Set/clear an individual post's schedule. An empty value = post immediately.
