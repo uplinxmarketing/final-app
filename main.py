@@ -3672,6 +3672,9 @@ _COL_SYNONYMS: list[tuple[str, list[str]]] = [
     ("time", ["posting time", "publish time", "time", "hour"]),
     ("file", ["file name", "filename", "image name", "image", "file", "visual", "creative", "asset", "design", "graphic", "media"]),
     ("type", ["post type", "content type", "format", "type", "post format"]),
+    # Claimed so a Title/Hook column is never folded into the caption; used only
+    # as a fallback when the caption cell of a row is empty.
+    ("title", ["post title", "title", "headline", "hook", "subject", "topic", "theme"]),
 ]
 
 # Normalise a sheet's "type" cell ("Static post", "Reel", "Carousel post"…)
@@ -3825,6 +3828,16 @@ def _captions_from_rows(rows: list) -> Optional[list[dict]]:
             ci = cols.get(role)
             return cells[ci] if ci is not None and ci < len(cells) else ""
         caption = cell("caption")
+        if not caption:
+            # Row with an empty caption cell: fall back to the title column,
+            # then to the longest unclaimed cell — so the post isn't dropped
+            # and left captionless in the preview.
+            caption = cell("title")
+        if not caption:
+            claimed = {ci for ci in cols.values()}
+            free = [c_ for i_, c_ in enumerate(cells)
+                    if i_ not in claimed and len(c_) >= 20 and not _parse_schedule_token(c_)]
+            caption = max(free, key=len) if free else ""
         if not caption:
             continue
         d, t = cell("date"), cell("time")
@@ -4503,6 +4516,11 @@ def _extract_xlsx_rows(data: bytes) -> list[list[str]]:
             if ci is None:
                 ci = pos
             pos = ci + 1
+            if c.get("t") == "inlineStr":  # value lives in <is><t>, not <v>
+                txt = "".join(t.text or "" for t in c.iter(f"{S}t"))
+                if txt:
+                    cells[ci] = txt
+                continue
             v = c.find(f"{S}v")
             if v is None or v.text is None:
                 continue
