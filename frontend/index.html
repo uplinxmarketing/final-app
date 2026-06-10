@@ -985,7 +985,10 @@ a{color:inherit;text-decoration:none}
         <!-- Tab: Business Portfolios -->
         <div id="posts-tab-portfolios" style="display:none;flex:1;overflow-y:auto;padding:20px;flex-direction:column">
           <div style="max-width:620px;width:100%;margin:0 auto">
-            <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px">🗂️ Business Portfolios</div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
+              <div style="font-size:18px;font-weight:700;color:var(--text-primary)">🗂️ Business Portfolios</div>
+              <button onclick="newPortfolio()" style="flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(220,38,38,.25);transition:transform .12s,box-shadow .12s" onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 14px rgba(220,38,38,.35)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(220,38,38,.25)'">➕ New Portfolio</button>
+            </div>
             <div style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;line-height:1.5">Group a Facebook Page and Instagram account under one name, then select that portfolio anywhere — in Calendar, Feed, Compose or AI Chat — instead of picking each page. Saved to your account.</div>
             <!-- Existing portfolios -->
             <div id="portfolio-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px"></div>
@@ -4053,6 +4056,16 @@ function resetPortfolioForm() {
   document.getElementById('portfolio-save-btn').textContent = 'Save portfolio';
   document.getElementById('portfolio-form-status').textContent = '';
   renderPortfolioForm([]);
+}
+
+// "➕ New Portfolio" button — clear the form for a fresh entry, then scroll to
+// it and focus the name field.
+function newPortfolio() {
+  resetPortfolioForm();
+  const form = document.getElementById('portfolio-form');
+  if (form) form.scrollIntoView({ behavior:'smooth', block:'start' });
+  const input = document.getElementById('portfolio-name-input');
+  if (input) setTimeout(() => input.focus(), 250);
 }
 
 function editPortfolio(id) {
