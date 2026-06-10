@@ -847,17 +847,8 @@ async def prepare_upload_preview(
 
     captions: list[dict] = []
     if captions_doc_url.strip():
-        text_result = await google_api.read_by_url(captions_doc_url.strip(), token)
-        raw_text = ""
-        content = text_result.get("content")
-        if isinstance(content, str):
-            raw_text = content
-        elif isinstance(content, dict):
-            raw_text = content.get("text", "")
-        if not raw_text and text_result.get("rows"):
-            raw_text = "\n---\n".join(" ".join(str(c) for c in row if c) for row in text_result["rows"])
-        from main import _split_caption_blocks  # late import — main imports this module lazily
-        captions = _split_caption_blocks(raw_text)
+        from main import _read_captions_from_drive  # late import — main imports this module lazily
+        captions = await _read_captions_from_drive(captions_doc_url.strip(), token)
 
     targets = []
     if portfolio_name:

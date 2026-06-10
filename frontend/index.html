@@ -5782,7 +5782,15 @@ async function _uwDriveLoad() {
       html += `<div style="display:flex;flex-direction:column;gap:6px;padding-bottom:8px">`;
       docs.forEach(d => {
         const icon = d.isSheet ? '📊' : '📄';
-        const typeLabel = d.isSheet ? 'Google Sheet' : 'Google Doc';
+        const mt = d.mimeType || '';
+        const typeLabel =
+          mt === 'application/vnd.google-apps.spreadsheet' ? 'Google Sheet' :
+          mt === 'application/vnd.google-apps.document' ? 'Google Doc' :
+          mt === 'application/pdf' ? 'PDF' :
+          mt.includes('spreadsheetml') || mt === 'application/vnd.ms-excel' ? 'Excel' :
+          mt === 'text/csv' || mt === 'text/tab-separated-values' ? 'CSV' :
+          mt.includes('wordprocessingml') || mt === 'application/msword' ? 'Word' :
+          'Text file';
         const idJ = _attrJson(d.id);
         const mimeJ = _attrJson(d.mimeType);
         const nmJ = _attrJson(d.name);

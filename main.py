@@ -3733,20 +3733,53 @@ async def api_posting_drive_scan(
 
     captions: list[dict] = []
     if req.text_url.strip():
-        text_result = await google_api.read_by_url(req.text_url, google_token)
-        raw_text = ""
-        content = text_result.get("content")
-        if isinstance(content, str):
-            raw_text = content
-        elif isinstance(content, dict):
-            raw_text = content.get("text", "")
-        if not raw_text and text_result.get("rows"):
-            raw_text = "\n---\n".join(
-                " ".join(str(c) for c in row if c) for row in text_result["rows"]
-            )
-        captions = _split_caption_blocks(raw_text)
+        captions = await _read_captions_from_drive(req.text_url.strip(), google_token)
 
     return {"media": media, "captions": captions}
+
+
+async def _read_captions_from_drive(text_url: str, google_token: str) -> list[dict]:
+    """Read a captions source from Drive into caption blocks.
+
+    Handles native Google Docs/Sheets directly; uploaded Word/Excel/CSV/PDF/
+    text files are downloaded and parsed with the same extractors the device
+    upload path uses, so any caption format works from Drive too.
+    """
+    text_result = await google_api.read_by_url(text_url, google_token)
+    raw_text = ""
+    content = text_result.get("content")
+    if isinstance(content, str):
+        raw_text = content
+    elif isinstance(content, dict):
+        raw_text = content.get("text", "")
+        if not raw_text and content.get("rows"):
+            raw_text = "\n---\n".join(
+                " ".join(str(c) for c in row if c) for row in content["rows"]
+            )
+    if not raw_text and text_result.get("rows"):
+        raw_text = "\n---\n".join(
+            " ".join(str(c) for c in row if c) for row in text_result["rows"]
+        )
+    if not raw_text:
+        # Binary / non-native file (docx, xlsx, csv, pdf, txt): download + extract.
+        name = text_result.get("name", "")
+        data = content if isinstance(content, (bytes, bytearray)) else None
+        if data is None:
+            fid = google_api.extract_file_id_from_url(text_url)
+            if fid:
+                if not name:
+                    meta = await google_api.get_file_metadata(fid, google_token)
+                    if meta.get("success"):
+                        name = meta.get("name", "")
+                dl = await google_api.download_drive_file(fid, google_token)
+                if dl.get("success"):
+                    data = dl.get("bytes")
+        if data:
+            try:
+                raw_text = _extract_caption_text(bytes(data), name or "captions.txt")
+            except Exception as exc:
+                logger.warning("Caption extraction failed for %s: %s", name, exc)
+    return _split_caption_blocks(raw_text)
 
 
 class AiMatchPost(BaseModel):
@@ -3936,9 +3969,22 @@ async def api_posting_drive_preview(
     )
 
 
-_DOCS_MIMES = {
+# Caption sources the picker should surface: native Google Docs/Sheets plus
+# uploaded Word/Excel/CSV/PDF/text files (all parseable by _extract_caption_text).
+_DOC_LIKE_MIMES = {
     "application/vnd.google-apps.document",
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+}
+_SHEET_LIKE_MIMES = {
     "application/vnd.google-apps.spreadsheet",
+    "text/csv",
+    "text/tab-separated-values",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
 }
 
 
@@ -3971,7 +4017,7 @@ async def api_posting_drive_browse(
         mime = f.get("mimeType", "")
         is_folder = mime == "application/vnd.google-apps.folder"
         is_media = mime.startswith(("image/", "video/"))
-        is_doc = mime in _DOCS_MIMES
+        is_doc = mime in _DOC_LIKE_MIMES or mime in _SHEET_LIKE_MIMES
         if docs_mode:
             if not (is_folder or is_doc):
                 continue
@@ -3985,8 +4031,8 @@ async def api_posting_drive_browse(
             "isFolder": is_folder,
             "isMedia": is_media,
             "isVideo": mime.startswith("video/"),
-            "isDoc": mime == "application/vnd.google-apps.document",
-            "isSheet": mime == "application/vnd.google-apps.spreadsheet",
+            "isDoc": mime in _DOC_LIKE_MIMES,
+            "isSheet": mime in _SHEET_LIKE_MIMES,
             "modifiedTime": f.get("modifiedTime"),
         })
     items.sort(key=lambda x: (not x["isFolder"], x["name"].lower()))
