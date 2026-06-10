@@ -6218,6 +6218,15 @@ function _uwGroupPosts(media, captions) {
       applyCap(p, caps[k], k, false); used[k]=true; break;
     }
   });
+  // 3) last resort: never leave a post captionless while unused captions remain
+  //    (the sheet's type may disagree with what the file actually is).
+  posts.forEach(p => {
+    if (p.caption || p._capIdx != null) return;
+    for (let k=0; k<caps.length; k++) {
+      if (used[k]) continue;
+      applyCap(p, caps[k], k, false); used[k]=true; break;
+    }
+  });
   posts.forEach(p => { delete p._label; });
   return posts;
 }
@@ -6313,6 +6322,19 @@ function _uwRecountType() {
 }
 
 function _uwRenderPreview() {
+  // Show posts in the content calendar's order: by matched caption row first,
+  // then by schedule, keeping unmatched posts at the end in file order.
+  _uw.posts = _uw.posts
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => {
+      const ka = a.p._capIdx != null ? a.p._capIdx : Infinity;
+      const kb = b.p._capIdx != null ? b.p._capIdx : Infinity;
+      if (ka !== kb) return ka - kb;
+      const sa = a.p._schedLocal || '', sb = b.p._schedLocal || '';
+      if (sa !== sb) return sa < sb ? -1 : 1;
+      return a.i - b.i;
+    })
+    .map(x => x.p);
   const destLabel = (_uw.targets||[_uw.target]).map(t => escHtml(t.name)).join(' + ');
   const fromDoc = _uw.posts.filter(p => p._schedLocal).length;
   const schedHint = fromDoc
