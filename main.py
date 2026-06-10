@@ -3783,21 +3783,72 @@ def _infer_calendar_columns(rows: list) -> Optional[dict]:
     return cols
 
 
+def _captions_from_rows_loose(rows: list) -> Optional[list[dict]]:
+    """Last-resort per-row parsing when no column structure was detected.
+
+    Classifies each cell on its own — a date-parsing cell becomes the
+    schedule, a short type-looking cell ("Reel", "Static post") the post
+    type, an extension-bearing token the filename, and the longest free-text
+    cell the caption. Cells are never concatenated, so date/type/title/notes
+    columns can't leak into the published caption even when header detection
+    and column inference both fail. Returns None when the data isn't really
+    tabular (mostly single-cell rows — a plain captions doc).
+    """
+    filled = [r for r in rows if any(str(c or "").strip() for c in r)]
+    multi = [r for r in filled if sum(1 for c in r if str(c or "").strip()) >= 2]
+    if len(filled) < 2 or len(multi) < max(2, len(filled) // 2):
+        return None
+    out: list[dict] = []
+    for row in filled:
+        cells = [str(c or "").strip() for c in row]
+        schedule: Optional[str] = None
+        ptype = file = caption = ""
+        for c in cells:
+            if not c:
+                continue
+            if not schedule:
+                s = _parse_schedule_token(c, day_first=True)
+                if s:
+                    schedule = s
+                    continue
+            if not ptype and len(c) <= 30 and _normalize_post_type(c):
+                ptype = _normalize_post_type(c)
+                continue
+            if not file and len(c) <= 80 and " " not in c and re.search(r"\.[a-z0-9]{2,4}$", c, re.I):
+                file = c
+                continue
+            if len(c) > len(caption):
+                caption = c
+        if len(caption) < 20:
+            continue  # header rows, stray labels
+        # The caption cell itself may still carry a "14/05 Static post " prefix.
+        caption, s2, t2 = _strip_block_prefix(caption)
+        schedule = schedule or s2
+        ptype = ptype or t2
+        if not ptype:
+            ptype = ""
+        tags = re.findall(r"#\w+", caption)
+        out.append({"caption": caption, "hashtags": tags, "schedule": schedule,
+                    "file": file, "type": ptype})
+    return out or None
+
+
 def _captions_from_rows(rows: list) -> Optional[list[dict]]:
     """Build caption blocks from a content-calendar sheet.
 
     Columns come from a labelled header row when present, otherwise they are
     inferred from the content. Uses ONLY the caption column for the published
     text, the date(+time) columns for the schedule, and the image/file column
-    for filename matching. Returns None when no calendar structure is found
-    (caller falls back to flattening the rows into text blocks).
+    for filename matching. Falls back to per-row cell classification
+    (``_captions_from_rows_loose``) so multi-column sheets are never flattened
+    into blobs; returns None only when the data isn't tabular at all.
     """
     hi, cols = _detect_calendar_header(rows)
     data_rows = rows[hi + 1:] if cols is not None else rows
     if cols is None:
         cols = _infer_calendar_columns(rows)
         if cols is None:
-            return None
+            return _captions_from_rows_loose(rows)
         # Inferred columns keep all rows — drop a leading header-looking row
         # (short caption cell, unparseable date cell).
         if data_rows:
@@ -3852,7 +3903,7 @@ def _captions_from_rows(rows: list) -> Optional[list[dict]]:
             "caption": caption, "hashtags": tags, "schedule": schedule,
             "file": cell("file"), "type": _normalize_post_type(cell("type")),
         })
-    return out or None
+    return out or _captions_from_rows_loose(rows)
 
 
 def _extract_block_schedule(block: str) -> tuple[str, Optional[str]]:
