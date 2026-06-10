@@ -3749,6 +3749,104 @@ async def api_posting_drive_scan(
     return {"media": media, "captions": captions}
 
 
+class AiMatchPost(BaseModel):
+    index: int
+    files: list[str] = []
+
+
+class AiMatchCaption(BaseModel):
+    index: int
+    caption: str = ""
+    schedule: Optional[str] = None
+
+
+class AiMatchRequest(BaseModel):
+    posts: list[AiMatchPost]
+    captions: list[AiMatchCaption]
+
+
+@app.post("/api/posting/ai/match")
+@limiter.limit("20/minute")
+async def api_posting_ai_match(req: AiMatchRequest, request: Request):
+    """Match upload posts to caption blocks with the configured AI model.
+
+    Used by the preview builder when filenames and captions don't share names
+    or numbering, so order-based matching would pair them wrongly. Returns
+    ``{"success": true, "assignments": [[post_index, caption_index|null], …]}``
+    or ``{"success": false}`` — the frontend keeps its heuristic matching then.
+    """
+    if not req.posts or not req.captions:
+        return {"success": False, "error": "nothing to match"}
+    if len(req.posts) > 60 or len(req.captions) > 60:
+        return {"success": False, "error": "too many items"}
+    post_lines = "\n".join(
+        f"POST {p.index}: files = {', '.join(p.files[:12]) or '(unnamed)'}" for p in req.posts
+    )
+    cap_lines = "\n".join(
+        f"CAPTION {c.index}" + (f" [scheduled {c.schedule}]" if c.schedule else "")
+        + f": {(c.caption or '')[:400]}"
+        for c in req.captions
+    )
+    system = (
+        "You match social-media posts (groups of image/video files) to caption blocks "
+        "from a captions document. Consider numbering and keywords in filenames, names, "
+        "topics and dates mentioned in captions, and the natural document order as a "
+        "tie-breaker. Each post gets at most one caption and each caption is used at most "
+        "once. Reply with ONLY a JSON object, no prose: "
+        '{"assignments": [[post_index, caption_index_or_null], ...]} covering every post.'
+    )
+    user = f"POSTS:\n{post_lines}\n\nCAPTION BLOCKS:\n{cap_lines}"
+    try:
+        text = await agent.complete_text(system, user, max_tokens=1500)
+    except Exception as exc:
+        logger.warning("ai/match completion failed: %s", exc)
+        return {"success": False, "error": str(exc)}
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    m = re.search(r"\{.*\}", cleaned, re.S)
+    if not m:
+        return {"success": False, "error": "no JSON in model reply"}
+    try:
+        data = json.loads(m.group(0))
+        raw = data.get("assignments", [])
+    except Exception:
+        return {"success": False, "error": "unparseable model reply"}
+    valid_posts = {p.index for p in req.posts}
+    valid_caps = {c.index for c in req.captions}
+    assignments = []
+    used_caps: set = set()
+    for pair in raw:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            continue
+        pi, ci = pair
+        if pi not in valid_posts:
+            continue
+        if ci is not None and (ci not in valid_caps or ci in used_caps):
+            ci = None
+        if ci is not None:
+            used_caps.add(ci)
+        assignments.append([pi, ci])
+    if not assignments:
+        return {"success": False, "error": "empty assignment"}
+    return {"success": True, "assignments": assignments}
+
+
+@app.get("/api/posting/preview/pending")
+async def api_posting_preview_pending(request: Request):
+    """Hand the frontend a preview payload prepared by the chat agent's
+    prepare_upload_preview tool. One-shot: the payload is removed on pickup."""
+    import mcp_server
+    session = get_session(request)
+    uid = session.get("meta_user_id", "")
+    payload = None
+    for key in (uid, "", "anon"):
+        payload = mcp_server.PENDING_PREVIEWS.pop(key, None)
+        if payload:
+            break
+    if not payload:
+        raise HTTPException(404, "No pending preview")
+    return payload
+
+
 @app.get("/api/posting/drive/preview/{file_id}")
 async def api_posting_drive_preview(
     file_id: str,
