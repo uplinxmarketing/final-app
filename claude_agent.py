@@ -110,7 +110,7 @@ _TOOL_GROUPS = {
     "drive": [
         "read_google_doc", "read_google_sheet", "read_google_drive_folder",
         "read_pdf", "read_local_folder", "match_post_story_pairs",
-        "upload_ads_from_drive",
+        "upload_ads_from_drive", "search_drive", "prepare_upload_preview",
     ],
     "campaigns": [
         "create_campaign", "get_campaigns", "pause_campaign",
@@ -120,7 +120,7 @@ _TOOL_GROUPS = {
     "analytics": ["get_performance_report", "get_campaign_performance"],
     "posting": [
         "schedule_post", "schedule_reel", "get_scheduled_posts",
-        "cancel_scheduled_post",
+        "cancel_scheduled_post", "search_drive", "prepare_upload_preview",
     ],
 }
 
@@ -169,6 +169,12 @@ When the user provides a Google Drive URL, Google Doc link, or Google Sheet link
 call the appropriate tool (upload_ads_from_drive, read_google_doc, or read_google_sheet). \
 Do NOT say you cannot access external files — you have tools specifically for this. \
 Never respond with "I don't have access to Google Drive" when a Drive URL is provided.
+When the user names a folder, file or document WITHOUT a link ("the June folder", "my captions \
+sheet"), use search_drive to find it yourself instead of asking for the URL. \
+When the user asks you to set up, prepare or load posts from Drive, call prepare_upload_preview \
+— it fills the interactive upload preview in their chat (images, captions and schedule dates \
+matched) so they only review and press Publish. Read the captions doc first if you need to \
+verify how captions or dates correspond to the images.
 
 Only call tools when the user explicitly asks for an action; reply directly for questions.
 Use the Active Context IDs below — never invent account data.
@@ -282,6 +288,32 @@ class ClaudeAgent:
             self.model = settings.CLAUDE_MODEL or "claude-opus-4-7"
 
         self.max_tokens = 1024  # default; bumped to 4096 when task complexity demands it
+
+    async def complete_text(self, system: str, user: str, max_tokens: int = 1200) -> str:
+        """One-shot, non-streaming completion with whatever provider is configured.
+
+        Used for small utility tasks (e.g. matching captions to images) that
+        don't need the full conversational tool loop.
+        """
+        if self._provider == "none":
+            raise RuntimeError(self._init_error or "No AI provider configured")
+        if self._provider == "claude":
+            resp = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        resp = await self._openai_client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        return resp.choices[0].message.content or ""
 
     # ------------------------------------------------------------------
     # Database helpers
@@ -1754,6 +1786,67 @@ class ClaudeAgent:
                         }
                     },
                     "required": ["folder_url"],
+                },
+            },
+            {
+                "name": "search_drive",
+                "description": (
+                    "Search the user's Google Drive by name. Use this to FIND folders, "
+                    "images/videos or caption documents when the user refers to them by "
+                    "name instead of pasting a link (e.g. \"the June campaign folder\"). "
+                    "Returns names and ready-to-use URLs for the other Drive tools."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Name (or part of it) to search for.",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["any", "folder", "media", "document"],
+                            "description": "Restrict results to folders, media files or documents.",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "prepare_upload_preview",
+                "description": (
+                    "Build an interactive upload preview card in the user's chat from "
+                    "Google Drive content. Scans the given folders/files for images and "
+                    "videos, parses the captions doc (including per-post schedule dates) "
+                    "and fills the same preview the manual upload wizard shows, so the "
+                    "user only has to review and press Publish. Use this whenever the "
+                    "user asks you to set up, prepare, select or load posts from Drive. "
+                    "Pass the destination page/instagram ids and names from your Active "
+                    "Context when the user has named where to post."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "folder_urls": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Google Drive folder URLs holding the images/videos.",
+                        },
+                        "file_urls": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Individual Drive image/video file URLs to include.",
+                        },
+                        "captions_doc_url": {
+                            "type": "string",
+                            "description": "Google Doc/Sheet URL with captions (and optional schedule dates).",
+                        },
+                        "page_id": {"type": "string", "description": "Facebook page id to post to."},
+                        "page_name": {"type": "string", "description": "Facebook page name."},
+                        "instagram_id": {"type": "string", "description": "Instagram business account id to post to."},
+                        "instagram_name": {"type": "string", "description": "Instagram account name."},
+                    },
+                    "required": [],
                 },
             },
             {

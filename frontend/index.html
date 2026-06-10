@@ -2512,6 +2512,9 @@ async function handleStream(response, container, onText, msgsId = 'messages') {
         } else if (evt.type === 'tool_result') {
           const stepEl = toolSteps[evt.name];
           if (stepEl) { stepEl.classList.add('done'); stepEl.textContent = (evt.name||'tool').replace(/_/g,' ') + ' ✓'; }
+          // The agent prepared an upload preview — pick it up once the stream ends.
+          if (evt.name === 'prepare_upload_preview' && msgsId === 'posts-chat-messages'
+              && !String(evt.result||'').startsWith('Error')) window._uwPreviewPending = true;
         } else if (evt.type === 'usage') {
           updateAiTokens(evt.input_tokens || 0, evt.output_tokens || 0,
                          evt.provider, evt.model);
@@ -2625,7 +2628,30 @@ async function sendPostsMessage() {
     sendBtn.style.background = 'var(--accent)';
     sendBtn.onclick = sendPostsMessage;
     sendBtn.disabled = !input.value.trim();
+    if (window._uwPreviewPending) { window._uwPreviewPending = false; uwLoadPendingPreview(); }
   }
+}
+
+// Fetch a preview the chat agent prepared (prepare_upload_preview tool) and
+// render it as the standard upload preview card.
+async function uwLoadPendingPreview() {
+  try {
+    const r = await fetch('/api/posting/preview/pending');
+    if (!r.ok) return;
+    const data = await r.json();
+    const media = data.media || [];
+    if (!media.length) return;
+    if ((data.targets || []).length) _uw.targets = data.targets;
+    if (!(_uw.targets || []).length) {
+      _appendPostsCard(`<div style="font-size:13px">⚠️ The AI prepared <b>${media.length}</b> file(s) but didn't specify where to post. Ask it again mentioning the Facebook page or Instagram account, or use 📤 the upload wizard.</div>`);
+      return;
+    }
+    _uw.imgSrc = 'drive';
+    _uw.mediaPool = media;
+    _uw.posts = _uwGroupPosts(media, data.captions || []);
+    await _uwAiMatch(_uw.posts, data.captions || []);
+    _uwRenderPreview();
+  } catch (e) { /* silent — the agent's text reply still stands */ }
 }
 
 // ── Input helpers ──────────────────────────────────────────────────────────
@@ -6049,9 +6075,14 @@ async function uwBuildPreview(btn) {
         captions = r.captions || [];
       }
     }
-    // 3) Group into posts (carousels by filename) + match captions in order.
+    // 3) Group into posts (carousels by filename) + match captions. The AI
+    // pass refines the heuristic match when names/numbers don't line up.
     _uw.mediaPool = media;
     _uw.posts = _uwGroupPosts(media, captions);
+    if (captions.length && _uw.posts.length) {
+      status.textContent = '🤖 Matching captions and dates with AI…';
+      await _uwAiMatch(_uw.posts, captions);
+    }
     const carCount = _uw.posts.filter(p => p.mediaList.length > 1).length;
     status.textContent = `${_uw.posts.length} post(s)` + (carCount ? `, ${carCount} carousel(s)` : '') + ` from ${media.length} file(s).`;
     btn.disabled = false;
@@ -6140,6 +6171,31 @@ function _uwGroupPosts(media, captions) {
   });
   posts.forEach(p => { delete p._label; });
   return posts;
+}
+
+// Ask the server's AI to match posts ↔ caption blocks by content (filenames,
+// keywords, dates) — used when captions don't share names/numbers with the
+// files, where order-based matching pairs them wrongly. Returns true when an
+// AI assignment was applied; on any failure the heuristic result stands.
+async function _uwAiMatch(posts, captions) {
+  if (!(posts||[]).length || !(captions||[]).length) return false;
+  try {
+    const res = await api('POST', '/api/posting/ai/match', {
+      posts: posts.map((p,i) => ({ index:i, files:p.mediaList.map(m => m.name || '') })),
+      captions: captions.map((c,i) => ({ index:i, caption:c.caption || '', schedule:c.schedule || null })),
+    });
+    if (!res || !res.success || !Array.isArray(res.assignments)) return false;
+    posts.forEach(p => { p.caption=''; p.hashtags=[]; p._sched=null; p._schedLocal=null; });
+    res.assignments.forEach(pair => {
+      const p = posts[pair[0]];
+      const c = pair[1] == null ? null : captions[pair[1]];
+      if (!p || !c) return;
+      p.caption = c.caption || '';
+      p.hashtags = c.hashtags || [];
+      if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
+    });
+    return true;
+  } catch(e) { return false; }
 }
 
 function _uwMediaKey(m) { return m.local_file_id ? ('local:'+m.local_file_id) : ('drive:'+m.id); }

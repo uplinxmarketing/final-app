@@ -693,6 +693,142 @@ async def read_google_drive_folder(
 
 
 @mcp.tool()
+async def search_drive(session_id: str, query: str, kind: str = "any") -> str:
+    """Search the user's Google Drive by name. Use this to FIND folders, images/videos
+    or caption documents when the user refers to them by name instead of pasting a link
+    (e.g. "the June campaign folder"). kind: "folder", "media", "document" or "any".
+    Returns names, ids and ready-to-use URLs you can pass to other tools."""
+    token = await get_google_token_for_session(session_id)
+    if not token:
+        return "Error: Google account not connected. Connect Google Drive in Settings first."
+    q = (query or "").replace("\\", "").replace("'", "\\'").strip()
+    if not q:
+        return "Error: empty search query."
+    result = await google_api.list_drive_files(token, query=f"name contains '{q}' and trashed=false")
+    if not result.get("success"):
+        return f"Error searching Drive: {result.get('error')}"
+    folder_mime = "application/vnd.google-apps.folder"
+    doc_mimes = ("application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet",
+                 "application/pdf", "application/vnd.openxmlformats-officedocument")
+    out = []
+    for f in result.get("files", []):
+        mime = f.get("mimeType", "")
+        is_folder = mime == folder_mime
+        is_media = mime.startswith(("image/", "video/"))
+        is_doc = mime.startswith(doc_mimes)
+        if kind == "folder" and not is_folder:
+            continue
+        if kind == "media" and not is_media:
+            continue
+        if kind == "document" and not is_doc:
+            continue
+        if is_folder:
+            url = f"https://drive.google.com/drive/folders/{f['id']}"
+            label = "folder"
+        elif mime == "application/vnd.google-apps.document":
+            url = f"https://docs.google.com/document/d/{f['id']}/edit"
+            label = "google doc"
+        elif mime == "application/vnd.google-apps.spreadsheet":
+            url = f"https://docs.google.com/spreadsheets/d/{f['id']}/edit"
+            label = "google sheet"
+        else:
+            url = f"https://drive.google.com/file/d/{f['id']}/view"
+            label = mime or "file"
+        out.append(f"  - {f.get('name','?')} ({label}) — {url}")
+        if len(out) >= 25:
+            break
+    if not out:
+        return f"No Drive items matching '{query}'" + (f" of kind '{kind}'." if kind != "any" else ".")
+    return f"Found {len(out)} Drive item(s) matching '{query}':\n" + "\n".join(out)
+
+
+# Preview payloads prepared by the agent, waiting for the frontend to pick up.
+# Keyed by session_id (the Meta user id the agent runs under).
+PENDING_PREVIEWS: dict[str, dict] = {}
+
+
+@mcp.tool()
+async def prepare_upload_preview(
+    session_id: str,
+    folder_urls: Optional[list] = None,
+    file_urls: Optional[list] = None,
+    captions_doc_url: str = "",
+    page_id: str = "",
+    page_name: str = "",
+    instagram_id: str = "",
+    instagram_name: str = "",
+) -> str:
+    """Build an interactive upload preview in the user's chat from Drive content.
+    Pass the Drive folder URLs (and/or individual file URLs) holding the images/videos,
+    optionally a captions doc/sheet URL, and the destination page_id+page_name and/or
+    instagram_id+instagram_name. The user then reviews captions, dates and images in the
+    preview card and presses Publish themselves. Use this when the user asks you to set
+    up, prepare or load posts from Drive — it is the equivalent of filling the upload
+    form for them."""
+    token = await get_google_token_for_session(session_id)
+    if not token:
+        return "Error: Google account not connected. Connect Google Drive in Settings first."
+    media: list[dict] = []
+    seen: set = set()
+    for url in (folder_urls or []):
+        fid = google_api.extract_folder_id_from_url(str(url)) or str(url).strip()
+        listing = await google_api.list_drive_folder(fid, token)
+        if not listing.get("success"):
+            return f"Error listing folder {url}: {listing.get('error')}"
+        for f in listing.get("files", []):
+            mime = f.get("mimeType", "")
+            if not mime.startswith(("image/", "video/")) or f["id"] in seen:
+                continue
+            seen.add(f["id"])
+            media.append({"id": f["id"], "name": f.get("name", ""), "mime_type": mime,
+                          "size": f.get("size"), "is_video": mime.startswith("video/")})
+    for url in (file_urls or []):
+        fid = google_api.extract_file_id_from_url(str(url)) or str(url).strip()
+        if not fid or fid in seen:
+            continue
+        meta = await google_api.get_file_metadata(fid, token)
+        if not meta.get("success"):
+            continue
+        mime = meta.get("mimeType", "")
+        if not mime.startswith(("image/", "video/")):
+            continue
+        seen.add(fid)
+        media.append({"id": fid, "name": meta.get("name", ""), "mime_type": mime,
+                      "size": meta.get("size"), "is_video": mime.startswith("video/")})
+    if not media:
+        return "Error: no images or videos found in the given folders/files."
+    media.sort(key=lambda m: (m["name"] or "").lower())
+
+    captions: list[dict] = []
+    if captions_doc_url.strip():
+        text_result = await google_api.read_by_url(captions_doc_url.strip(), token)
+        raw_text = ""
+        content = text_result.get("content")
+        if isinstance(content, str):
+            raw_text = content
+        elif isinstance(content, dict):
+            raw_text = content.get("text", "")
+        if not raw_text and text_result.get("rows"):
+            raw_text = "\n---\n".join(" ".join(str(c) for c in row if c) for row in text_result["rows"])
+        from main import _split_caption_blocks  # late import — main imports this module lazily
+        captions = _split_caption_blocks(raw_text)
+
+    targets = []
+    if page_id:
+        targets.append({"platform": "facebook", "id": page_id, "name": page_name or page_id})
+    if instagram_id:
+        targets.append({"platform": "instagram", "id": instagram_id, "name": instagram_name or instagram_id})
+
+    PENDING_PREVIEWS[session_id or ""] = {"media": media, "captions": captions, "targets": targets,
+                                          "created_at": datetime.utcnow().isoformat()}
+    sched = sum(1 for c in captions if c.get("schedule"))
+    return (f"Preview prepared: {len(media)} media file(s), {len(captions)} caption block(s)"
+            + (f" ({sched} with schedule dates)" if sched else "")
+            + (f", targets: {', '.join(t['name'] for t in targets)}" if targets else ", no targets given")
+            + ". The interactive preview card will now appear in the user's chat — tell them to review the matched captions/dates and press Publish.")
+
+
+@mcp.tool()
 async def match_post_story_pairs(session_id: str, folder_path: str) -> str:
     """Scan a folder and match Post/Story image pairs by filename convention."""
     result = await file_processor.match_post_story_pairs(folder_path)
