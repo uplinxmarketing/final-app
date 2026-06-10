@@ -5623,10 +5623,12 @@ function _openDrivePicker(captionMode) {
 
 function uwBrowseDrive(btn) {
   _uwDriveStep = btn.closest('.uw-step');
-  // Pre-tick files picked earlier so "Browse" can add to (or trim) the selection.
-  const pre = {};
-  (_uw.driveSelected || []).forEach(m => { pre[m.id] = { id:m.id, name:m.name, mimeType:m.mime_type, isVideo:m.is_video }; });
-  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:pre, search:'', captionMode:false };
+  // Pre-tick folders/files picked earlier so "Browse" can add to (or trim) the selection.
+  const preFiles = {};
+  (_uw.driveSelected || []).forEach(m => { preFiles[m.id] = { id:m.id, name:m.name, mimeType:m.mime_type, isVideo:m.is_video }; });
+  const preFolders = {};
+  (_uw.driveFolders || []).forEach(f => { preFolders[f.id] = { id:f.id, name:f.name }; });
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:preFiles, selectedFolders:preFolders, search:'', captionMode:false };
   _openDrivePicker(false);
 }
 
@@ -5727,17 +5729,21 @@ async function _uwDriveLoad() {
 
     let html = '';
 
-    // Folders — full-width rows. Tap anywhere to open. Selecting a whole
-    // folder is done from the single footer button (no per-folder button).
+    // Folders — full-width rows. Tap anywhere to open; the Select button ticks
+    // the folder so several folders can be picked in one pass (media mode only).
     if (folders.length) {
       html += `<div style="display:flex;flex-direction:column;gap:6px;padding:8px 0">`;
       folders.forEach(f => {
         const sub = _attrJson([..._uw.drive.breadcrumb,{id:f.id,name:f.name}]);
         const id = _attrJson(f.id);
         const nm = _attrJson(f.name);
-        html += `<div onclick='_uwDriveOpen(${id},${nm},${sub})' style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:13px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .15s,border-color .15s" onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--bg-primary)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-secondary)'">
+        const sel = !captionMode && _uw.drive.selectedFolders && _uw.drive.selectedFolders[f.id];
+        const selBtn = captionMode ? '' :
+          `<button onclick='event.stopPropagation();uwToggleDriveFolder(${id},${nm})' class="dpfold-btn-${f.id}" style="flex-shrink:0;padding:6px 13px;border-radius:7px;border:1px solid ${sel?'var(--accent)':'var(--border)'};background:${sel?'var(--accent)':'transparent'};color:${sel?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">${sel?'✓ Selected':'Select'}</button>`;
+        html += `<div id="dpfold-${f.id}" onclick='_uwDriveOpen(${id},${nm},${sub})' style="background:var(--bg-secondary);border:1px solid ${sel?'var(--accent)':'var(--border)'};border-radius:10px;padding:13px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .15s,border-color .15s">
           <span style="font-size:22px;flex-shrink:0">📁</span>
           <span style="font-size:14px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)">${escHtml(f.name)}</span>
+          ${selBtn}
           <span style="font-size:13px;color:var(--text-dim);flex-shrink:0">Open ›</span>
         </div>`;
       });
@@ -5800,6 +5806,25 @@ async function _uwDriveLoad() {
   }
 }
 
+// Tick/untick a whole folder in the picker (multiple folders supported).
+function uwToggleDriveFolder(id, name) {
+  const sel = _uw.drive.selectedFolders = _uw.drive.selectedFolders || {};
+  const on = !sel[id];
+  if (on) sel[id] = { id, name }; else delete sel[id];
+  const row = document.getElementById('dpfold-'+id);
+  if (row) {
+    row.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+    const btn = row.querySelector('.dpfold-btn-'+CSS.escape(id));
+    if (btn) {
+      btn.style.background = on ? 'var(--accent)' : 'transparent';
+      btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+      btn.style.color = on ? '#fff' : 'var(--text-secondary)';
+      btn.textContent = on ? '✓ Selected' : 'Select';
+    }
+  }
+  _uwDriveUpdateFooter();
+}
+
 function uwToggleDriveFile(cb, dataAttr) {
   const f = JSON.parse(decodeURIComponent(dataAttr));
   if (cb.checked) _uw.drive.selected[f.id] = f;
@@ -5816,19 +5841,23 @@ function uwToggleDriveFile(cb, dataAttr) {
 
 function _uwDriveUpdateFooter(folderMediaCount) {
   const footer = document.getElementById('drive-picker-footer');
-  const n = Object.keys(_uw.drive.selected).length;
+  const nFiles = Object.keys(_uw.drive.selected).length;
+  const nFolders = Object.keys(_uw.drive.selectedFolders || {}).length;
   const insideFolder = !_uw.drive.search && _uw.drive.folderId && _uw.drive.folderId !== 'root';
   const btnStyle = "flex:1;min-width:160px;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer";
   let html = '';
-  if (n > 0) {
-    // One primary action: use everything the user has ticked.
-    html = `<span style="font-size:13px;color:var(--text-primary);font-weight:600;flex-shrink:0">${n} file${n>1?'s':''} selected</span>
-      <button onclick="uwUseSelectedFiles()" style="${btnStyle};margin-left:auto;flex:0 0 auto">✅ Use ${n} selected file${n>1?'s':''}</button>`;
+  if (nFiles + nFolders > 0) {
+    // One primary action: use everything the user has ticked (folders + files).
+    const parts = [];
+    if (nFolders) parts.push(`${nFolders} folder${nFolders>1?'s':''}`);
+    if (nFiles) parts.push(`${nFiles} file${nFiles>1?'s':''}`);
+    html = `<span style="font-size:13px;color:var(--text-primary);font-weight:600;flex-shrink:0">${parts.join(' + ')} selected</span>
+      <button onclick="uwUseSelectedFiles()" style="${btnStyle};margin-left:auto;flex:0 0 auto">✅ Use selected</button>`;
   } else if (insideFolder) {
-    // No individual files ticked → offer the whole current folder.
+    // Nothing ticked → offer the whole current folder.
     const hint = folderMediaCount
-      ? `Tap files to pick them, or use the whole folder (${folderMediaCount} item${folderMediaCount>1?'s':''})`
-      : `Open a subfolder, or use this whole folder`;
+      ? `Tap files or Select folders to pick several, or use this whole folder (${folderMediaCount} item${folderMediaCount>1?'s':''})`
+      : `Open a subfolder, Select folders, or use this whole folder`;
     html = `<span style="font-size:12px;color:var(--text-dim);flex:1;min-width:120px">${hint}</span>
       <button onclick='uwUseDriveFolder(${_attrJson(_uw.drive.folderId)})' style="${btnStyle};flex:0 0 auto">✅ Use this folder</button>`;
   }
@@ -5845,12 +5874,16 @@ function uwUseDriveFolder(folderId) {
   closeDrivePicker();
 }
 
-// Individual files selected → remember them and show them in the step. The
+// Ticked folders + files → remember them and show them in the step. The
 // preview is only built when the user presses "Preview & schedule".
 function uwUseSelectedFiles() {
   const files = Object.values(_uw.drive.selected);
-  if (!files.length) return;
+  const folders = Object.values(_uw.drive.selectedFolders || {});
+  if (!files.length && !folders.length) return;
+  // The picker was pre-seeded with the existing selection, so replacing both
+  // lists wholesale handles adding and removing alike.
   _uw.driveSelected = files.map(m => ({ id:m.id, name:m.name, mime_type:m.mimeType, is_video:!!m.is_video || !!m.isVideo }));
+  _uw.driveFolders = folders.map(f => ({ id:f.id, name:f.name }));
   if (_uwDriveStep) _uwShowDrivePicked(_uwDriveStep);
   closeDrivePicker();
 }
