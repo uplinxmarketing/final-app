@@ -6204,12 +6204,19 @@ function _uwGroupPosts(media, captions) {
       }
     }
   });
-  // 2) remaining posts get remaining captions in order (unlocked — the AI pass may refine)
-  let ci = 0;
+  // 2) remaining posts get remaining captions in order, respecting the sheet's
+  //    type column when present: a "Reel" caption only goes to a video post, a
+  //    "Carousel" caption only to a multi-image post, "Static" only to a single
+  //    image. Untyped captions can go anywhere. (Unlocked — the AI pass may refine.)
   posts.forEach(p => {
     if (p.caption || p._sched) return;
-    while (ci < caps.length && used[ci]) ci++;
-    if (ci < caps.length) { applyCap(p, caps[ci], ci, false); used[ci]=true; ci++; }
+    const kind = _uwPostKind(p);
+    for (let k=0; k<caps.length; k++) {
+      if (used[k]) continue;
+      const t = caps[k].type || '';
+      if (t && t !== kind) continue;
+      applyCap(p, caps[k], k, false); used[k]=true; break;
+    }
   });
   posts.forEach(p => { delete p._label; });
   return posts;
@@ -6267,11 +6274,12 @@ async function _uwAiMatch(posts, captions) {
         const firstImg = x.p.mediaList.find(m => !m.is_video) || {};
         const files = x.p.mediaList.map(m => m.name || '');
         if (x.p._groupName) files.unshift('[folder] ' + x.p._groupName);
-        return { index:x.i, files,
+        return { index:x.i, files, kind:_uwPostKind(x.p),
                  drive_id: (!firstImg.local_file_id && firstImg.id) ? firstImg.id : '',
                  local_id: firstImg.local_file_id || '' };
       }),
-      captions: freeCaps.map(x => ({ index:x.j, caption:x.c.caption || '', schedule:x.c.schedule || null })),
+      captions: freeCaps.map(x => ({ index:x.j, caption:x.c.caption || '', schedule:x.c.schedule || null,
+                                     type:x.c.type || '', file:x.c.file || '' })),
     });
     if (!res || !res.success || !Array.isArray(res.assignments)) return false;
     cands.forEach(x => { x.p.caption=''; x.p.hashtags=[]; x.p._sched=null; x.p._schedLocal=null; x.p._capIdx=null; });
@@ -6286,6 +6294,12 @@ async function _uwAiMatch(posts, captions) {
     });
     return true;
   } catch(e) { return false; }
+}
+
+// A post's kind for type-aware caption matching (mirrors the sheet's type column).
+function _uwPostKind(p) {
+  if (p.mediaList.length > 1) return 'carousel';
+  return (p.mediaList[0] && p.mediaList[0].is_video) ? 'reel' : 'image';
 }
 
 function _uwMediaKey(m) { return m.local_file_id ? ('local:'+m.local_file_id) : ('drive:'+m.id); }

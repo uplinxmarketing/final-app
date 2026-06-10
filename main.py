@@ -3671,7 +3671,27 @@ _COL_SYNONYMS: list[tuple[str, list[str]]] = [
     ("date", ["posting date", "publish date", "date", "day", "when", "schedule"]),
     ("time", ["posting time", "publish time", "time", "hour"]),
     ("file", ["file name", "filename", "image name", "image", "file", "visual", "creative", "asset", "design", "graphic", "media"]),
+    ("type", ["post type", "content type", "format", "type", "post format"]),
 ]
+
+# Normalise a sheet's "type" cell ("Static post", "Reel", "Carousel post"…)
+# to the wizard's three post kinds. Empty string = unknown/unspecified.
+_TYPE_REEL_RE = re.compile(r"\b(reels?|videos?)\b", re.I)
+_TYPE_CAROUSEL_RE = re.compile(r"carr?ou?sell?", re.I)
+_TYPE_IMAGE_RE = re.compile(r"\b(static|image|photo|single|picture)\b", re.I)
+
+
+def _normalize_post_type(cell: str) -> str:
+    s = (cell or "").strip()
+    if not s:
+        return ""
+    if _TYPE_CAROUSEL_RE.search(s):
+        return "carousel"
+    if _TYPE_REEL_RE.search(s):
+        return "reel"
+    if _TYPE_IMAGE_RE.search(s):
+        return "image"
+    return ""
 
 
 def _detect_calendar_header(rows: list) -> tuple[Optional[int], Optional[dict]]:
@@ -3715,7 +3735,7 @@ def _infer_calendar_columns(rows: list) -> Optional[dict]:
     ncols = max(len(r) for r in rows)
     if ncols < 2:
         return None
-    date_col = file_col = caption_col = None
+    date_col = file_col = caption_col = type_col = None
     best_len = 0.0
     lens: dict[int, float] = {}
     for ci in range(ncols):
@@ -3726,9 +3746,15 @@ def _infer_calendar_columns(rows: list) -> Optional[dict]:
         dates = sum(1 for v in vals if _parse_schedule_token(v, day_first=True))
         with_ext = sum(1 for v in vals if re.search(r"\.[a-z0-9]{2,4}$", v, re.I))
         nameish = sum(1 for v in vals if re.fullmatch(r"[\w.\-]{3,60}", v) and not v.isdigit())
+        typed = sum(1 for v in vals if _normalize_post_type(v))
         lens[ci] = sum(len(v) for v in vals) / n
         if date_col is None and dates / n >= 0.6 and lens[ci] < 40:
             date_col = ci
+        # Post-type column: short cells like "Static post" / "Reel" / "Carousel".
+        # Must not look like filenames ("carousel1.png" belongs to the file column).
+        if type_col is None and lens[ci] < 30 and typed / n >= 0.6 and with_ext == 0:
+            type_col = ci
+            continue
         # Filename column: mostly extension-bearing values, or mostly
         # space-free tokens with at least one real file extension among them.
         if file_col is None and lens[ci] < 80 and (
@@ -3736,19 +3762,21 @@ def _infer_calendar_columns(rows: list) -> Optional[dict]:
         ):
             file_col = ci
     for ci, avg in lens.items():
-        if ci in (date_col, file_col):
+        if ci in (date_col, file_col, type_col):
             continue
         if avg > best_len:
             best_len, caption_col = avg, ci
     if caption_col is None or best_len < 40:
         return None
-    if date_col is None and file_col is None:
+    if date_col is None and file_col is None and type_col is None:
         return None
     cols: dict = {"caption": caption_col}
     if date_col is not None:
         cols["date"] = date_col
     if file_col is not None:
         cols["file"] = file_col
+    if type_col is not None:
+        cols["type"] = type_col
     return cols
 
 
@@ -3807,7 +3835,10 @@ def _captions_from_rows(rows: list) -> Optional[list[dict]]:
         if not schedule:
             caption, schedule = _extract_block_schedule(caption)
         tags = re.findall(r"#\w+", caption)
-        out.append({"caption": caption, "hashtags": tags, "schedule": schedule, "file": cell("file")})
+        out.append({
+            "caption": caption, "hashtags": tags, "schedule": schedule,
+            "file": cell("file"), "type": _normalize_post_type(cell("type")),
+        })
     return out or None
 
 
@@ -4009,6 +4040,7 @@ async def _read_captions_from_drive(text_url: str, google_token: str) -> list[di
 class AiMatchPost(BaseModel):
     index: int
     files: list[str] = []
+    kind: str = ""       # "image" | "reel" | "carousel" — derived from the media
     drive_id: str = ""   # first image's Drive file id — lets the AI *see* the image
     local_id: str = ""   # first image's local upload id (device uploads)
 
@@ -4017,6 +4049,8 @@ class AiMatchCaption(BaseModel):
     index: int
     caption: str = ""
     schedule: Optional[str] = None
+    type: str = ""       # "image" | "reel" | "carousel" from the sheet's type column
+    file: str = ""       # the sheet's image/file column value, if any
 
 
 class AiMatchRequest(BaseModel):
@@ -4065,21 +4099,34 @@ async def api_posting_ai_match(
         return {"success": False, "error": "nothing to match"}
     if len(req.posts) > 60 or len(req.captions) > 60:
         return {"success": False, "error": "too many items"}
-    post_lines = "\n".join(
-        f"POST {p.index}: files = {', '.join(p.files[:12]) or '(unnamed)'}" for p in req.posts
-    )
-    cap_lines = "\n".join(
-        f"CAPTION {c.index}" + (f" [scheduled {c.schedule}]" if c.schedule else "")
-        + f": {(c.caption or '')[:600]}"
-        for c in req.captions
-    )
+    def _post_line(p) -> str:
+        kind = f" [{p.kind}]" if p.kind else ""
+        return f"POST {p.index}{kind}: files = {', '.join(p.files[:12]) or '(unnamed)'}"
+
+    def _cap_line(c) -> str:
+        bits = []
+        if c.type:
+            bits.append(f"type={c.type}")
+        if c.schedule:
+            bits.append(f"scheduled {c.schedule}")
+        if c.file:
+            bits.append(f"file_ref={c.file!r}")
+        tag = f" [{', '.join(bits)}]" if bits else ""
+        return f"CAPTION {c.index}{tag}: {(c.caption or '')[:600]}"
+
+    post_lines = "\n".join(_post_line(p) for p in req.posts)
+    cap_lines = "\n".join(_cap_line(c) for c in req.captions)
     system = (
         "You match social-media posts (groups of image/video files) to caption blocks "
         "from a captions document. When images are attached, LOOK at each image and pick "
         "the caption whose text genuinely describes that image's content — products, "
         "people, scenes, or text visible in the design. Also consider numbering and "
         "keywords in filenames, dates in captions, and the natural document order as a "
-        "tie-breaker. Each post gets at most one caption and each caption is used at most "
+        "tie-breaker. HARD CONSTRAINT on types: a caption marked type=reel may only go "
+        "to a [reel] post, type=carousel only to a [carousel] post, and type=image only "
+        "to an [image] post; captions without a type may go to any post. When a caption "
+        "has a file_ref, strongly prefer the post whose filename matches it. "
+        "Each post gets at most one caption and each caption is used at most "
         "once. Reply with ONLY a JSON object, no prose: "
         '{"assignments": [[post_index, caption_index_or_null], ...]} covering every post.'
     )
@@ -4106,8 +4153,7 @@ async def api_posting_ai_match(
                 img = _local_thumb_b64(p.local_id)
             blocks.append({
                 "type": "text",
-                "text": f"POST {p.index}: files = {', '.join(p.files[:12]) or '(unnamed)'}"
-                        + ("" if img else " (no image preview available)"),
+                "text": _post_line(p) + ("" if img else " (no image preview available)"),
             })
             if img:
                 attached += 1
@@ -4137,6 +4183,8 @@ async def api_posting_ai_match(
         return {"success": False, "error": "unparseable model reply"}
     valid_posts = {p.index for p in req.posts}
     valid_caps = {c.index for c in req.captions}
+    post_kind = {p.index: p.kind for p in req.posts}
+    cap_type = {c.index: c.type for c in req.captions}
     assignments = []
     used_caps: set = set()
     for pair in raw:
@@ -4147,6 +4195,11 @@ async def api_posting_ai_match(
             continue
         if ci is not None and (ci not in valid_caps or ci in used_caps):
             ci = None
+        # Enforce the type constraint even if the model ignored it.
+        if ci is not None:
+            pk, ct = post_kind.get(pi, ""), cap_type.get(ci, "")
+            if pk and ct and pk != ct:
+                ci = None
         if ci is not None:
             used_caps.add(ci)
         assignments.append([pi, ci])
