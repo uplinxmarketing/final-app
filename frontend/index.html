@@ -6395,17 +6395,23 @@ function _uwRenderPreview() {
     ? `🕒 ${fromDoc === _uw.posts.length ? 'Schedule times were taken from your captions file' : fromDoc + ' schedule time(s) were taken from your captions file'} — adjust any post's date below.`
     : `🕒 Set each post's date below — leave it empty to post immediately.`;
   _uw.viewMode = _uw.viewMode || 'list';
-  const vBtn = (id, label, mode, icon) =>
-    `<button id="${id}" onclick="uwSetViewMode('${mode}')" title="${label}" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">${icon} ${label}</button>`;
+  const _tBtn = (id, mode, svgIcon, label) =>
+    `<button id="${id}" onclick="uwSetViewMode('${mode}')" title="${label}"
+      style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border:none;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.2px">${svgIcon}${label}</button>`;
+  const _tabListSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="2" width="16" height="2.5" rx="1.2"/><rect x="0" y="6.8" width="16" height="2.5" rx="1.2"/><rect x="0" y="11.5" width="16" height="2.5" rx="1.2"/></svg>`;
+  const _tabGridSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>`;
+  const _tabCalSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="2" width="16" height="14" rx="2" opacity=".25"/><rect x="0" y="4" width="16" height="12" rx="2"/><rect x="1" y="6" width="14" height="1.5" opacity=".4"/><rect x="3" y="0" width="1.5" height="4" rx=".75"/><rect x="11.5" y="0" width="1.5" height="4" rx=".75"/><rect x="2" y="9" width="2" height="2" rx=".5"/><rect x="5.5" y="9" width="2" height="2" rx=".5"/><rect x="9" y="9" width="2" height="2" rx=".5"/><rect x="12.5" y="9" width="2" height="2" rx=".5"/></svg>`;
   const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:8px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image, caption and time, then publish.</div>
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:8px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview" style="position:relative">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <div style="font-size:12px;color:var(--text-secondary);flex:1;min-width:0">${schedHint}</div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          ${vBtn('uw-view-list-btn','List','list','≡')}
-          ${vBtn('uw-view-grid-btn','Grid','grid','⊞')}
-          <button onclick="uwToggleWide()" title="Drag right edge to resize, or click to toggle full width" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer">⇔ Width</button>
+        <div style="display:inline-flex;border:1px solid var(--border);border-radius:9px;overflow:hidden;background:var(--bg-secondary);flex-shrink:0">
+          ${_tBtn('uw-view-list-btn','list',_tabListSvg,'List')}
+          <div style="width:1px;background:var(--border);align-self:stretch"></div>
+          ${_tBtn('uw-view-grid-btn','grid',_tabGridSvg,'Grid')}
+          <div style="width:1px;background:var(--border);align-self:stretch"></div>
+          ${_tBtn('uw-view-cal-btn','calendar',_tabCalSvg,'Calendar')}
         </div>
       </div>
       <div class="uw-cards" style="display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px"></div>
@@ -6438,16 +6444,22 @@ function uwCancel(btn) {
 
 function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
-  const isGrid = _uw.viewMode === 'grid';
-  wrap.style.cssText = isGrid
-    ? 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px'
-    : 'display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px';
-  wrap.innerHTML = _uw.posts.map((p,i) => isGrid ? _uwPostCardGridHtml(p,i) : _uwPostCardHtml(p,i)).join('');
-  // Update toggle button active styles
-  const listBtn = _uw.previewCard.querySelector('#uw-view-list-btn');
-  const gridBtn = _uw.previewCard.querySelector('#uw-view-grid-btn');
-  if (listBtn) { listBtn.style.background = isGrid ? '' : 'var(--accent)'; listBtn.style.color = isGrid ? '' : '#fff'; listBtn.style.borderColor = isGrid ? '' : 'var(--accent)'; }
-  if (gridBtn) { gridBtn.style.background = isGrid ? 'var(--accent)' : ''; gridBtn.style.color = isGrid ? '#fff' : ''; gridBtn.style.borderColor = isGrid ? 'var(--accent)' : ''; }
+  const mode = _uw.viewMode || 'list';
+  if (mode === 'calendar') {
+    wrap.style.cssText = 'overflow-y:auto;max-height:min(75vh,820px)';
+    wrap.innerHTML = _uwBuildCalendarHtml();
+  } else if (mode === 'grid') {
+    wrap.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px';
+    wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardGridHtml(p,i)).join('');
+  } else {
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;max-height:min(65vh,720px);overflow-y:auto;padding-right:2px';
+    wrap.innerHTML = _uw.posts.map((p,i) => _uwPostCardHtml(p,i)).join('');
+  }
+  // Update tab active state
+  ['list','grid','calendar'].forEach(m => {
+    const btn = _uw.previewCard.querySelector(`#uw-view-${m === 'calendar' ? 'cal' : m}-btn`);
+    if (btn) { btn.style.background = m === mode ? 'var(--accent)' : ''; btn.style.color = m === mode ? '#fff' : ''; }
+  });
   // Keep the feed mockup in sync with whatever it points at.
   if (_uwFeed.open) {
     if (_uwFeed.i == null || _uwFeed.i >= _uw.posts.length) uwFeedClose();
@@ -6461,14 +6473,7 @@ function uwSetViewMode(mode) {
   _uwRenderCards();
 }
 
-// Toggle full-width on the preview card (the .msg bubble).
-function uwToggleWide() {
-  if (!_uw.previewCard) return;
-  const isWide = _uw.previewCard.dataset.wide === '1';
-  _uw.previewCard.dataset.wide = isWide ? '0' : '1';
-  _uw.previewCard.style.maxWidth = isWide ? '' : '100%';
-  _uw.previewCard.style.width = isWide ? '' : '100%';
-}
+// (Width toggle removed — use the drag grip on the right edge instead.)
 
 // Drag the right-edge grip to freely resize the preview card width.
 let _uwResizing = false;
@@ -6493,6 +6498,136 @@ function uwCardResizeStart(e) {
   }
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
+}
+
+// ─── Platform logo helpers ───────────────────────────────────────────────────
+function _uwIgLogo(sz) {
+  const id = 'ig' + sz;
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;flex-shrink:0">
+    <defs><linearGradient id="${id}" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fd5949"/><stop offset="50%" stop-color="#d6249f"/><stop offset="100%" stop-color="#285AEB"/>
+    </linearGradient></defs>
+    <rect width="24" height="24" rx="6" fill="url(#${id})"/>
+    <circle cx="12" cy="12" r="5" fill="none" stroke="white" stroke-width="2"/>
+    <circle cx="17.5" cy="6.5" r="1.5" fill="white"/>
+  </svg>`;
+}
+function _uwFbLogo(sz) {
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;flex-shrink:0">
+    <rect width="24" height="24" rx="5" fill="#1877F2"/>
+    <path d="M16 8h-2.2c-.5 0-.8.3-.8.8V11H16l-.5 3h-2.5v7h-3v-7H8v-3h2V8.4C10 6.1 11.5 5 13.5 5H16v3z" fill="white"/>
+  </svg>`;
+}
+
+// ─── Calendar view ────────────────────────────────────────────────────────────
+function uwCalNav(dir) {
+  _uw.calMonth = ((_uw.calMonth ?? new Date().getMonth()) + dir + 12) % 12;
+  if (dir === 1 && _uw.calMonth === 0) _uw.calYear = (_uw.calYear ?? new Date().getFullYear()) + 1;
+  if (dir === -1 && _uw.calMonth === 11) _uw.calYear = (_uw.calYear ?? new Date().getFullYear()) - 1;
+  if (_uw.calYear == null) _uw.calYear = new Date().getFullYear();
+  _uwRenderCards();
+}
+
+function _uwBuildCalendarHtml() {
+  const now = new Date();
+  // Determine display month: default to month of earliest scheduled post
+  if (_uw.calYear == null || _uw.calMonth == null) {
+    const scheduled = _uw.posts.filter(p => p._schedLocal).sort((a,b) => a._schedLocal < b._schedLocal ? -1 : 1);
+    if (scheduled.length) {
+      const d = new Date(scheduled[0]._schedLocal);
+      _uw.calYear = d.getFullYear(); _uw.calMonth = d.getMonth();
+    } else {
+      _uw.calYear = now.getFullYear(); _uw.calMonth = now.getMonth();
+    }
+  }
+  const yr = _uw.calYear, mo = _uw.calMonth;
+  const monthName = new Date(yr, mo, 1).toLocaleString('en-US', {month:'long', year:'numeric'});
+  const firstDow = new Date(yr, mo, 1).getDay();
+  const daysInMo = new Date(yr, mo + 1, 0).getDate();
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+
+  // Group scheduled posts by day
+  const byDay = {};
+  _uw.posts.forEach((p, idx) => {
+    if (!p._schedLocal) return;
+    const d = new Date(p._schedLocal);
+    if (d.getFullYear() === yr && d.getMonth() === mo) {
+      const day = d.getDate();
+      (byDay[day] = byDay[day] || []).push({ p, idx });
+    }
+  });
+
+  // Build grid cells
+  const navBtn = 'padding:4px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer';
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+    .map(d => `<div style="font-size:10px;font-weight:700;color:var(--text-dim);text-align:center;padding:4px 2px">${d}</div>`).join('');
+  let cells = '';
+  // Leading empty cells
+  for (let i = 0; i < firstDow; i++)
+    cells += `<div style="min-height:72px;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
+  for (let d = 1; d <= daysInMo; d++) {
+    const isToday = yr === now.getFullYear() && mo === now.getMonth() && d === now.getDate();
+    const posts = byDay[d] || [];
+    const postsHtml = posts.slice(0, 3).map(({ p, idx }) => {
+      const img = p.mediaList[0];
+      const firstLine = (p.caption || '').split(/[\n.!?]/)[0].trim().slice(0, 55);
+      const logos = targets.map(t => t.platform === 'instagram' ? _uwIgLogo(9) : _uwFbLogo(9)).join('');
+      return `<div onclick="uwShowFeedPreview(${idx});event.stopPropagation()"
+        title="Post ${idx+1}${firstLine ? ': ' + firstLine : ''}"
+        style="background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;overflow:hidden;cursor:pointer;margin-bottom:2px">
+        ${img && !img.is_video
+          ? `<img src="${_uwThumbSrc(img)}" loading="lazy" style="width:100%;height:32px;object-fit:cover;display:block">`
+          : `<div style="height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;background:var(--bg-secondary)">${img ? '🎬' : '🖼️'}</div>`}
+        <div style="padding:2px 4px 3px">
+          <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">${logos}
+            <span style="font-size:8px;font-weight:700;color:var(--text-dim);margin-left:2px">P${idx+1}</span>
+          </div>
+          <div style="font-size:8.5px;line-height:1.3;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml(firstLine) || '<i>No caption</i>'}</div>
+        </div>
+      </div>`;
+    }).join('') + (posts.length > 3 ? `<div style="font-size:8px;color:var(--text-dim);text-align:center;padding:1px 0">+${posts.length-3} more</div>` : '');
+    cells += `<div style="min-height:72px;border:2px solid ${isToday ? 'var(--accent)' : 'var(--border)'};border-radius:7px;background:var(--bg-primary);padding:4px;box-sizing:border-box">
+      <div style="font-size:10px;font-weight:${isToday ? '800' : '600'};color:${isToday ? 'var(--accent)' : 'var(--text-secondary)'};text-align:right;margin-bottom:2px">${d}</div>
+      ${postsHtml}
+    </div>`;
+  }
+  // Trailing empty cells to complete last row
+  const total = firstDow + daysInMo;
+  const trail = (7 - (total % 7)) % 7;
+  for (let i = 0; i < trail; i++)
+    cells += `<div style="min-height:72px;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
+
+  // Unscheduled posts
+  const unscheduled = _uw.posts.map((p, idx) => ({ p, idx })).filter(({p}) => !p._schedLocal);
+  const unschedHtml = unscheduled.length ? `
+    <div style="margin-top:14px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:8px">⚡ Post immediately — ${unscheduled.length} post${unscheduled.length>1?'s':''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${unscheduled.map(({p, idx}) => {
+        const img = p.mediaList[0];
+        const logos = targets.map(t => t.platform === 'instagram' ? _uwIgLogo(10) : _uwFbLogo(10)).join('');
+        return `<div onclick="uwShowFeedPreview(${idx})" title="Post ${idx+1}"
+          style="width:72px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;overflow:hidden;cursor:pointer">
+          ${img && !img.is_video
+            ? `<img src="${_uwThumbSrc(img)}" loading="lazy" style="width:100%;height:48px;object-fit:cover;display:block">`
+            : `<div style="height:40px;display:flex;align-items:center;justify-content:center;font-size:18px">${img?'🎬':'🖼️'}</div>`}
+          <div style="padding:3px 5px">
+            <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">${logos}</div>
+            <div style="font-size:9px;font-weight:700;color:var(--text-primary)">Post ${idx+1}</div>
+          </div>
+        </div>`;
+      }).join('')}</div>
+    </div>` : '';
+
+  return `<div style="user-select:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <button onclick="uwCalNav(-1)" style="${navBtn}">‹</button>
+      <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${monthName}</span>
+      <button onclick="uwCalNav(1)" style="${navBtn}">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">${dayNames}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+    ${unschedHtml}
+  </div>`;
 }
 
 // Compact grid card — thumbnail, post #, type, date, 2-line caption excerpt.
