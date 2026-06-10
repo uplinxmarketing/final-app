@@ -326,6 +326,22 @@ class ClaudeAgent:
         )
         return resp.choices[0].message.content or ""
 
+    @property
+    def supports_vision(self) -> bool:
+        return self._provider == "claude"
+
+    async def complete_vision(self, system: str, content: list, max_tokens: int = 1500) -> str:
+        """One-shot completion with mixed text/image content blocks (Claude only)."""
+        if self._provider != "claude":
+            raise RuntimeError("Vision completions require the Claude provider")
+        resp = await self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": content}],
+        )
+        return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+
     # ------------------------------------------------------------------
     # Database helpers
     # ------------------------------------------------------------------

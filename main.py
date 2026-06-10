@@ -3752,6 +3752,8 @@ async def api_posting_drive_scan(
 class AiMatchPost(BaseModel):
     index: int
     files: list[str] = []
+    drive_id: str = ""   # first image's Drive file id — lets the AI *see* the image
+    local_id: str = ""   # first image's local upload id (device uploads)
 
 
 class AiMatchCaption(BaseModel):
@@ -3765,15 +3767,42 @@ class AiMatchRequest(BaseModel):
     captions: list[AiMatchCaption]
 
 
+def _local_thumb_b64(local_id: str) -> Optional[tuple[str, str]]:
+    """Downscale a locally-uploaded image to ≤512px and return (b64, mime)."""
+    path = Path("uploads") / local_id
+    if not path.exists():
+        for uploads in _session_uploads.values():
+            entry = next((u for u in uploads if u["file_id"] == local_id), None)
+            if entry:
+                path = Path(entry["path"])
+                break
+    if not path.exists():
+        return None
+    try:
+        import base64
+        import io
+        from PIL import Image
+        img = Image.open(path)
+        img.thumbnail((512, 512))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=80)
+        return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
+    except Exception:
+        return None
+
+
 @app.post("/api/posting/ai/match")
 @limiter.limit("20/minute")
-async def api_posting_ai_match(req: AiMatchRequest, request: Request):
+async def api_posting_ai_match(
+    req: AiMatchRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
     """Match upload posts to caption blocks with the configured AI model.
 
-    Used by the preview builder when filenames and captions don't share names
-    or numbering, so order-based matching would pair them wrongly. Returns
-    ``{"success": true, "assignments": [[post_index, caption_index|null], …]}``
-    or ``{"success": false}`` — the frontend keeps its heuristic matching then.
+    When the provider supports vision (Claude), each post's first image is
+    attached as a thumbnail so the model matches by what the image actually
+    shows — not just filenames. Returns ``{"success": true, "assignments":
+    [[post_index, caption_index|null], …]}`` or ``{"success": false}`` — the
+    frontend keeps its heuristic matching then.
     """
     if not req.posts or not req.captions:
         return {"success": False, "error": "nothing to match"}
@@ -3784,23 +3813,62 @@ async def api_posting_ai_match(req: AiMatchRequest, request: Request):
     )
     cap_lines = "\n".join(
         f"CAPTION {c.index}" + (f" [scheduled {c.schedule}]" if c.schedule else "")
-        + f": {(c.caption or '')[:400]}"
+        + f": {(c.caption or '')[:600]}"
         for c in req.captions
     )
     system = (
         "You match social-media posts (groups of image/video files) to caption blocks "
-        "from a captions document. Consider numbering and keywords in filenames, names, "
-        "topics and dates mentioned in captions, and the natural document order as a "
+        "from a captions document. When images are attached, LOOK at each image and pick "
+        "the caption whose text genuinely describes that image's content — products, "
+        "people, scenes, or text visible in the design. Also consider numbering and "
+        "keywords in filenames, dates in captions, and the natural document order as a "
         "tie-breaker. Each post gets at most one caption and each caption is used at most "
         "once. Reply with ONLY a JSON object, no prose: "
         '{"assignments": [[post_index, caption_index_or_null], ...]} covering every post.'
     )
     user = f"POSTS:\n{post_lines}\n\nCAPTION BLOCKS:\n{cap_lines}"
-    try:
-        text = await agent.complete_text(system, user, max_tokens=1500)
-    except Exception as exc:
-        logger.warning("ai/match completion failed: %s", exc)
-        return {"success": False, "error": str(exc)}
+
+    # Vision pass: attach each post's first image thumbnail when Claude is in use.
+    text = None
+    if agent.supports_vision and len(req.posts) <= 16:
+        import base64
+        google_token = None
+        try:
+            google_token = await get_google_token(request, db)
+        except Exception:
+            pass
+        blocks: list = []
+        attached = 0
+        for p in req.posts:
+            img = None
+            if p.drive_id and google_token:
+                thumb = await google_api.get_drive_thumbnail(p.drive_id, google_token)
+                if thumb:
+                    img = (base64.b64encode(thumb[0]).decode(), thumb[1])
+            elif p.local_id:
+                img = _local_thumb_b64(p.local_id)
+            blocks.append({
+                "type": "text",
+                "text": f"POST {p.index}: files = {', '.join(p.files[:12]) or '(unnamed)'}"
+                        + ("" if img else " (no image preview available)"),
+            })
+            if img:
+                attached += 1
+                blocks.append({"type": "image", "source": {"type": "base64", "media_type": img[1], "data": img[0]}})
+        if attached:
+            blocks.append({"type": "text", "text": f"CAPTION BLOCKS:\n{cap_lines}"})
+            try:
+                text = await agent.complete_vision(system, blocks, max_tokens=1500)
+            except Exception as exc:
+                logger.warning("ai/match vision pass failed, falling back to text: %s", exc)
+                text = None
+
+    if text is None:
+        try:
+            text = await agent.complete_text(system, user, max_tokens=1500)
+        except Exception as exc:
+            logger.warning("ai/match completion failed: %s", exc)
+            return {"success": False, "error": str(exc)}
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     m = re.search(r"\{.*\}", cleaned, re.S)
     if not m:

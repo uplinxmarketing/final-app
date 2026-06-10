@@ -889,6 +889,43 @@ async def list_drive_folder(
     return await list_drive_files(access_token, query=query)
 
 
+async def get_drive_thumbnail(
+    file_id: str, access_token: str, size: int = 512
+) -> Optional[tuple[bytes, str]]:
+    """Fetch a small thumbnail of a Drive image/video for AI vision tasks.
+
+    Uses the file's ``thumbnailLink`` (Drive pre-renders these) bumped to the
+    requested pixel size. Returns ``(bytes, mime_type)`` or None on any failure
+    — callers treat thumbnails as a best-effort enhancement.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                f"https://www.googleapis.com/drive/v3/files/{file_id}",
+                params={"fields": "thumbnailLink"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code != 200:
+                return None
+            link = r.json().get("thumbnailLink")
+            if not link:
+                return None
+            link = re.sub(r"=s\d+(-c)?$", f"=s{size}", link)
+            r2 = await client.get(
+                link, headers={"Authorization": f"Bearer {access_token}"},
+                follow_redirects=True,
+            )
+            if r2.status_code != 200 or not r2.content:
+                return None
+            mime = (r2.headers.get("content-type") or "image/png").split(";")[0].strip()
+            if not mime.startswith("image/"):
+                return None
+            return r2.content, mime
+    except Exception as exc:
+        logger.debug("get_drive_thumbnail failed for %s: %s", file_id, exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Auto-detect URL reader
 # ---------------------------------------------------------------------------
