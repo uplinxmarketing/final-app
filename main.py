@@ -3607,11 +3607,13 @@ _SCHED_TOKEN_PATTERNS = [
 ]
 
 
-def _parse_schedule_token(s: str) -> Optional[str]:
+def _parse_schedule_token(s: str, day_first: bool = False) -> Optional[str]:
     """Parse a date(/time) string into naive local ``YYYY-MM-DDTHH:MM``.
 
     Returns None if the string is not a recognised date. Date-only values
-    default to 09:00 so a scheduled post never fires at midnight.
+    default to 09:00 so a scheduled post never fires at midnight. ``day_first``
+    resolves ambiguous numeric dates (01/06/2026): column-based callers detect
+    the convention from the whole date column.
     """
     s = (s or "").strip().rstrip(".")
     for rx, order in _SCHED_TOKEN_PATTERNS:
@@ -3623,7 +3625,14 @@ def _parse_schedule_token(s: str) -> Optional[str]:
             y, mo, d = int(g[0]), int(g[1]), int(g[2])
         elif order == "mdy":
             a, b, y = int(g[0]), int(g[1]), int(g[2])
-            mo, d = (a, b) if a <= 12 else (b, a)
+            if a > 12:
+                d, mo = a, b
+            elif b > 12:
+                mo, d = a, b
+            elif day_first:
+                d, mo = a, b
+            else:
+                mo, d = a, b
         elif order == "dm_short":
             a, b = int(g[0]), int(g[1])
             d, mo = (a, b) if a > 12 or b <= 12 else (b, a)
@@ -3671,14 +3680,17 @@ def _detect_calendar_header(rows: list) -> tuple[Optional[int], Optional[dict]]:
     Returns ``(header_row_index, {role: column_index})`` or ``(None, None)``.
     """
     for ri, row in enumerate(rows[:5]):
+        # Header labels are short — a long cell matching "caption"/"text" is
+        # post content, not a header.
         cells = [str(c or "").strip().lower() for c in row]
+        cells = [c if len(c) <= 30 else "" for c in cells]
         cols: dict[str, int] = {}
         taken: set[int] = set()
         for role, keys in _COL_SYNONYMS:
             for key in keys:
                 hit = next(
                     (ci for ci, cell in enumerate(cells)
-                     if ci not in taken and re.search(rf"\b{re.escape(key)}\b", cell)),
+                     if ci not in taken and cell and re.search(rf"\b{re.escape(key)}\b", cell)),
                     None,
                 )
                 if hit is not None:
@@ -3690,19 +3702,96 @@ def _detect_calendar_header(rows: list) -> tuple[Optional[int], Optional[dict]]:
     return None, None
 
 
-def _captions_from_rows(rows: list) -> Optional[list[dict]]:
-    """Build caption blocks from a labelled content-calendar sheet.
+def _infer_calendar_columns(rows: list) -> Optional[dict]:
+    """Infer calendar columns by content when no labelled header exists.
 
-    Uses ONLY the caption column for the published text, the date(+time)
-    columns for the schedule, and the image/file column for filename matching.
-    Returns None when no labelled caption column exists (caller falls back to
-    flattening the rows into text blocks).
+    The date column is the one whose values mostly parse as dates, the file
+    column mostly looks like filenames, and the caption column is the longest
+    free-text column. Needs a caption plus at least one other signal so plain
+    text tables aren't misread as calendars.
+    """
+    if len(rows) < 2:
+        return None
+    ncols = max(len(r) for r in rows)
+    if ncols < 2:
+        return None
+    date_col = file_col = caption_col = None
+    best_len = 0.0
+    lens: dict[int, float] = {}
+    for ci in range(ncols):
+        vals = [str(r[ci]).strip() for r in rows if ci < len(r) and str(r[ci] or "").strip()]
+        if not vals:
+            continue
+        n = len(vals)
+        dates = sum(1 for v in vals if _parse_schedule_token(v, day_first=True))
+        with_ext = sum(1 for v in vals if re.search(r"\.[a-z0-9]{2,4}$", v, re.I))
+        nameish = sum(1 for v in vals if re.fullmatch(r"[\w.\-]{3,60}", v) and not v.isdigit())
+        lens[ci] = sum(len(v) for v in vals) / n
+        if date_col is None and dates / n >= 0.6 and lens[ci] < 40:
+            date_col = ci
+        # Filename column: mostly extension-bearing values, or mostly
+        # space-free tokens with at least one real file extension among them.
+        if file_col is None and lens[ci] < 80 and (
+            with_ext / n >= 0.5 or (with_ext >= 1 and nameish / n >= 0.6)
+        ):
+            file_col = ci
+    for ci, avg in lens.items():
+        if ci in (date_col, file_col):
+            continue
+        if avg > best_len:
+            best_len, caption_col = avg, ci
+    if caption_col is None or best_len < 40:
+        return None
+    if date_col is None and file_col is None:
+        return None
+    cols: dict = {"caption": caption_col}
+    if date_col is not None:
+        cols["date"] = date_col
+    if file_col is not None:
+        cols["file"] = file_col
+    return cols
+
+
+def _captions_from_rows(rows: list) -> Optional[list[dict]]:
+    """Build caption blocks from a content-calendar sheet.
+
+    Columns come from a labelled header row when present, otherwise they are
+    inferred from the content. Uses ONLY the caption column for the published
+    text, the date(+time) columns for the schedule, and the image/file column
+    for filename matching. Returns None when no calendar structure is found
+    (caller falls back to flattening the rows into text blocks).
     """
     hi, cols = _detect_calendar_header(rows)
+    data_rows = rows[hi + 1:] if cols is not None else rows
     if cols is None:
-        return None
+        cols = _infer_calendar_columns(rows)
+        if cols is None:
+            return None
+        # Inferred columns keep all rows — drop a leading header-looking row
+        # (short caption cell, unparseable date cell).
+        if data_rows:
+            first = [str(c or "").strip() for c in data_rows[0]]
+            cci, dci0 = cols.get("caption"), cols.get("date")
+            cap0 = first[cci] if cci is not None and cci < len(first) else ""
+            d0 = first[dci0] if dci0 is not None and dci0 < len(first) else ""
+            if len(cap0) < 40 and (not d0 or not _parse_schedule_token(d0, day_first=True)):
+                data_rows = data_rows[1:]
+    # Decide the date convention from the whole column: any value with the
+    # first number > 12 proves day-first; only the second > 12 proves
+    # month-first; all-ambiguous columns default to day-first (dd/mm).
+    day_first = True
+    dci = cols.get("date")
+    if dci is not None:
+        pairs = []
+        for row in data_rows:
+            if dci < len(row):
+                mm_ = re.match(r"\s*(\d{1,2})[/.\-](\d{1,2})", str(row[dci] or ""))
+                if mm_:
+                    pairs.append((int(mm_.group(1)), int(mm_.group(2))))
+        if any(b > 12 for _, b in pairs) and not any(a > 12 for a, _ in pairs):
+            day_first = False
     out: list[dict] = []
-    for row in rows[hi + 1:]:
+    for row in data_rows:
         cells = [str(c or "").strip() for c in row]
         def cell(role: str) -> str:
             ci = cols.get(role)
@@ -3713,7 +3802,8 @@ def _captions_from_rows(rows: list) -> Optional[list[dict]]:
         d, t = cell("date"), cell("time")
         schedule = None
         if d:
-            schedule = _parse_schedule_token(f"{d} {t}".strip()) or _parse_schedule_token(d)
+            schedule = (_parse_schedule_token(f"{d} {t}".strip(), day_first)
+                        or _parse_schedule_token(d, day_first))
         if not schedule:
             caption, schedule = _extract_block_schedule(caption)
         tags = re.findall(r"#\w+", caption)
@@ -3798,27 +3888,60 @@ async def api_posting_drive_scan(
     if not folder_id and folder_raw and folder_raw != req.text_url.strip():
         folder_id = folder_raw
     if folder_id:
-        listing = await google_api.list_drive_folder(folder_id, google_token)
-        if not listing.get("success"):
-            raise HTTPException(502, listing.get("error") or "Could not list Drive folder")
-        media = [
-            {
-                "id": f["id"],
-                "name": f.get("name", ""),
-                "mime_type": f.get("mimeType", ""),
-                "size": f.get("size"),
-                "is_video": f.get("mimeType", "").startswith("video/"),
-            }
-            for f in listing["files"]
-            if f.get("mimeType", "").startswith(("image/", "video/"))
-        ]
-        media.sort(key=lambda m: m["name"].lower())
+        media = await _list_folder_media(folder_id, google_token)
 
     captions: list[dict] = []
     if req.text_url.strip():
         captions = await _read_captions_from_drive(req.text_url.strip(), google_token)
 
     return {"media": media, "captions": captions}
+
+
+def _media_entry(f: dict, group: str = "") -> dict:
+    mime = f.get("mimeType", "")
+    entry = {
+        "id": f["id"],
+        "name": f.get("name", ""),
+        "mime_type": mime,
+        "size": f.get("size"),
+        "is_video": mime.startswith("video/"),
+    }
+    if group:
+        entry["group"] = group
+    return entry
+
+
+async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
+    """List a folder's media including one level of subfolders.
+
+    Each subfolder that contains media becomes a carousel group: its files
+    carry ``group: <subfolder name>`` so the frontend bundles them into one
+    multi-image post, ordered by filename.
+    """
+    listing = await google_api.list_drive_folder(folder_id, google_token)
+    if not listing.get("success"):
+        raise HTTPException(502, listing.get("error") or "Could not list Drive folder")
+    media: list[dict] = []
+    subfolders: list[dict] = []
+    for f in listing["files"]:
+        mime = f.get("mimeType", "")
+        if mime == "application/vnd.google-apps.folder":
+            subfolders.append(f)
+        elif mime.startswith(("image/", "video/")):
+            media.append(_media_entry(f))
+    media.sort(key=lambda m: m["name"].lower())
+    for sf in subfolders[:40]:
+        sub = await google_api.list_drive_folder(sf["id"], google_token)
+        if not sub.get("success"):
+            continue
+        items = [
+            _media_entry(f, group=sf.get("name", "") or "carousel")
+            for f in sub.get("files", [])
+            if f.get("mimeType", "").startswith(("image/", "video/"))
+        ]
+        items.sort(key=lambda m: m["name"].lower())
+        media.extend(items)
+    return media
 
 
 async def _read_captions_from_drive(text_url: str, google_token: str) -> list[dict]:

@@ -6135,8 +6135,15 @@ function _uwCaptionLabel(text) {
 // label when present, otherwise in document order.
 function _uwGroupPosts(media, captions) {
   const carousels = {};
+  const subfolders = {};
   const groups = [];
   media.forEach((m, idx) => {
+    // Files inside a subfolder of the scanned folder form one carousel post.
+    if (m.group) {
+      if (!subfolders[m.group]) { subfolders[m.group] = []; groups.push({ kind:'sub', name:m.group, firstIdx:idx, items:subfolders[m.group] }); }
+      subfolders[m.group].push({ m, order:0, idx });
+      return;
+    }
     const info = _uwParseName(m.name || '');
     if (info.carousel) {
       if (!carousels[info.cid]) { carousels[info.cid] = []; groups.push({ kind:'car', cid:info.cid, firstIdx:idx, items:carousels[info.cid] }); }
@@ -6152,7 +6159,8 @@ function _uwGroupPosts(media, captions) {
     const isReel = mediaList.length === 1 && mediaList[0].is_video;
     return {
       mediaList, media_type: isReel ? 'REELS' : 'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null,
-      _label: g.kind === 'car' ? ('carousel'+g.cid) : (g.postNum != null ? ('post'+g.postNum) : null),
+      _groupName: g.kind === 'sub' ? g.name : null,
+      _label: g.kind === 'car' ? ('carousel'+g.cid) : (g.kind === 'single' && g.postNum != null ? ('post'+g.postNum) : null),
     };
   });
   // Level 1 matching — deterministic, locked against AI override:
@@ -6177,7 +6185,10 @@ function _uwGroupPosts(media, captions) {
   });
   posts.forEach(p => {
     if (p._matchLocked) return;
+    // The carousel's subfolder name counts as a matchable name too — sheets
+    // often reference the folder rather than individual slide files.
     const names = p.mediaList.map(m => m.name || '').filter(Boolean);
+    if (p._groupName) names.unshift(p._groupName);
     for (let k=0; k<caps.length; k++) {
       if (used[k]) continue;
       // Prefer the sheet's image/file column; fall back to a mention in the text.
@@ -6254,7 +6265,9 @@ async function _uwAiMatch(posts, captions) {
     const res = await api('POST', '/api/posting/ai/match', {
       posts: cands.map(x => {
         const firstImg = x.p.mediaList.find(m => !m.is_video) || {};
-        return { index:x.i, files:x.p.mediaList.map(m => m.name || ''),
+        const files = x.p.mediaList.map(m => m.name || '');
+        if (x.p._groupName) files.unshift('[folder] ' + x.p._groupName);
+        return { index:x.i, files,
                  drive_id: (!firstImg.local_file_id && firstImg.id) ? firstImg.id : '',
                  local_id: firstImg.local_file_id || '' };
       }),
