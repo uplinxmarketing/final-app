@@ -5480,7 +5480,7 @@ function uwPickTargets(targets) {
           ${seg('img',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'Device'}])}
         </div>
         <div class="uw-img-drive" style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="uw-folder" placeholder="Paste a Drive folder link…" oninput="uwFolderTyped(this)" style="${inputStyle}">
+          <input type="text" class="uw-folder" placeholder="Paste one or more Drive folder links…" style="${inputStyle}">
           <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="${browseBtn}">${gdriveIcon(15)} Browse</button>
         </div>
         <div class="uw-drive-picked" style="display:none;margin-top:10px"></div>
@@ -5623,7 +5623,10 @@ function _openDrivePicker(captionMode) {
 
 function uwBrowseDrive(btn) {
   _uwDriveStep = btn.closest('.uw-step');
-  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:{}, search:'', captionMode:false };
+  // Pre-tick files picked earlier so "Browse" can add to (or trim) the selection.
+  const pre = {};
+  (_uw.driveSelected || []).forEach(m => { pre[m.id] = { id:m.id, name:m.name, mimeType:m.mime_type, isVideo:m.is_video }; });
+  _uw.drive = { folderId:'root', folderName:'My Drive', breadcrumb:[], selected:pre, search:'', captionMode:false };
   _openDrivePicker(false);
 }
 
@@ -5833,16 +5836,12 @@ function _uwDriveUpdateFooter(folderMediaCount) {
   footer.style.display = html ? 'flex' : 'none';
 }
 
-// Whole folder selected → fill the folder URL input and close.
+// Whole folder selected → add it to the list (multiple folders supported).
 function uwUseDriveFolder(folderId) {
-  _uw.driveSelected = null;
-  if (_uwDriveStep) {
-    _uwShowDrivePicked(_uwDriveStep);
-    const folderInput = _uwDriveStep.querySelector('.uw-folder');
-    folderInput.value = `https://drive.google.com/drive/folders/${folderId}`;
-    folderInput.style.borderColor = 'var(--accent)';
-    setTimeout(() => { if(folderInput) folderInput.style.borderColor=''; }, 1500);
-  }
+  _uw.driveFolders = _uw.driveFolders || [];
+  if (!_uw.driveFolders.some(f => f.id === folderId))
+    _uw.driveFolders.push({ id: folderId, name: _uw.drive.folderName || 'Drive folder' });
+  if (_uwDriveStep) _uwShowDrivePicked(_uwDriveStep);
   closeDrivePicker();
 }
 
@@ -5851,33 +5850,44 @@ function uwUseDriveFolder(folderId) {
 function uwUseSelectedFiles() {
   const files = Object.values(_uw.drive.selected);
   if (!files.length) return;
-  _uw.driveSelected = files.map(m => ({ id:m.id, name:m.name, mime_type:m.mimeType, is_video:!!m.isVideo }));
-  if (_uwDriveStep) {
-    const folderInput = _uwDriveStep.querySelector('.uw-folder');
-    if (folderInput) folderInput.value = '';
-    _uwShowDrivePicked(_uwDriveStep);
-  }
+  _uw.driveSelected = files.map(m => ({ id:m.id, name:m.name, mime_type:m.mimeType, is_video:!!m.is_video || !!m.isVideo }));
+  if (_uwDriveStep) _uwShowDrivePicked(_uwDriveStep);
   closeDrivePicker();
 }
 
-// Render (or hide) the "N files selected from Drive" chips inside the step.
+function uwRemoveDriveFolder(id) {
+  _uw.driveFolders = (_uw.driveFolders||[]).filter(f => f.id !== id);
+  _uwShowDrivePicked(_uwDriveStep);
+}
+function uwRemoveDriveFile(id) {
+  _uw.driveSelected = (_uw.driveSelected||[]).filter(m => m.id !== id);
+  _uwShowDrivePicked(_uwDriveStep);
+}
+
+// Render (or hide) the picked Drive folders/files as removable chips.
 function _uwShowDrivePicked(step) {
   const box = step && step.querySelector('.uw-drive-picked');
   if (!box) return;
+  const folders = _uw.driveFolders || [];
   const sel = _uw.driveSelected || [];
-  if (!sel.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (!folders.length && !sel.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
   box.style.display = '';
-  box.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">✅ <b>${sel.length}</b> file(s) selected from Drive — press <b>🔍 Preview &amp; schedule</b> below when ready.</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${sel.map(m => m.is_video
-      ? `<div title="${escHtml(m.name)}" style="width:44px;height:44px;border-radius:7px;background:var(--bg-primary);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px">🎬</div>`
-      : `<img src="${_uwThumbSrc(m)}" title="${escHtml(m.name)}" loading="lazy" style="width:44px;height:44px;border-radius:7px;object-fit:cover;background:var(--bg-primary);border:1px solid var(--border)" onerror="this.style.display='none'">`).join('')}</div>`;
-}
-
-// Typing a folder link replaces any individually-picked Drive files.
-function uwFolderTyped(inp) {
-  if (!inp.value.trim() || !(_uw.driveSelected||[]).length) return;
-  _uw.driveSelected = null;
-  _uwShowDrivePicked(inp.closest('.uw-step'));
+  const x = (fn, id) => `<button onclick='${fn}(${_attrJson(id)})' title="Remove" style="position:absolute;top:-6px;right:-6px;width:17px;height:17px;border-radius:50%;background:var(--accent);color:#fff;border:2px solid var(--bg-secondary);font-size:9px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>`;
+  const folderChips = folders.map(f =>
+    `<span style="position:relative;display:inline-flex;align-items:center;gap:6px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text-primary);max-width:200px">
+      📁 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${x('uwRemoveDriveFolder', f.id)}</span>`).join('');
+  const fileChips = sel.map(m =>
+    `<span style="position:relative;display:inline-flex">${m.is_video
+      ? `<span title="${escHtml(m.name)}" style="width:44px;height:44px;border-radius:7px;background:var(--bg-primary);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px">🎬</span>`
+      : `<img src="${_uwThumbSrc(m)}" title="${escHtml(m.name)}" loading="lazy" style="width:44px;height:44px;border-radius:7px;object-fit:cover;background:var(--bg-primary);border:1px solid var(--border)" onerror="this.style.display='none'">`}
+      ${x('uwRemoveDriveFile', m.id)}</span>`).join('');
+  const parts = [];
+  if (folders.length) parts.push(`${folders.length} folder${folders.length>1?'s':''}`);
+  if (sel.length) parts.push(`${sel.length} file${sel.length>1?'s':''}`);
+  box.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">✅ <b>${parts.join(' + ')}</b> selected from Drive — press <b>🔍 Preview &amp; schedule</b> below when ready.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:4px">${folderChips}${fileChips}
+      <button onclick="uwBrowseDrive(this)" title="Add more folders or files" style="width:44px;height:44px;border-radius:7px;border:1px dashed var(--border);background:var(--bg-primary);color:var(--text-dim);font-size:19px;cursor:pointer">＋</button>
+    </div>`;
 }
 
 // Caption doc selected → fill the captions URL input and close.
@@ -5913,31 +5923,52 @@ async function uwDeviceFilePicked(input) {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     _uw.localMedia = (_uw.localMedia || []).concat(data.media || []);
-    status.textContent = `✅ ${_uw.localMedia.length} file(s) ready`;
-    list.innerHTML = _uw.localMedia.map(m => `
-      <div style="display:flex;align-items:center;gap:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px">
-        ${m.is_video ? '<span style="font-size:20px">🎬</span>' : `<img src="/api/posting/local/preview/${m.local_file_id}" style="width:36px;height:36px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`}
-        <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</span>
-        <span style="font-size:11px;color:var(--text-dim)">${m.is_video?'video':'image'}</span>
-      </div>`).join('');
+    _uwDeviceStep = step;
+    _uwRenderLocalList(step);
   } catch(e) {
     status.textContent = 'Upload error: ' + (e.message || e);
   }
 }
 
+let _uwDeviceStep = null;
+function _uwRenderLocalList(step) {
+  const status = step.querySelector('.uw-device-status');
+  const list = step.querySelector('.uw-device-list');
+  const items = _uw.localMedia || [];
+  if (status) status.textContent = items.length ? `✅ ${items.length} file(s) ready` : '';
+  if (!list) return;
+  list.innerHTML = items.map(m => `
+    <div style="display:flex;align-items:center;gap:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px">
+      ${m.is_video ? '<span style="font-size:20px">🎬</span>' : `<img src="/api/posting/local/preview/${m.local_file_id}" style="width:36px;height:36px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`}
+      <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</span>
+      <span style="font-size:11px;color:var(--text-dim)">${m.is_video?'video':'image'}</span>
+      <button onclick='uwRemoveLocalFile(${_attrJson(m.local_file_id)})' title="Remove this file" style="width:20px;height:20px;border-radius:50%;background:transparent;border:1px solid var(--border);color:var(--text-dim);font-size:10px;line-height:1;cursor:pointer;padding:0">✕</button>
+    </div>`).join('');
+}
+
+function uwRemoveLocalFile(fileId) {
+  _uw.localMedia = (_uw.localMedia || []).filter(m => m.local_file_id !== fileId);
+  if (_uwDeviceStep) _uwRenderLocalList(_uwDeviceStep);
+}
+
 // Hand the whole job to the conversational agent (it has Drive + posting tools).
 function uwAiHandle(btn) {
   const step = btn.closest('.uw-step');
-  const folder = step.querySelector('.uw-folder').value.trim();
+  const typed = (step.querySelector('.uw-folder')?.value || '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const folders = typed.concat((_uw.driveFolders||[]).map(f => `https://drive.google.com/drive/folders/${f.id}`));
+  const files = (_uw.driveSelected||[]).map(m => `"${m.name}" (https://drive.google.com/file/d/${m.id}/view)`);
   const text = step.querySelector('.uw-text').value.trim();
   const instructions = step.querySelector('.uw-instructions').value.trim();
   const status = step.querySelector('.uw-scan-status');
-  if (!folder) { status.textContent = 'Paste your Drive folder link first.'; return; }
+  if (!folders.length && !files.length) { status.textContent = 'Paste a Drive folder link or pick folders/files with Browse first.'; return; }
   const dests = (_uw.targets||[_uw.target]).map(t => `${t.name} (${t.platform})`).join(' and ');
-  const msg = `Please upload posts to ${dests}. The images/creatives are in this Google Drive folder: ${folder}.`
-    + (text ? ` The captions are here: ${text}.` : ' Match captions by filename/order if a captions file is provided.')
+  let sources = '';
+  if (folders.length) sources += ` The images/creatives are in ${folders.length>1?'these Google Drive folders':'this Google Drive folder'}: ${folders.join(' , ')}.`;
+  if (files.length) sources += ` Also use these individually selected Drive files: ${files.join(' , ')}.`;
+  const msg = `Please upload posts to ${dests}.` + sources
+    + (text ? ` The captions document is here: ${text}. Open and read its content, and match each image to its caption by post/carousel number, filename or content. If the document contains schedule dates/times for the posts, use them as each post's scheduled time.` : ' Match captions by filename/order if a captions file is provided.')
     + (instructions ? ` Additional instructions: ${instructions}.` : '')
-    + ` Match each image to its caption, show me a summary of what you'll post, and ask me to confirm before publishing.`;
+    + ` Show me a summary of what you'll post (including any scheduled times), and ask me to confirm before publishing.`;
   const input = document.getElementById('posts-chat-input');
   if (input) { input.value = msg; document.getElementById('posts-send-btn').disabled = false; }
   sendPostsMessage();
@@ -5957,16 +5988,21 @@ async function uwBuildPreview(btn) {
       media = _uw.localMedia || [];
       if (!media.length) { status.textContent = 'Upload at least one image or video from your device.'; btn.disabled=false; return; }
     } else {
-      const folder = (step.querySelector('.uw-folder')?.value || '').trim();
-      if (folder) {
-        const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:'' });
-        media = res.media || [];
-        if (!media.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
-      } else if ((_uw.driveSelected||[]).length) {
-        media = _uw.driveSelected;
-      } else {
-        status.textContent = 'Paste a Drive folder link or pick files with Browse, or switch images to "My Device".'; btn.disabled=false; return;
+      // Combine every Drive source: pasted folder link(s), folders picked in
+      // the browser, and individually picked files. De-dupe by file id.
+      const typed = (step.querySelector('.uw-folder')?.value || '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      const folderRefs = typed.concat((_uw.driveFolders||[]).map(f => f.id));
+      if (!folderRefs.length && !(_uw.driveSelected||[]).length) {
+        status.textContent = 'Paste a Drive folder link or pick folders/files with Browse, or switch images to "My Device".'; btn.disabled=false; return;
       }
+      const seen = new Set();
+      for (const ref of folderRefs) {
+        status.textContent = `⏳ Scanning folder ${folderRefs.indexOf(ref)+1}/${folderRefs.length}…`;
+        const res = await api('POST', '/api/posting/drive/scan', { folder_url:ref, text_url:'' });
+        (res.media || []).forEach(m => { if (!seen.has(m.id)) { seen.add(m.id); media.push(m); } });
+      }
+      (_uw.driveSelected||[]).forEach(m => { if (!seen.has(m.id)) { seen.add(m.id); media.push(m); } });
+      if (!media.length) { status.textContent = 'No images or videos found in the selected folders/files.'; btn.disabled=false; return; }
     }
     // 2) Captions
     let captions = [];
