@@ -5480,9 +5480,10 @@ function uwPickTargets(targets) {
           ${seg('img',[{val:'drive',icon:gdriveIcon(14),text:'Drive'},{val:'device',icon:'💻',text:'Device'}])}
         </div>
         <div class="uw-img-drive" style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="uw-folder" placeholder="Paste a Drive folder link…" style="${inputStyle}">
+          <input type="text" class="uw-folder" placeholder="Paste a Drive folder link…" oninput="uwFolderTyped(this)" style="${inputStyle}">
           <button onclick="uwBrowseDrive(this)" title="Browse Drive folders" style="${browseBtn}">${gdriveIcon(15)} Browse</button>
         </div>
+        <div class="uw-drive-picked" style="display:none;margin-top:10px"></div>
         <div class="uw-img-device" style="display:none">
           <div style="${drop}" onclick="this.querySelector('input').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
             <div style="font-size:26px;margin-bottom:6px">📂</div>
@@ -5543,6 +5544,8 @@ function uwImgSrc(btn, val) {
   });
   step.querySelector('.uw-img-drive').style.display = val === 'drive' ? 'flex' : 'none';
   step.querySelector('.uw-img-device').style.display = val === 'device' ? 'block' : 'none';
+  const picked = step.querySelector('.uw-drive-picked');
+  if (picked) picked.style.display = (val === 'drive' && (_uw.driveSelected||[]).length) ? '' : 'none';
   // AI handoff only works with Drive-hosted images (the agent can't see device files).
   const aiBtn = step.querySelector('.uw-ai-btn');
   if (aiBtn) aiBtn.style.display = val === 'drive' ? '' : 'none';
@@ -5832,7 +5835,9 @@ function _uwDriveUpdateFooter(folderMediaCount) {
 
 // Whole folder selected → fill the folder URL input and close.
 function uwUseDriveFolder(folderId) {
+  _uw.driveSelected = null;
   if (_uwDriveStep) {
+    _uwShowDrivePicked(_uwDriveStep);
     const folderInput = _uwDriveStep.querySelector('.uw-folder');
     folderInput.value = `https://drive.google.com/drive/folders/${folderId}`;
     folderInput.style.borderColor = 'var(--accent)';
@@ -5841,18 +5846,38 @@ function uwUseDriveFolder(folderId) {
   closeDrivePicker();
 }
 
-// Individual files selected → go straight to preview.
+// Individual files selected → remember them and show them in the step. The
+// preview is only built when the user presses "Preview & schedule".
 function uwUseSelectedFiles() {
   const files = Object.values(_uw.drive.selected);
   if (!files.length) return;
-  if (_uwDriveStep) _uw.instructions = (_uwDriveStep.querySelector('.uw-instructions')?.value || '').trim();
-  _uw.posts = files.map(m => ({
-    caption:'', hashtags:[],
-    media:{ id:m.id, name:m.name, mime_type:m.mimeType, is_video:m.isVideo },
-    media_type: m.isVideo ? 'REELS' : 'IMAGE', _sched:null,
-  }));
+  _uw.driveSelected = files.map(m => ({ id:m.id, name:m.name, mime_type:m.mimeType, is_video:!!m.isVideo }));
+  if (_uwDriveStep) {
+    const folderInput = _uwDriveStep.querySelector('.uw-folder');
+    if (folderInput) folderInput.value = '';
+    _uwShowDrivePicked(_uwDriveStep);
+  }
   closeDrivePicker();
-  _uwRenderPreview();
+}
+
+// Render (or hide) the "N files selected from Drive" chips inside the step.
+function _uwShowDrivePicked(step) {
+  const box = step && step.querySelector('.uw-drive-picked');
+  if (!box) return;
+  const sel = _uw.driveSelected || [];
+  if (!sel.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  box.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">✅ <b>${sel.length}</b> file(s) selected from Drive — press <b>🔍 Preview &amp; schedule</b> below when ready.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${sel.map(m => m.is_video
+      ? `<div title="${escHtml(m.name)}" style="width:44px;height:44px;border-radius:7px;background:var(--bg-primary);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px">🎬</div>`
+      : `<img src="${_uwThumbSrc(m)}" title="${escHtml(m.name)}" loading="lazy" style="width:44px;height:44px;border-radius:7px;object-fit:cover;background:var(--bg-primary);border:1px solid var(--border)" onerror="this.style.display='none'">`).join('')}</div>`;
+}
+
+// Typing a folder link replaces any individually-picked Drive files.
+function uwFolderTyped(inp) {
+  if (!inp.value.trim() || !(_uw.driveSelected||[]).length) return;
+  _uw.driveSelected = null;
+  _uwShowDrivePicked(inp.closest('.uw-step'));
 }
 
 // Caption doc selected → fill the captions URL input and close.
@@ -5933,10 +5958,15 @@ async function uwBuildPreview(btn) {
       if (!media.length) { status.textContent = 'Upload at least one image or video from your device.'; btn.disabled=false; return; }
     } else {
       const folder = (step.querySelector('.uw-folder')?.value || '').trim();
-      if (!folder) { status.textContent = 'Paste your Drive folder link, or switch images to "My Device".'; btn.disabled=false; return; }
-      const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:'' });
-      media = res.media || [];
-      if (!media.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
+      if (folder) {
+        const res = await api('POST', '/api/posting/drive/scan', { folder_url:folder, text_url:'' });
+        media = res.media || [];
+        if (!media.length) { status.textContent = 'No images or videos found in that folder.'; btn.disabled=false; return; }
+      } else if ((_uw.driveSelected||[]).length) {
+        media = _uw.driveSelected;
+      } else {
+        status.textContent = 'Paste a Drive folder link or pick files with Browse, or switch images to "My Device".'; btn.disabled=false; return;
+      }
     }
     // 2) Captions
     let captions = [];
