@@ -816,18 +816,18 @@ async def prepare_upload_preview(
         return "Error: Google account not connected. Connect Google Drive in Settings first."
     media: list[dict] = []
     seen: set = set()
+    from main import _list_folder_media  # late import — main imports this module lazily
     for url in (folder_urls or []):
         fid = google_api.extract_folder_id_from_url(str(url)) or str(url).strip()
-        listing = await google_api.list_drive_folder(fid, token)
-        if not listing.get("success"):
-            return f"Error listing folder {url}: {listing.get('error')}"
-        for f in listing.get("files", []):
-            mime = f.get("mimeType", "")
-            if not mime.startswith(("image/", "video/")) or f["id"] in seen:
+        try:
+            items = await _list_folder_media(fid, token)
+        except Exception as exc:
+            return f"Error listing folder {url}: {exc}"
+        for m in items:
+            if m["id"] in seen:
                 continue
-            seen.add(f["id"])
-            media.append({"id": f["id"], "name": f.get("name", ""), "mime_type": mime,
-                          "size": f.get("size"), "is_video": mime.startswith("video/")})
+            seen.add(m["id"])
+            media.append(m)
     for url in (file_urls or []):
         fid = google_api.extract_file_id_from_url(str(url)) or str(url).strip()
         if not fid or fid in seen:
