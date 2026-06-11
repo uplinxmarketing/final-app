@@ -588,24 +588,15 @@ a{color:inherit;text-decoration:none}
     <!-- Posts sidebar content -->
     <div id="posts-sidebar-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
       <div style="padding:12px 12px 10px;border-bottom:1px solid var(--border);flex-shrink:0">
-        <button onclick="openPostingConnectModal()" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;text-align:center;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔗 Connect Account</button>
+        <button id="posting-connect-btn" onclick="openPostingConnectModal()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 12px;border-radius:8px;border:none;background:#1877F2;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:center;transition:var(--transition)">Connect Facebook Account</button>
       </div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+        <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
         <button id="ptab-btn-calendar" class="ptab-nav-btn" onclick="switchPostsTab('calendar')" style="border-color:var(--accent);background:var(--accent);color:#fff" onmouseout="if(_postTab!=='calendar'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📅 <span>Calendar</span></button>
-        <button id="ptab-btn-compose" class="ptab-nav-btn" onclick="switchPostsTab('compose')" onmouseout="if(_postTab!=='compose'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">✏️ <span>Compose</span></button>
-        <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="switchPostsTab('bulk')" onmouseout="if(_postTab!=='bulk'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload Posts</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
         <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="switchPostsTab('chat')" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
         <button id="ptab-btn-portfolios" class="ptab-nav-btn" onclick="switchPostsTab('portfolios')" onmouseout="if(_postTab!=='portfolios'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">🗂️ <span>Portfolios</span></button>
-        <!-- Admin-only: slide toggle to hide/open the right column (skills + token usage panel) -->
-        <div id="posts-workspace-toggle-wrap" style="display:none;align-items:center;justify-content:space-between;padding:9px 4px 2px;margin-top:5px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--text-secondary);font-weight:600">📊 Side panel</span>
-          <label class="ui-switch" title="Show or hide the right side panel (skills &amp; token usage)">
-            <input type="checkbox" id="posts-workspace-toggle" checked onchange="toggleContextPanel(this.checked)">
-            <span class="ui-switch-slider"></span>
-          </label>
-        </div>
       </div>
       <div id="posts-client-list" style="flex:1;overflow-y:auto;padding:8px">
         <div style="font-size:12px;color:var(--text-dim);padding:8px">Loading…</div>
@@ -749,7 +740,7 @@ a{color:inherit;text-decoration:none}
         </div>
         <div style="padding:14px 16px;border-top:1px solid var(--border);background:var(--bg-secondary);flex-shrink:0">
           <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-            <button onclick="startUploadWizard()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:20px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(220,38,38,0.25)">📤 Upload Posts</button>
+            <button onclick="uwStartOverChat()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:20px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(220,38,38,0.25)">🔄 Start Over With A Clean Chat</button>
           </div>
           <div class="chat-input-box" style="display:flex;align-items:flex-end;gap:10px" id="posts-chat-input-box">
             <textarea id="posts-chat-input" class="form-input" placeholder="Ask Uplinx AI about your posts…" rows="1"
@@ -3672,6 +3663,7 @@ async function loadPostingInterface() {
   loadPostingClients();
   try {
     const accounts = await fetch('/api/accounts/posting').then(r => r.json());
+    updatePostingConnectBtn(Array.isArray(accounts) ? accounts : []);
     if (!Array.isArray(accounts) || accounts.length === 0) {
       showPostsWorkspace('connect'); return;
     }
@@ -5310,6 +5302,17 @@ function _appendPostsCard(html) {
   return div;
 }
 
+// Wipe the chat clean and restart the upload wizard from step 1.
+function uwStartOverChat() {
+  const msgs = document.getElementById('posts-chat-messages');
+  if (msgs) msgs.innerHTML = '';
+  _uw.posts = []; _uw.previewCard = null;
+  if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
+  const fp = document.getElementById('uw-feed-panel');
+  if (fp) fp.style.display = 'none';
+  startUploadWizard();
+}
+
 async function startUploadWizard() {
   const pm = document.getElementById('posts-main');
   if (!pm || pm.style.display === 'none') enterInterface('posts');
@@ -6594,13 +6597,14 @@ function _uwBuildCalendarHtml() {
     return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — click to preview, drag to reschedule"
-      style="display:flex;align-items:center;gap:3px;background:var(--bg-secondary);border-left:2px solid ${tc.color};border-radius:3px;padding:2px 3px;overflow:hidden;min-width:0;cursor:grab"
-      onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-secondary)'">
+      style="display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 3px;overflow:hidden;min-width:0;cursor:grab"
+      onmouseover="this.style.filter='brightness(1.12)'" onmouseout="this.style.filter=''">
+      <span style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
       <span style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
       <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
       <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
-        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 1px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + time : '⚡'}</button>
+        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 1px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
       <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
         style="background:transparent;border:none;color:var(--text-dim);font-size:8px;line-height:1;cursor:pointer;padding:0 1px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
     </div>`;
@@ -6627,19 +6631,16 @@ function _uwBuildCalendarHtml() {
   for (let i = 0; i < trail; i++) cells += emptyCell;
   const rows = Math.ceil((firstDow + daysInMo) / 7);
 
-  // Type color legend (post / reel / carousel).
-  const legend = `<div style="display:flex;align-items:center;gap:12px;margin-top:6px;flex-shrink:0;flex-wrap:wrap">
-    ${[['#3b82f6','Post'],['#a855f7','Reel'],['#f59e0b','Carousel']].map(([c,l]) =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-secondary)"><span style="width:10px;height:10px;border-radius:3px;background:${c}"></span>${l}</span>`).join('')}
-    <span style="font-size:10px;color:var(--text-dim);margin-left:auto">⚡ now = posts the moment you hit Publish · chips on today</span>
-  </div>`;
+  // Type color legend (solid badges, matching the chip badges exactly).
+  const legend = `${[['#2563eb','POST','Post'],['#e91e8c','REEL','Reel'],['#16a34a','CRSL','Carousel']].map(([c,s,l]) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-secondary)"><span style="background:${c};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 4px;letter-spacing:.3px">${s}</span>${l}</span>`).join('')}`;
 
-  // Size the grid so the entire month fits on screen without scrolling:
-  // cap the calendar's total height to the visible viewport area.
+  // Rows have a fixed minimum height (no fixed container height), so the grid
+  // can never overflow onto the legend below it.
   const canUndo = _uwHist.pos > 0, canRedo = _uwHist.pos < _uwHist.stack.length - 1;
   return `<div style="user-select:none;display:flex;flex-direction:column;width:100%;max-width:100%;overflow:hidden;box-sizing:border-box">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-      <span style="display:inline-flex;gap:5px">
+      <span style="display:inline-flex;gap:5px;align-items:center">
         <button onclick="uwUndo()" ${canUndo ? '' : 'disabled'} title="Undo last change" style="${histBtn(canUndo)}">↶</button>
         <button onclick="uwRedo()" ${canRedo ? '' : 'disabled'} title="Redo" style="${histBtn(canRedo)}">↷</button>
       </span>
@@ -6648,12 +6649,19 @@ function _uwBuildCalendarHtml() {
         <span style="font-size:14px;font-weight:800;color:var(--text-primary);min-width:150px;text-align:center">${monthName}</span>
         <button onclick="uwCalNav(1)" style="${navBtn}">›</button>
       </span>
-      <span style="font-size:10px;color:var(--text-dim)">Drag cards between days to reschedule</span>
+      <span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap">${legend}</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:repeat(${rows},minmax(82px,1fr));gap:4px;height:calc(min(56vh, 620px));width:100%;box-sizing:border-box">${cells}</div>
-    ${legend}
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(84px,auto);gap:4px;width:100%;box-sizing:border-box">${cells}</div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center">Drag cards between days to reschedule · ⚡ = posts immediately when you hit Publish</div>
   </div>`;
+}
+
+// "14:30" → "2:30PM" for compact chip display.
+function _uw12h(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2,'0')}${ap}`;
 }
 
 // Effective schedule for a (post, platform) pair: the per-platform override if
@@ -6673,13 +6681,13 @@ function _uwSetPlatSched(p, plat, val) {
   }
 }
 
-// Type → color coding for calendar chips.
+// Type → color coding for calendar chips. High-contrast, clearly distinct.
 function _uwTypeColor(p) {
   if (p.media_type === 'REELS' || (p.mediaList[0] && p.mediaList[0].is_video))
-    return { color:'#a855f7', soft:'rgba(168,85,247,.12)', label:'Reel', short:'REEL' };
+    return { color:'#e91e8c', soft:'rgba(233,30,140,.14)', label:'Reel', short:'REEL', icon:'🎬' };
   if (p.mediaList.length > 1)
-    return { color:'#f59e0b', soft:'rgba(245,158,11,.12)', label:'Carousel', short:'CRSL' };
-  return { color:'#3b82f6', soft:'rgba(59,130,246,.12)', label:'Post', short:'POST' };
+    return { color:'#16a34a', soft:'rgba(22,163,74,.14)', label:'Carousel', short:'CRSL', icon:'⧉' };
+  return { color:'#2563eb', soft:'rgba(37,99,235,.14)', label:'Post', short:'POST', icon:'🖼' };
 }
 
 // Open the feed mockup for a calendar chip in the chip's own platform mode.
@@ -6733,21 +6741,31 @@ function uwCalTimeOpen(idx, plat, e) {
   const p = _uw.posts[idx]; if (!p) return;
   const curSched = _uwPlatSched(p, plat);
   const cur = curSched ? curSched.slice(11, 16) : new Date().toTimeString().slice(0, 5);
+  const [h24, mi] = cur.split(':').map(Number);
+  const isPM = h24 >= 12, h12 = ((h24 + 11) % 12) + 1;
   const platLabel = plat === 'instagram' ? 'Instagram' : 'Facebook';
+  const selStyle = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 5px;color:var(--text-primary);font-size:12px;cursor:pointer';
+  const hourOpts = Array.from({length:12},(_,k)=>k+1).map(h=>`<option value="${h}" ${h===h12?'selected':''}>${h}</option>`).join('');
+  const minOpts = Array.from({length:60},(_,k)=>k).map(m=>`<option value="${m}" ${m===mi?'selected':''}>${String(m).padStart(2,'0')}</option>`).join('');
   const pop = document.createElement('div');
   pop.className = 'uw-cal-pop';
-  pop.style.cssText = 'position:fixed;z-index:2000;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:9px 10px;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;gap:7px;align-items:center';
+  pop.style.cssText = 'position:fixed;z-index:2000;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:9px 10px;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;gap:6px;align-items:center';
   pop.innerHTML = `<span style="font-size:11px;font-weight:700;color:var(--text-secondary)">Post ${idx+1} · ${platLabel}:</span>
-    <input type="time" value="${cur}" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 7px;color:var(--text-primary);font-size:12px">
+    <select class="uw-tp-h" style="${selStyle}">${hourOpts}</select>
+    <span style="font-weight:700;color:var(--text-dim)">:</span>
+    <select class="uw-tp-m" style="${selStyle}">${minOpts}</select>
+    <select class="uw-tp-ap" style="${selStyle}"><option value="AM" ${!isPM?'selected':''}>AM</option><option value="PM" ${isPM?'selected':''}>PM</option></select>
     <button class="uw-tp-ok" style="padding:4px 11px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">✓</button>
     <button class="uw-tp-now" title="Post immediately instead of scheduling" style="padding:4px 9px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⚡ now</button>`;
   document.body.appendChild(pop);
   const r = pop.getBoundingClientRect();
   pop.style.left = Math.min(e.clientX, window.innerWidth - r.width - 12) + 'px';
   pop.style.top = Math.min(e.clientY + 8, window.innerHeight - r.height - 12) + 'px';
-  const input = pop.querySelector('input');
   const apply = () => {
-    const t = input.value || '12:00';
+    const h = parseInt(pop.querySelector('.uw-tp-h').value, 10) % 12;
+    const m = parseInt(pop.querySelector('.uw-tp-m').value, 10);
+    const pm = pop.querySelector('.uw-tp-ap').value === 'PM';
+    const t = `${String(h + (pm ? 12 : 0)).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
     const datePart = curSched
       ? curSched.slice(0, 10)
       : `${_uw.calYear}-${String(_uw.calMonth+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
@@ -6762,12 +6780,10 @@ function uwCalTimeOpen(idx, plat, e) {
     pop.remove();
     _uwRenderCards();
   };
-  input.onkeydown = ev => { if (ev.key === 'Enter') apply(); };
   setTimeout(() => {
     const close = ev => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', close); } };
     document.addEventListener('mousedown', close);
   }, 0);
-  input.focus();
 }
 
 // Delete a post from the calendar (undo restores it).
@@ -7547,9 +7563,28 @@ async function ppmDeleteProfile(profileId) {
   } catch(e) { alert('Error removing profile.'); }
 }
 
+// Sidebar connect button: FB-blue "Connect Facebook Account" when nothing is
+// connected; account name + fb logo + Active pill once connected.
+function updatePostingConnectBtn(accounts) {
+  const btn = document.getElementById('posting-connect-btn');
+  if (!btn) return;
+  if (accounts && accounts.length) {
+    const a = accounts.find(x => x.is_current) || accounts[0];
+    const name = a.user_name || a.facebook_user_id || 'Facebook';
+    btn.style.cssText = 'width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-weight:700;cursor:pointer;text-align:center;transition:var(--transition)';
+    btn.innerHTML = `${fbIcon(15)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${escHtml(name)}</span><span style="font-size:10px;font-weight:700;color:var(--success,#22c55e);background:rgba(34,197,94,.12);padding:1px 7px;border-radius:10px;flex-shrink:0">● Active</span>`;
+    btn.title = 'Connected as ' + name + ' — click to manage accounts';
+  } else {
+    btn.style.cssText = 'width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 12px;border-radius:8px;border:none;background:#1877F2;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:center;transition:var(--transition)';
+    btn.innerHTML = `${fbLogoWhite(15)}<span>Connect Facebook Account</span>`;
+    btn.title = 'Connect your Facebook account to start posting';
+  }
+}
+
 async function loadPostingAccountsList() {
   try {
     const accounts = await fetch('/api/accounts/posting').then(r => r.json());
+    updatePostingConnectBtn(Array.isArray(accounts) ? accounts : []);
     const el = document.getElementById('posting-accounts-list');
     if (!el) return;
     if (!Array.isArray(accounts) || !accounts.length) {
