@@ -3448,11 +3448,27 @@ async def api_bulk_publish_drive(
     """
     if not req.items:
         raise HTTPException(400, "No posts to publish")
-    # Validate the connections up front so the user gets immediate feedback.
+    # Validate connections up front so the user gets immediate feedback.
+    # Also resolves the active posting account — needed for scheduled posts
+    # where the session may not carry posting_user_id (e.g. portfolio users).
     await get_posting_token(request, db)
     await get_google_token(request, db)
     base_url = _public_base_url(request)
     session = get_session(request)
+
+    # Resolve the posting account UID. Session has it when the user connected
+    # Meta in this browser tab; fall back to the most recent active account
+    # (same logic as get_posting_token) so scheduled jobs always have it.
+    posting_user_id = session.get("posting_user_id")
+    if not posting_user_id:
+        result = await db.execute(
+            select(ConnectedPostingAccount)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        acc = result.scalars().first()
+        if acc:
+            posting_user_id = acc.facebook_user_id
 
     job = PublishJob(
         created_by=str(session.get("user_id") or ""),
@@ -3462,7 +3478,7 @@ async def api_bulk_publish_drive(
         completed=0, succeeded=0, failed=0, scheduled_count=0,
         items=[it.dict() for it in req.items],
         results=[],
-        posting_user_id=session.get("posting_user_id"),
+        posting_user_id=posting_user_id,
         google_user_id=session.get("google_user_id"),
         base_url=base_url,
     )
