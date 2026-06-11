@@ -2908,12 +2908,12 @@ function _logCopy() {
     `[${e.ts}] [${e.level.toUpperCase()}] ${e.msg}${e.detail ? '\n  ' + e.detail : ''}`
   ).join('\n');
   navigator.clipboard.writeText(lines || '(empty log)').then(() => {
-    showToast('Log copied to clipboard');
+    toast('Log copied to clipboard');
   }).catch(() => {
     const ta = document.createElement('textarea');
     ta.value = lines || '(empty log)';
     document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-    showToast('Log copied');
+    toast('Log copied');
   });
 }
 
@@ -8201,12 +8201,36 @@ async function uwPollJob() {
       else if (a.sched){ el.textContent='🕒 Scheduled'; el.style.color='var(--text-secondary)'; }
       else { el.textContent='✅'; el.style.color='var(--success,#22c55e)'; }
     });
-    if (job.status==='queued'){ status.textContent = job.position>0?`⏳ ${job.position} job(s) ahead — you can keep chatting`:'⏳ Starting…'; }
-    else if (job.status==='running'){ status.textContent=`🔄 Publishing ${job.completed}/${job.total}…`; }
+    if (job.status==='queued'){ status.textContent = job.position>0?`⏳ ${job.position} job(s) ahead — you can keep chatting`:'⏳ Starting…'; _uw._pollProg=null; }
+    else if (job.status==='running'){
+      // Detect a stalled item: if `completed` hasn't moved in a while, tell the
+      // user it's slow (Meta media processing) rather than leaving them guessing.
+      if (!_uw._pollProg || _uw._pollProg.completed !== job.completed)
+        _uw._pollProg = { completed: job.completed, ts: Date.now() };
+      const stalledSec = Math.round((Date.now() - _uw._pollProg.ts) / 1000);
+      let msg = `🔄 Publishing ${job.completed}/${job.total}…`;
+      if (stalledSec >= 45) msg += ` — post ${Math.floor(job.completed/nTargets)+1} is taking a while (${stalledSec}s). Meta can take a few minutes to process media; still working.`;
+      status.textContent = msg;
+      if (stalledSec >= 90 && !_uw._pollProg.warned) {
+        _uw._pollProg.warned = true;
+        _logAdd('warn', `Item ${job.completed+1}/${job.total} slow`, `No progress for ${stalledSec}s — likely Meta media processing or a large file`);
+      }
+    }
     else if (job.status==='done'){
-      status.textContent=''; _uw.jobId=null;
+      status.textContent=''; _uw.jobId=null; _uw._pollProg=null;
       if (job.failed) _logAdd('warn', `Job done with ${job.failed} failure(s)`, `published:${job.published_count} scheduled:${job.scheduled_count} failed:${job.failed}`);
-      _appendPostsCard(`<div style="font-size:13px">✅ <b>All done!</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.</div>`); return; }
+      // Surface per-post errors in the chat itself, not just the admin log panel.
+      let failHtml = '';
+      if (job.failed) {
+        const tgs = (_uw.targets || [_uw.target]).filter(Boolean);
+        failHtml = '<div style="font-size:12px;color:var(--accent);margin-top:6px;line-height:1.5">' +
+          (job.results||[]).filter(r=>!r.success).map(r=>{
+            const t = tgs[r.index % nTargets];
+            const plat = t ? (t.platform==='instagram'?'IG':'FB') : '';
+            return `⚠️ Post ${Math.floor(r.index/nTargets)+1}${plat?' ('+plat+')':''}: ${escHtml(r.error||'unknown error')}`;
+          }).join('<br>') + '</div>';
+      }
+      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}</div>`); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
