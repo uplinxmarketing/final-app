@@ -6423,7 +6423,7 @@ function _uwRenderPreview() {
       </div>
       <div class="uw-pub-status" style="font-size:12px;color:var(--text-dim);margin-top:8px;text-align:center"></div>
       <div class="uw-card-resize-grip" onmousedown="uwCardResizeStart(event)"
-        style="position:absolute;right:-14px;top:0;bottom:0;width:14px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;z-index:10">
+        style="position:absolute;right:0;top:0;bottom:0;width:10px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;z-index:10">
         <div style="width:4px;height:48px;background:var(--border);border-radius:3px;pointer-events:none"></div>
       </div>
     </div>`);
@@ -6587,26 +6587,26 @@ function _uwBuildCalendarHtml() {
     return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx})" ondragend="uwCalDragEnd(event)"
       onclick="uwShowFeedPreview(${idx});event.stopPropagation()"
       title="Post ${idx+1}${firstLine ? ': ' + firstLine : ''} — drag to another day to reschedule"
-      style="position:relative;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:grab;margin-bottom:3px">
+      style="position:relative;width:100%;min-width:0;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:grab;margin-bottom:3px">
       <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
         style="position:absolute;top:2px;right:2px;z-index:2;width:16px;height:16px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
       ${img && !img.is_video
         ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:100%;height:${compact ? 34 : 44}px;object-fit:cover;display:block;pointer-events:none">`
         : `<div style="height:${compact ? 26 : 34}px;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--bg-secondary)">${img ? '🎬' : '🖼️'}</div>`}
-      <div style="padding:3px 5px 4px">
-        <div style="display:flex;align-items:center;gap:3px">${logos}
-          <span style="font-size:9px;font-weight:800;color:var(--text-primary);margin-left:1px">P${idx+1}</span>
+      <div style="padding:3px 5px 4px;min-width:0">
+        <div style="display:flex;align-items:center;gap:3px;min-width:0">${logos}
+          <span style="font-size:9px;font-weight:800;color:var(--text-primary);margin-left:1px;flex-shrink:0">P${idx+1}</span>
           <button onclick="uwCalTimeOpen(${idx},event)" title="Set posting time"
-            style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:9px;font-weight:700;cursor:pointer;padding:0 2px;display:inline-flex;align-items:center;gap:2px">🕒${time ? ' ' + time : ''}</button>
+            style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:9px;font-weight:700;cursor:pointer;padding:0 2px;display:inline-flex;align-items:center;gap:2px;flex-shrink:0">🕒${time ? ' ' + time : ''}</button>
         </div>
-        <div style="font-size:9.5px;line-height:1.35;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px">${escHtml(firstLine) || '<i>No caption</i>'}</div>
+        <div style="font-size:10px;line-height:1.35;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px;min-width:0">${escHtml(firstLine) || '<i>No caption</i>'}</div>
       </div>
     </div>`;
   };
   let cells = '';
+  const emptyCell = `<div style="min-width:0;overflow:hidden;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
   // Leading empty cells
-  for (let i = 0; i < firstDow; i++)
-    cells += `<div style="border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
+  for (let i = 0; i < firstDow; i++) cells += emptyCell;
   for (let d = 1; d <= daysInMo; d++) {
     const isToday = yr === now.getFullYear() && mo === now.getMonth() && d === now.getDate();
     const posts = byDay[d] || [];
@@ -6615,20 +6615,15 @@ function _uwBuildCalendarHtml() {
       + (posts.length > 2 ? `<div style="font-size:9px;color:var(--text-dim);text-align:center;padding:1px 0">+${posts.length-2} more</div>` : '');
     cells += `<div class="uw-cal-day" data-day="${d}"
       ondragover="uwCalDragOver(event)" ondragleave="uwCalDragLeave(event)" ondrop="uwCalDrop(event,${d})"
-      style="border:2px solid ${isToday ? 'var(--accent)' : 'var(--border)'};border-radius:7px;background:var(--bg-primary);padding:3px 4px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;flex-shrink:0">
-        <button onclick="uwCalAddPost(${d})" title="Add a post on this day"
-          style="width:14px;height:14px;border-radius:4px;border:1px dashed var(--border);background:transparent;color:var(--text-dim);font-size:10px;line-height:1;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">＋</button>
-        <span style="font-size:11px;font-weight:${isToday ? '800' : '600'};color:${isToday ? 'var(--accent)' : 'var(--text-secondary)'}">${d}</span>
-      </div>
-      <div style="overflow:hidden;min-height:0">${postsHtml}</div>
+      style="border:2px solid ${isToday ? 'var(--accent)' : 'var(--border)'};border-radius:7px;background:var(--bg-primary);padding:3px 4px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden">
+      <div style="font-size:11px;font-weight:${isToday ? '800' : '600'};color:${isToday ? 'var(--accent)' : 'var(--text-secondary)'};text-align:right;margin-bottom:2px;flex-shrink:0">${d}</div>
+      <div style="overflow:hidden;min-height:0;min-width:0">${postsHtml}</div>
     </div>`;
   }
   // Trailing empty cells to complete last row
   const total = firstDow + daysInMo;
   const trail = (7 - (total % 7)) % 7;
-  for (let i = 0; i < trail; i++)
-    cells += `<div style="border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
+  for (let i = 0; i < trail; i++) cells += emptyCell;
   const rows = Math.ceil((firstDow + daysInMo) / 7);
 
   // Unscheduled posts — draggable onto a calendar day to schedule them.
@@ -6658,8 +6653,8 @@ function _uwBuildCalendarHtml() {
   // Size the grid so the entire month fits on screen without scrolling:
   // cap the calendar's total height to the visible viewport area.
   const canUndo = _uwHist.pos > 0, canRedo = _uwHist.pos < _uwHist.stack.length - 1;
-  return `<div style="user-select:none;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px">
+  return `<div style="user-select:none;display:flex;flex-direction:column;width:100%;max-width:100%;overflow:hidden;box-sizing:border-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
       <span style="display:inline-flex;gap:5px">
         <button onclick="uwUndo()" ${canUndo ? '' : 'disabled'} title="Undo last change" style="${histBtn(canUndo)}">↶</button>
         <button onclick="uwRedo()" ${canRedo ? '' : 'disabled'} title="Redo" style="${histBtn(canRedo)}">↷</button>
@@ -6671,8 +6666,8 @@ function _uwBuildCalendarHtml() {
       </span>
       <span style="font-size:10px;color:var(--text-dim)">Drag cards between days to reschedule</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(${rows},minmax(78px,1fr));gap:4px;height:calc(min(58vh, 640px))">${cells}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:repeat(${rows},minmax(82px,1fr));gap:4px;height:calc(min(56vh, 620px));width:100%;box-sizing:border-box">${cells}</div>
     ${unschedHtml}
   </div>`;
 }
@@ -6763,35 +6758,6 @@ function uwCalDeletePost(idx) {
   _uwSnap();
   if (!_uw.posts.length) { _uwRenderCards(); return; }
   _uwRenderCards();
-}
-
-// Add a new post scheduled on the given day; pick its media from Drive/device.
-function uwCalAddPost(day) {
-  const mm = String(_uw.calMonth + 1).padStart(2, '0'), dd = String(day).padStart(2, '0');
-  const val = `${_uw.calYear}-${mm}-${dd}T12:00`;
-  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:new Date(val).toISOString(), _schedLocal:val });
-  const i = _uw.posts.length - 1;
-  _uwSnap();
-  _uwRenderCards();
-  // Offer the media source right away in a small floating menu.
-  document.querySelectorAll('.uw-cal-pop').forEach(el => el.remove());
-  const pop = document.createElement('div');
-  pop.className = 'uw-cal-pop';
-  pop.style.cssText = 'position:fixed;z-index:2000;left:50%;top:40%;transform:translate(-50%,-50%);background:var(--bg-primary);border:1px solid var(--border);border-radius:11px;padding:16px;box-shadow:0 8px 30px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:9px;min-width:230px';
-  const b = 'display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer';
-  pop.innerHTML = `<div style="font-size:13px;font-weight:800;color:var(--text-primary)">New post on ${new Date(_uw.calYear, _uw.calMonth, day).toLocaleDateString('en-US',{month:'short',day:'numeric'})} — add media:</div>
-    <button class="uw-cap-drive" style="${b}">📁 Browse Google Drive</button>
-    <button class="uw-cap-device" style="${b}">💻 Upload from device</button>
-    <button class="uw-cap-cancel" style="padding:7px;background:transparent;border:none;color:var(--text-dim);font-size:12px;cursor:pointer">Cancel</button>`;
-  document.body.appendChild(pop);
-  pop.querySelector('.uw-cap-drive').onclick = () => { pop.remove(); uwAddPostBrowseDrive(i); };
-  pop.querySelector('.uw-cap-device').onclick = () => { pop.remove(); uwAddPostUploadDevice(i); };
-  pop.querySelector('.uw-cap-cancel').onclick = () => {
-    pop.remove();
-    _uw.posts.splice(i, 1);
-    _uwSnap();
-    _uwRenderCards();
-  };
 }
 
 // ─── Undo / redo history for post edits ──────────────────────────────────────
@@ -7022,14 +6988,45 @@ async function _uwDriveAddToPost(postIdx, files, folders) {
 
 // Add a brand-new empty post to the preview — pick its image(s) from Drive or device.
 function uwAddPost() {
-  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null });
+  // New posts default to today at noon — the date input on the card (or a
+  // calendar drag) moves them to any other day.
+  const d = new Date();
+  const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T12:00`;
+  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:new Date(val).toISOString(), _schedLocal:val });
   _uwSnap();
   _uwRenderCards();
   const i = _uw.posts.length - 1;
-  const wrap = _uw.previewCard.querySelector('.uw-cards');
-  const card = wrap && wrap.querySelector(`.uw-post-card[data-i="${i}"]`);
-  if (card) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
-  uwCarAddOpen(i);
+  if (_uw.viewMode === 'list') {
+    const wrap = _uw.previewCard.querySelector('.uw-cards');
+    const card = wrap && wrap.querySelector(`.uw-post-card[data-i="${i}"]`);
+    if (card) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    uwCarAddOpen(i);
+  } else {
+    // Grid/calendar cards have no inline picker — use a floating chooser.
+    _uwAddPostMediaMenu(i);
+  }
+}
+
+// Floating Drive/device chooser for a freshly added post (grid/calendar views).
+function _uwAddPostMediaMenu(i) {
+  document.querySelectorAll('.uw-cal-pop').forEach(el => el.remove());
+  const pop = document.createElement('div');
+  pop.className = 'uw-cal-pop';
+  pop.style.cssText = 'position:fixed;z-index:2000;left:50%;top:40%;transform:translate(-50%,-50%);background:var(--bg-primary);border:1px solid var(--border);border-radius:11px;padding:16px;box-shadow:0 8px 30px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:9px;min-width:230px';
+  const b = 'display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer';
+  pop.innerHTML = `<div style="font-size:13px;font-weight:800;color:var(--text-primary)">New post — add media:</div>
+    <button class="uw-cap-drive" style="${b}">📁 Browse Google Drive</button>
+    <button class="uw-cap-device" style="${b}">💻 Upload from device</button>
+    <button class="uw-cap-cancel" style="padding:7px;background:transparent;border:none;color:var(--text-dim);font-size:12px;cursor:pointer">Cancel</button>`;
+  document.body.appendChild(pop);
+  pop.querySelector('.uw-cap-drive').onclick = () => { pop.remove(); uwAddPostBrowseDrive(i); };
+  pop.querySelector('.uw-cap-device').onclick = () => { pop.remove(); uwAddPostUploadDevice(i); };
+  pop.querySelector('.uw-cap-cancel').onclick = () => {
+    pop.remove();
+    _uw.posts.splice(i, 1);
+    _uwSnap();
+    _uwRenderCards();
+  };
 }
 
 // Remove a whole post from the upload (its files stay in the pool, so they
