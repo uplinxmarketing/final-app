@@ -1955,6 +1955,39 @@ async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_
     ]
 
 
+class SwitchPostingAccountRequest(BaseModel):
+    facebook_user_id: str
+
+
+@app.post("/api/accounts/posting/switch")
+async def api_switch_posting_account(
+    req: SwitchPostingAccountRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch the current session to a different connected posting account."""
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.facebook_user_id == req.facebook_user_id,
+            ConnectedPostingAccount.is_active == True,
+        )
+    )
+    acc = result.scalar_one_or_none()
+    if not acc:
+        raise HTTPException(404, "Account not found or disconnected")
+    existing = get_session(request)
+    session_data = {**dict(existing), "posting_user_id": acc.facebook_user_id}
+    response = JSONResponse({"success": True, "user_name": acc.user_name or acc.facebook_user_id})
+    response.set_cookie(
+        "session",
+        create_session_token(session_data),
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return response
+
+
 @app.delete("/api/accounts/posting/{account_id}")
 async def api_disconnect_posting(account_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ConnectedPostingAccount).where(ConnectedPostingAccount.id == account_id))
