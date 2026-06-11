@@ -5271,7 +5271,11 @@ function _uwChatsSave(chats) {
 function _uwChatsUpsert(id, name, sessionData) {
   const chats = _uwChatsLoad();
   const idx = chats.findIndex(c => c.id === id);
-  const entry = { id, name, updatedAt: Date.now(), session: sessionData };
+  const existing = idx >= 0 ? chats[idx] : null;
+  // Preserve the captured conversation history (steps 1 & 2) once it has been
+  // saved — subsequent _uwSnap calls don't re-capture it so it must not be lost.
+  const historyHtml = sessionData.historyHtml || (existing && existing.session && existing.session.historyHtml) || '';
+  const entry = { id, name, updatedAt: Date.now(), session: { ...sessionData, historyHtml } };
   if (idx >= 0) chats[idx] = entry; else chats.unshift(entry);
   _uwChatsSave(chats);
   _uwRenderChatHistory();
@@ -5336,11 +5340,18 @@ function _uwChatOpen(id) {
   _uw.instructions = d.instructions || '';
   _uw._chatId = id;
   _uw._chatName = entry.name;
+  // Close feed panel so stale content from a previous chat is not shown
+  _uwFeed.open = false; _uwFeed.i = null;
+  const fp = document.getElementById('uw-feed-panel');
+  if (fp) fp.style.display = 'none';
   // Switch to chat tab and rebuild preview card if there are posts
   if (!document.getElementById('posts-main') || document.getElementById('posts-main').style.display === 'none') enterInterface('posts');
   _postTab = 'chat'; switchPostsTab('chat');
   const msgs = document.getElementById('posts-chat-messages');
-  if (msgs) msgs.innerHTML = '';
+  if (msgs) {
+    // Restore captured conversation history (steps 1 & 2) if available
+    msgs.innerHTML = d.historyHtml || '';
+  }
   if (_uw.posts.length) {
     _uwHistReset();
     _uwRenderPreview();
@@ -6595,7 +6606,24 @@ function _uwRecountType() {
   _uw.posts.forEach(p => { p.media_type = (p.mediaList.length === 1 && p.mediaList[0] && p.mediaList[0].is_video) ? 'REELS' : 'IMAGE'; });
 }
 
+// Serialise the step-1/2 chat conversation so it can be restored from history.
+// Clones the messages div, strips the preview card (rebuilt fresh on restore),
+// and disables interactive controls so old wizard buttons can't be mis-clicked.
+function _uwMsgsSnapshot() {
+  const msgs = document.getElementById('posts-chat-messages');
+  if (!msgs) return '';
+  const clone = msgs.cloneNode(true);
+  clone.querySelectorAll('.msg').forEach(el => { if (el.querySelector('.uw-preview')) el.remove(); });
+  clone.querySelectorAll('button,input,select,textarea').forEach(el => {
+    el.disabled = true; el.style.pointerEvents = 'none'; el.style.opacity = '.55';
+  });
+  clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+  return clone.innerHTML;
+}
+
 function _uwRenderPreview() {
+  // Capture steps 1 & 2 conversation before appending the preview card.
+  const _historyHtml = _uwMsgsSnapshot();
   // Show posts in the content calendar's order: by matched caption row first,
   // then by schedule, keeping unmatched posts at the end in file order.
   _uw.posts = _uw.posts
@@ -6653,7 +6681,8 @@ function _uwRenderPreview() {
   // Update chat history with loaded posts
   if (_uw._chatId) _uwChatsSafeUpsert(_uw._chatId, _uw._chatName || 'Chat', {
     posts: _uw.posts, target: _uw.target, targets: _uw.targets,
-    viewMode: _uw.viewMode, instructions: _uw.instructions
+    viewMode: _uw.viewMode, instructions: _uw.instructions,
+    historyHtml: _historyHtml
   });
 }
 
@@ -7592,13 +7621,14 @@ function _uwRenderFeed() {
   // Platform-authentic truncation: IG shows "... more" in plain gray;
   // FB shows "See more" in semi-bold that underlines on hover.
   const moreBtn = isIg
-    ? `<button onclick="uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">more</button>`
-    : `<button onclick="uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See more</button>`;
+    ? `<button onclick="event.stopPropagation();uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">more</button>`
+    : `<button onclick="event.stopPropagation();uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See more</button>`;
   const lessBtn = isIg
-    ? `<button onclick="uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">less</button>`
-    : `<button onclick="uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See less</button>`;
+    ? `<button onclick="event.stopPropagation();uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">less</button>`
+    : `<button onclick="event.stopPropagation();uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See less</button>`;
+  // For long captions, clicking the truncated text auto-expands to the editable full version.
   const capBlock = needsMore
-    ? `<span id="uw-cap-short-${_uwFeed.i}">${capHtmlShort}${isIg ? '... ' : '… '}${moreBtn}</span><span id="uw-cap-full-${_uwFeed.i}" style="display:none"><span ${edCap}>${capHtmlFull}</span> ${lessBtn}</span>`
+    ? `<span id="uw-cap-short-${_uwFeed.i}" onclick="uwFeedSeeMore(${_uwFeed.i})" style="cursor:text" title="Click to expand and edit">${capHtmlShort}${isIg ? '... ' : '… '}${moreBtn}</span><span id="uw-cap-full-${_uwFeed.i}" style="display:none"><span ${edCap}>${capHtmlFull}</span> ${lessBtn}</span>`
     : `<span ${edCap}>${capHtmlFull}</span>`;
   if (isIg) {
     const ic = _uwIgIcons();
@@ -7618,7 +7648,7 @@ function _uwRenderFeed() {
           ${ic.heart}${ic.comment}${ic.share}<span style="margin-left:auto">${ic.save}</span>
         </div>
         <div style="padding:0 12px 4px;font-size:13px;font-weight:600">128 likes</div>
-        <div style="padding:0 12px 6px;font-size:13px;line-height:1.5;word-wrap:break-word"><b style="margin-right:5px">${escHtml(handle)}</b>${capBlock}${tags ? `<br><span style="color:#00376b" ${edTags}>${tagsHtml}</span>` : ''}</div>
+        <div style="padding:0 12px 6px;font-size:13px;line-height:1.5;word-wrap:break-word"><b style="margin-right:5px">${escHtml(handle)}</b>${capBlock}<br><span style="color:#00376b" ${edTags}>${tagsHtml || '<span style="opacity:.35;pointer-events:none;font-style:italic">+hashtags</span>'}</span></div>
         <div style="padding:0 12px 4px;font-size:13px;color:#8e8e8e">View all 12 comments</div>
         <div style="padding:0 12px 12px;font-size:10px;color:#8e8e8e;text-transform:uppercase;letter-spacing:.2px">${escHtml(when)}</div>
       </div>
@@ -7635,7 +7665,7 @@ function _uwRenderFeed() {
           </div>
           <span style="font-size:16px;letter-spacing:1px;color:#65676b;font-weight:700">···</span>
         </div>
-        <div style="padding:2px 14px 10px;font-size:14px;line-height:1.45;word-wrap:break-word">${capBlock}${tags ? `${capRaw ? '<br><br>' : ''}<span style="color:#216fdb" ${edTags}>${tagsHtml}</span>` : ''}</div>
+        <div style="padding:2px 14px 10px;font-size:14px;line-height:1.45;word-wrap:break-word">${capBlock}<br><span style="color:#216fdb" ${edTags}>${tagsHtml || '<span style="opacity:.35;pointer-events:none;font-style:italic">+hashtags</span>'}</span></div>
         <div style="position:relative">${mediaHtml}${nav}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:13px;color:#65676b">
           <span style="display:inline-flex;align-items:center">
