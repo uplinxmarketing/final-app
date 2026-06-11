@@ -4454,16 +4454,22 @@ async def api_posting_upload_local(
     session_key = session.get("meta_user_id", "anon")
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     media = []
+    skipped = []
     for f in files:
-        if not validate_file_extension(f.filename or ""):
+        name = f.filename or "upload"
+        if not validate_file_extension(name):
+            skipped.append({"name": name, "reason": "unsupported file type"})
             continue
         file_bytes = await f.read()
         if len(file_bytes) > max_bytes:
+            skipped.append({"name": name, "reason": f"larger than {settings.MAX_UPLOAD_SIZE_MB} MB"})
             continue
-        if not validate_mime_type(file_bytes, f.filename or ""):
+        if not validate_mime_type(file_bytes, name):
+            skipped.append({"name": name, "reason": "file content doesn't match its extension"})
             continue
-        result = await process_uploaded_file(file_bytes, f.filename or "upload")
+        result = await process_uploaded_file(file_bytes, name)
         if not result.get("success"):
+            skipped.append({"name": name, "reason": result.get("error") or "processing failed"})
             continue
         file_id = result["stored_path"].split("/")[-1]
         upload_info = {
@@ -4483,7 +4489,7 @@ async def api_posting_upload_local(
             "is_video": result["file_type"] == "video",
             "local_file_id": file_id,
         })
-    return {"media": media, "captions": []}
+    return {"media": media, "captions": [], "skipped": skipped}
 
 
 # Caption file extensions we can parse without extra runtime dependencies.

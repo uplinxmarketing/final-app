@@ -5423,7 +5423,11 @@ function _uwChatsLoad() {
 }
 
 function _uwChatsSave(chats) {
-  try { localStorage.setItem(_UW_CHATS_KEY, JSON.stringify(chats)); } catch(_) {}
+  // On quota errors drop the oldest chats (history HTML snapshots can be
+  // large) and retry, so recent chats keep saving instead of failing silently.
+  for (let keep = chats.length; keep > 0; keep = Math.min(keep - 1, 25)) {
+    try { localStorage.setItem(_UW_CHATS_KEY, JSON.stringify(chats.slice(0, keep))); return; } catch(_) {}
+  }
 }
 
 function _uwChatsUpsert(id, name, sessionData) {
@@ -6401,8 +6405,17 @@ async function uwDeviceFilePicked(input) {
   const step = input.closest('.uw-step');
   const list = step.querySelector('.uw-device-list');
   const status = step.querySelector('.uw-device-status');
-  const files = Array.from(input.files || []);
-  if (!files.length) return;
+  const all = Array.from(input.files || []);
+  if (!all.length) return;
+  // Reject oversized files before uploading so the user knows immediately,
+  // instead of the server silently dropping them.
+  const maxMb = window._maxUploadMb || 50;
+  const tooBig = all.filter(f => f.size > maxMb * 1024 * 1024);
+  const files = all.filter(f => f.size <= maxMb * 1024 * 1024);
+  if (!files.length) {
+    status.textContent = `⚠️ File(s) exceed the ${maxMb} MB limit: ` + tooBig.map(f => f.name).join(', ');
+    return;
+  }
   status.textContent = `⏳ Uploading ${files.length} file(s)…`;
   const fd = new FormData();
   files.forEach(f => fd.append('files', f));
@@ -6413,6 +6426,11 @@ async function uwDeviceFilePicked(input) {
     _uw.localMedia = (_uw.localMedia || []).concat(data.media || []);
     _uwDeviceStep = step;
     _uwRenderLocalList(step);
+    const skipped = (data.skipped || []).concat(tooBig.map(f => ({ name: f.name, reason: `larger than ${maxMb} MB` })));
+    if (skipped.length) {
+      status.textContent = `✅ ${(data.media || []).length} uploaded — ⚠️ skipped: ` +
+        skipped.map(s => `${s.name} (${s.reason})`).join(', ');
+    }
   } catch(e) {
     status.textContent = 'Upload error: ' + (e.message || e);
   }
@@ -7290,7 +7308,9 @@ function _uwHistReset() {
 }
 function _uwSnap() {
   _uwHist.stack = _uwHist.stack.slice(0, _uwHist.pos + 1);
-  _uwHist.stack.push(JSON.stringify(_uw.posts));
+  const snap = JSON.stringify(_uw.posts);
+  if (_uwHist.stack[_uwHist.pos] === snap) { _uwSave(); return; }
+  _uwHist.stack.push(snap);
   if (_uwHist.stack.length > 60) _uwHist.stack.shift();
   _uwHist.pos = _uwHist.stack.length - 1;
   _uwSave();
@@ -7881,7 +7901,9 @@ function uwFeedEditTags(i, el) {
 let _uwSaveDebounce = null;
 function _uwSaveDebounced() {
   clearTimeout(_uwSaveDebounce);
-  _uwSaveDebounce = setTimeout(() => { _uwSave(); }, 600);
+  // Snapshot for undo/redo too — otherwise caption/hashtag edits vanish the
+  // moment the user undoes anything else.
+  _uwSaveDebounce = setTimeout(() => { _uwSnap(); }, 600);
 }
 
 function uwEditCaption(i, value) {
@@ -7933,6 +7955,7 @@ async function uwPublish(btn) {
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
   if (!_uw.posts.length || !targets.length) return;
   const card = _uw.previewCard;
+  if (!card) return;
   const status = card.querySelector('.uw-pub-status');
   const empty = _uw.posts.findIndex(p => !p.mediaList.length);
   if (empty >= 0) {
@@ -7962,13 +7985,20 @@ async function uwPublish(btn) {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res || !res.job_id) { status.textContent='Submit failed — please try again.'; btn.disabled=false; return; }
     _uw.jobId = res.job_id; status.textContent = res.message || 'Queued!';
+    // Kill any poll chain left over from a previous publish so two timers
+    // don't poll the same job in parallel.
+    clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
     uwPollJob();
   } catch(e) { status.textContent='Error: '+(e.message||e); btn.disabled=false; }
 }
 
 async function uwPollJob() {
   if (!_uw.jobId) return;
-  const card = _uw.previewCard; const status = card.querySelector('.uw-pub-status');
+  // Preview card gone (user switched chats) — stop polling; the job keeps
+  // running server-side and its results show up on the calendar.
+  const card = _uw.previewCard;
+  const status = card && card.querySelector('.uw-pub-status');
+  if (!status) { _uw.pollTimer = null; return; }
   try {
     const job = await fetch(`/api/posting/jobs/${_uw.jobId}`).then(r=>r.ok?r.json():null);
     if (!job) { status.textContent='Lost track of job.'; return; }
