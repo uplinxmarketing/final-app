@@ -3319,6 +3319,10 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     page_token = await _get_page_token(user_token, item.page_id)
     caption = _compose_caption(item.caption, item.hashtags)
     scheduled_ts = _parse_scheduled_ts(item.scheduled_time)
+    # Meta requires FB scheduled_publish_time to be at least 10 minutes in the future.
+    # If the job was delayed and the window has passed, publish immediately instead.
+    if scheduled_ts and scheduled_ts < int(datetime.now(timezone.utc).timestamp()) + 600:
+        scheduled_ts = None
 
     # Single video (REELS/VIDEO both post as a Page video)
     if len(item.media) == 1 and item.media_type in ("VIDEO", "REELS"):
@@ -4803,6 +4807,9 @@ async def api_publish_facebook(
             scheduled_ts = int(dt.timestamp())
         except Exception:
             raise HTTPException(400, "Invalid scheduled_time — use ISO 8601 format")
+        # Meta requires scheduled_publish_time to be at least 10 minutes in the future.
+        if scheduled_ts < int(datetime.now(timezone.utc).timestamp()) + 600:
+            scheduled_ts = None
 
     base = settings.meta_graph_base_url
     async with httpx.AsyncClient(timeout=20) as client:
