@@ -596,8 +596,11 @@ a{color:inherit;text-decoration:none}
       <div style="padding:12px 12px 10px;border-bottom:1px solid var(--border);flex-shrink:0">
         <button id="posting-connect-btn" onclick="openPostingConnectModal()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 12px;border-radius:8px;border:none;background:#1877F2;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:center;transition:var(--transition)">Connect Facebook Account</button>
       </div>
+      <!-- Token expiry warning banner (filled by _tokenHealthLoad) -->
+      <div id="token-health-banner" style="display:none;margin:8px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.45;flex-shrink:0"></div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+        <button id="ptab-btn-notifs" class="ptab-nav-btn" onclick="notifOpen()" style="position:relative" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔔 <span>Notifications</span><span id="notif-badge" style="display:none;position:absolute;top:4px;right:8px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;border-radius:9px;padding:1px 6px;min-width:10px;text-align:center">0</span></button>
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
         <button id="ptab-btn-calendar" class="ptab-nav-btn" onclick="switchPostsTab('calendar')" style="border-color:var(--accent);background:var(--accent);color:#fff" onmouseout="if(_postTab!=='calendar'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📅 <span>Calendar</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
@@ -2928,6 +2931,112 @@ function _logClear() {
   _logEntries.length = 0;
   _logRender();
 }
+
+// ── Failed-post notifications + token health ───────────────────────────────
+let _notifFailed = [];
+let _notifSeen = new Set(JSON.parse(localStorage.getItem('_notifSeen') || '[]'));
+
+async function notifLoad() {
+  try {
+    const r = await fetch('/api/posting/notifications');
+    if (!r.ok) return;
+    _notifFailed = (await r.json()).failed || [];
+    const unseen = _notifFailed.filter(f => !_notifSeen.has(f.id)).length;
+    const badge = document.getElementById('notif-badge');
+    if (badge) {
+      badge.style.display = unseen ? 'inline-block' : 'none';
+      badge.textContent = unseen;
+    }
+  } catch(_) {}
+}
+
+function notifOpen() {
+  document.querySelectorAll('.notif-modal').forEach(el => el.remove());
+  // Opening marks everything seen.
+  _notifFailed.forEach(f => _notifSeen.add(f.id));
+  try { localStorage.setItem('_notifSeen', JSON.stringify([..._notifSeen].slice(-200))); } catch(_) {}
+  const badge = document.getElementById('notif-badge');
+  if (badge) badge.style.display = 'none';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'notif-modal';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
+  const rows = _notifFailed.length ? _notifFailed.map(f => {
+    const when = f.scheduled_time ? new Date(f.scheduled_time).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+    const firstLine = (f.caption || '(no caption)').split('\n')[0].slice(0, 70);
+    return `<div style="border:1px solid #dc262640;border-left:4px solid #dc2626;border-radius:8px;padding:10px;background:var(--bg-primary)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        ${platformIcon(f.platform, 13)}
+        <span style="font-size:11px;font-weight:800;color:#dc2626">FAILED</span>
+        <span style="font-size:10px;color:var(--text-dim)">${when} · ${f.attempts} attempt${f.attempts === 1 ? '' : 's'}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-primary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(firstLine)}</div>
+      <div style="font-size:10px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">${escHtml(f.error || 'unknown error')}</div>
+      <button onclick="notifRetry(${f.id}, this)" style="padding:5px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer">↻ Retry now</button>
+    </div>`;
+  }).join('') : '<div style="text-align:center;padding:30px;font-size:13px;color:var(--text-dim)">No failed posts in the last 14 days 🎉</div>';
+  wrap.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;width:min(440px,100%);max-height:80vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)">
+      <span style="font-size:14px;font-weight:800;color:var(--text-primary)">🔔 Notifications</span>
+      <button onclick="this.closest('.notif-modal').remove()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:15px;padding:2px 6px">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px">${rows}</div>
+  </div>`;
+  document.body.appendChild(wrap);
+}
+
+async function notifRetry(id, btn) {
+  btn.disabled = true; btn.textContent = 'Re-queuing…';
+  try {
+    const r = await fetch(`/api/scheduled-posts/${id}/retry`, {method:'POST'});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || 'Retry failed');
+    btn.textContent = '✓ Re-queued';
+    btn.style.background = '#22c55e';
+    toast(data.message || 'Post re-queued — it will publish within a minute.');
+    setTimeout(notifLoad, 2000);
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '↻ Retry now';
+    toast('Retry failed: ' + (e.message || e), 'error');
+    _logAdd('error', `Retry of scheduled post ${id} failed`, String(e.message || e));
+  }
+}
+
+async function _tokenHealthLoad() {
+  const banner = document.getElementById('token-health-banner');
+  if (!banner) return;
+  try {
+    const r = await fetch('/api/posting/token-health');
+    if (!r.ok) return;
+    const accounts = (await r.json()).accounts || [];
+    const bad = accounts.filter(a => a.status === 'expired' || a.status === 'warning');
+    if (!bad.length) { banner.style.display = 'none'; return; }
+    const expired = bad.filter(a => a.status === 'expired');
+    const isErr = expired.length > 0;
+    banner.style.display = 'block';
+    banner.style.background = isErr ? '#dc262618' : '#f59e0b18';
+    banner.style.border = `1px solid ${isErr ? '#dc2626' : '#f59e0b'}55`;
+    banner.style.color = 'var(--text-primary)';
+    banner.innerHTML = bad.map(a =>
+      a.status === 'expired'
+        ? `🔴 <b>${escHtml(a.name)}</b> — Meta token <b>expired</b>. Scheduled posts will fail until you reconnect.`
+        : `🟡 <b>${escHtml(a.name)}</b> — Meta token expires in <b>${a.days_left} day${a.days_left === 1 ? '' : 's'}</b>. Reconnect soon to avoid failed posts.`
+    ).join('<br>');
+  } catch(_) {}
+}
+
+// Poll failed posts every 60s and token health every 10 min (only while the
+// posts sidebar is visible — no point hammering the API from other modules).
+setInterval(() => {
+  const el = document.getElementById('posts-sidebar-content');
+  if (el && el.style.display !== 'none') notifLoad();
+}, 60000);
+setInterval(() => {
+  const el = document.getElementById('posts-sidebar-content');
+  if (el && el.style.display !== 'none') _tokenHealthLoad();
+}, 600000);
+setTimeout(() => { notifLoad(); _tokenHealthLoad(); }, 2500);
 
 // Intercept console.error and console.warn to feed the panel.
 (function() {
