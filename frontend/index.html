@@ -4670,9 +4670,21 @@ function showCalendarPostPreview(idx) {
     ? ((_calIgPage && (_calIgPage.username || _calIgPage.name)) || 'yourbusiness')
     : ((_calFbPage && _calFbPage.name) || 'Your Page');
 
-  const mediaHtml = post.image
-    ? `<img src="${escHtml(post.image)}" style="width:100%;display:block;object-fit:cover;max-height:380px">`
-    : `<div style="width:100%;height:160px;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:12px">${isPub ? 'No media preview' : 'Media not available for scheduled posts'}</div>`;
+  // Same media treatment as the wizard feed preview: IG = square crop,
+  // FB = whole image on black. A hidden fallback sits behind the <img> and
+  // shows if the CDN image fails to load (expired Meta media URLs).
+  const phText = post.image
+    ? 'Image preview unavailable'
+    : (isPub ? 'No media preview' : 'Media preview not available for scheduled posts');
+  const placeholder = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:#f0f2f5;color:#8a8d91"><span style="font-size:30px">🖼️</span><span style="font-size:12px;text-align:center;padding:0 16px">${phText}</span></div>`;
+  const img = post.image
+    ? (isIg
+      ? `<img src="${escHtml(post.image)}" style="position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover" onload="if(this.previousElementSibling)this.previousElementSibling.style.display='none'" onerror="this.remove()">`
+      : `<img src="${escHtml(post.image)}" style="position:relative;width:100%;max-height:380px;display:block;object-fit:contain" onload="if(this.previousElementSibling)this.previousElementSibling.style.display='none'" onerror="this.remove()">`)
+    : '';
+  const mediaHtml = `<div style="position:relative;width:100%;${isIg ? 'aspect-ratio:1/1' : 'min-height:160px'};background:#000;overflow:hidden">
+    ${placeholder}${img}
+  </div>`;
 
   const capHtml = escHtml(caption).replace(/\n/g, '<br>');
 
@@ -4708,12 +4720,19 @@ function showCalendarPostPreview(idx) {
     </div>`;
   }
 
-  const viewBtn = post.permalink
-    ? `<a href="${escHtml(post.permalink)}" target="_blank" rel="noopener"
-        style="display:inline-flex;align-items:center;gap:8px;padding:11px 22px;background:${isIg ? '#E1306C' : '#1877F2'};color:#fff;border-radius:9px;font-size:13px;font-weight:700;text-decoration:none">
-        ${isIg ? igIcon(14) : fbIcon(14)} View on ${isIg ? 'Instagram' : 'Facebook'} ↗
-      </a>`
-    : '';
+  // Footer: full-width branded button for published posts; a note for
+  // scheduled ones (they have no permalink until Meta publishes them).
+  const footer = post.permalink
+    ? `<div style="padding:14px 16px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--bg-secondary)">
+        <a href="${escHtml(post.permalink)}" target="_blank" rel="noopener"
+          style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;box-sizing:border-box;padding:13px 20px;background:${isIg ? 'linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)' : '#1877F2'};color:#fff;border-radius:10px;font-size:14px;font-weight:800;letter-spacing:.2px;text-decoration:none;box-shadow:0 4px 14px ${isIg ? 'rgba(238,42,123,.35)' : 'rgba(24,119,242,.35)'};transition:transform .12s,filter .12s"
+          onmouseover="this.style.transform='translateY(-1px)';this.style.filter='brightness(1.06)'" onmouseout="this.style.transform='';this.style.filter=''">
+          ${isIg ? igIcon(17) : fbIcon(17)}<span>View on ${isIg ? 'Instagram' : 'Facebook'}</span><span style="font-size:15px">↗</span>
+        </a>
+      </div>`
+    : (isPub ? '' : `<div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-dim)">
+        ⏱ This post will appear on ${isIg ? 'Instagram' : 'Facebook'} once it's published.
+      </div>`);
 
   const existing = document.getElementById('cal-post-preview-modal');
   if (existing) existing.remove();
@@ -4730,7 +4749,7 @@ function showCalendarPostPreview(idx) {
       <button onclick="document.getElementById('cal-post-preview-modal').remove()" style="background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='none'">✕</button>
     </div>
     <div style="padding:16px">${mockup}</div>
-    ${viewBtn ? `<div style="padding:0 16px 16px;text-align:center">${viewBtn}</div>` : ''}
+    ${footer}
   </div>`;
   modal.onclick = e => { if (e.target === modal) modal.remove(); };
   document.body.appendChild(modal);
@@ -5425,8 +5444,12 @@ function _uwChatsLoad() {
 function _uwChatsSave(chats) {
   // On quota errors drop the oldest chats (history HTML snapshots can be
   // large) and retry, so recent chats keep saving instead of failing silently.
-  for (let keep = chats.length; keep > 0; keep = Math.min(keep - 1, 25)) {
+  // Must run at least once even for an empty list (deleting the last chat).
+  let keep = chats.length;
+  while (true) {
     try { localStorage.setItem(_UW_CHATS_KEY, JSON.stringify(chats.slice(0, keep))); return; } catch(_) {}
+    if (keep <= 0) return;
+    keep = Math.min(keep - 1, 25);
   }
 }
 
