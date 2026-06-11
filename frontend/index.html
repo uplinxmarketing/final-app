@@ -3761,72 +3761,8 @@ async function loadPostingClients() {
   } catch(e) { _postingClients = []; }
 }
 
-function renderPostingClientList() {
-  const listEl = document.getElementById('posts-client-list');
-  if (!listEl) return;
-
-  if (!_postingClients.length) {
-    const isAdm = window._currentUser && window._currentUser.role === 'admin';
-    listEl.innerHTML = `<div style="text-align:center;padding:24px 12px">
-      <div style="font-size:36px;margin-bottom:10px">🏢</div>
-      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No clients yet</div>
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">${isAdm ? 'Click ⚙ above to assign Facebook Pages and Instagram accounts to clients.' : 'Ask your admin to set up your posting clients.'}</div>
-    </div>`;
-    return;
-  }
-
-  let html = '';
-  for (const c of _postingClients) {
-    const colorDot = `<span style="width:10px;height:10px;border-radius:50%;background:${c.color_tag||'#6c63ff'};display:inline-block;flex-shrink:0"></span>`;
-    const hasProfiles = c.profiles && c.profiles.length;
-
-    html += `<div style="margin-bottom:6px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--bg-primary)">
-      <div id="pch-${c.id}" onclick="togglePostingClient(${c.id})" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;transition:background .12s;user-select:none" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
-        ${colorDot}
-        <div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</div>
-        <div id="pchev-${c.id}" style="font-size:11px;color:var(--text-dim);transition:transform .15s;flex-shrink:0">▶</div>
-      </div>
-      <div class="client-children" id="pcc-${c.id}" style="border-top:1px solid var(--border)">`;
-
-    if (hasProfiles) {
-      const multiProfile = c.profiles.length > 1;
-      for (const p of c.profiles) {
-        // Business sub-header only when client has multiple profiles
-        if (multiProfile) {
-          html += `<div style="padding:6px 12px 2px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim);background:var(--bg-secondary)">${p.label}</div>`;
-        }
-        // Facebook Page row
-        html += `<div onclick="selectPostingProfile(${c.id},${p.id},'fb')" id="pp-fb-${p.id}"
-          style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;border-bottom:1px solid var(--bg-secondary)"
-          onmouseover="this.style.background='var(--bg-hover)'" onmouseout="if(!this.classList.contains('psel'))this.style.background='transparent'">
-          <span style="font-size:18px;flex-shrink:0">📘</span>
-          <div style="min-width:0;flex:1">
-            <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.fb_page_name || p.label}</div>
-            <div style="font-size:10px;color:var(--text-dim)">Facebook Page</div>
-          </div>
-          <span style="font-size:11px;color:var(--text-dim);flex-shrink:0">›</span>
-        </div>`;
-        // Instagram row (only if assigned)
-        if (p.ig_account_id) {
-          html += `<div onclick="selectPostingProfile(${c.id},${p.id},'ig')" id="pp-ig-${p.id}"
-            style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .12s;border-bottom:1px solid var(--bg-secondary)"
-            onmouseover="this.style.background='var(--bg-hover)'" onmouseout="if(!this.classList.contains('psel'))this.style.background='transparent'">
-            <span style="font-size:18px;flex-shrink:0">📷</span>
-            <div style="min-width:0;flex:1">
-              <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${p.ig_username || p.ig_account_id}</div>
-              <div style="font-size:10px;color:var(--text-dim)">Instagram</div>
-            </div>
-            <span style="font-size:11px;color:var(--text-dim);flex-shrink:0">›</span>
-          </div>`;
-        }
-      }
-    } else {
-      html += `<div style="padding:12px 14px;font-size:12px;color:var(--text-dim);text-align:center">No pages assigned yet</div>`;
-    }
-    html += `</div></div>`;
-  }
-  listEl.innerHTML = html;
-}
+// Replaced by AI chat history sidebar — kept as a no-op to avoid errors if called.
+function renderPostingClientList() { _uwRenderChatHistory(); }
 
 function togglePostingClient(clientId) {
   const ch = document.getElementById(`pcc-${clientId}`);
