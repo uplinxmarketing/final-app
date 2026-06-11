@@ -3336,7 +3336,7 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
         )
         if not res["success"]:
             return res
-        return {"success": True, "post_id": res["data"].get("post_id") or res["data"].get("id")}
+        return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
 
     # Single photo
     if len(item.media) == 1 and item.media_type == "IMAGE":
@@ -3350,7 +3350,7 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
         )
         if not res["success"]:
             return res
-        return {"success": True, "post_id": res["data"].get("post_id") or res["data"].get("id")}
+        return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
 
     # Carousel (multiple photos)
     if item.media_type == "IMAGE":
@@ -3371,7 +3371,7 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
         )
         if not res["success"]:
             return res
-        return {"success": True, "post_id": res["data"].get("id")}
+        return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("id")}
 
     return {"success": False, "error": f"Unsupported facebook media_type: {item.media_type}"}
 
