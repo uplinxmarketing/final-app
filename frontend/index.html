@@ -6546,15 +6546,10 @@ function uwCalNav(dir) {
 
 function _uwBuildCalendarHtml() {
   const now = new Date();
-  // Determine display month: default to month of earliest scheduled post
+  // Default to the current month — instant (⚡ now) posts live on today's
+  // cell, so today must be visible when the calendar first opens.
   if (_uw.calYear == null || _uw.calMonth == null) {
-    const scheduled = _uw.posts.filter(p => p._schedLocal).sort((a,b) => a._schedLocal < b._schedLocal ? -1 : 1);
-    if (scheduled.length) {
-      const d = new Date(scheduled[0]._schedLocal);
-      _uw.calYear = d.getFullYear(); _uw.calMonth = d.getMonth();
-    } else {
-      _uw.calYear = now.getFullYear(); _uw.calMonth = now.getMonth();
-    }
+    _uw.calYear = now.getFullYear(); _uw.calMonth = now.getMonth();
   }
   const yr = _uw.calYear, mo = _uw.calMonth;
   const monthName = new Date(yr, mo, 1).toLocaleString('en-US', {month:'long', year:'numeric'});
@@ -6585,52 +6580,45 @@ function _uwBuildCalendarHtml() {
   const histBtn = (en) => `padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);color:${en ? 'var(--text-secondary)' : 'var(--border)'};font-size:13px;font-weight:700;cursor:${en ? 'pointer' : 'default'}`;
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
     .map(d => `<div style="font-size:11px;font-weight:700;color:var(--text-dim);text-align:center;padding:5px 2px">${d}</div>`).join('');
-  // One calendar chip per (post × platform) — draggable, clickable, with the
-  // post name on top, a type color stripe, 🕒 and ✕ controls.
-  const chip = ({ p, idx, plat, sched }, compact) => {
+  // One slim calendar chip per (post × platform) — same row style as the main
+  // Calendar tab (icon + thumb + text, left color border), plus the wizard's
+  // own controls: post name, 🕒 time edit and ✕ delete.
+  const chip = ({ p, idx, plat, sched }) => {
     const img = p.mediaList[0];
-    const firstLine = (p.caption || '').split(/[\n.!?]/)[0].trim().slice(0, 60);
-    const logo = plat === 'instagram' ? _uwIgLogo(10) : _uwFbLogo(10);
+    const firstLine = (p.caption || '').split(/[\n.!?]/)[0].trim().slice(0, 40);
     const tc = _uwTypeColor(p);
     const time = sched ? sched.slice(11, 16) : '';
+    const thumb = img && !img.is_video
+      ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0;pointer-events:none" onerror="this.style.display='none'">`
+      : `<span style="font-size:10px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
     return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
-      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — drag to another day to reschedule"
-      style="position:relative;width:100%;min-width:0;box-sizing:border-box;background:var(--bg-primary);border:1px solid ${tc.color};border-top:3px solid ${tc.color};border-radius:6px;overflow:hidden;cursor:grab;margin-bottom:3px">
-      <div style="display:flex;align-items:center;gap:3px;padding:2px 4px;background:${tc.soft};min-width:0">
-        ${logo}
-        <span style="font-size:9px;font-weight:800;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">Post ${idx+1}</span>
-        <span style="font-size:8px;font-weight:700;color:${tc.color};margin-left:auto;flex-shrink:0">${tc.short}</span>
-        <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
-          style="flex-shrink:0;width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;border:none;font-size:8px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
-      </div>
-      ${img && !img.is_video
-        ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:100%;height:${compact ? 28 : 38}px;object-fit:cover;display:block;pointer-events:none">`
-        : `<div style="height:${compact ? 22 : 30}px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--bg-secondary)">${img ? '🎬' : '🖼️'}</div>`}
-      <div style="padding:2px 4px 3px;min-width:0">
-        <div style="display:flex;align-items:center;gap:3px;min-width:0">
-          <div style="font-size:9.5px;line-height:1.3;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1">${escHtml(firstLine) || '<i>No caption</i>'}</div>
-          <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
-            style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8.5px;font-weight:700;cursor:pointer;padding:0 1px;display:inline-flex;align-items:center;gap:1px;flex-shrink:0">${time ? '🕒 ' + time : '⚡ now'}</button>
-        </div>
-      </div>
+      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — click to preview, drag to reschedule"
+      style="display:flex;align-items:center;gap:3px;background:var(--bg-secondary);border-left:2px solid ${tc.color};border-radius:3px;padding:2px 3px;overflow:hidden;min-width:0;cursor:grab"
+      onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-secondary)'">
+      ${platformIcon(plat, 10)}${thumb}
+      <span style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
+      <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
+      <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
+        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 1px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + time : '⚡'}</button>
+      <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
+        style="background:transparent;border:none;color:var(--text-dim);font-size:8px;line-height:1;cursor:pointer;padding:0 1px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
     </div>`;
   };
   let cells = '';
-  const emptyCell = `<div style="min-width:0;overflow:hidden;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);opacity:.3"></div>`;
+  const emptyCell = `<div style="min-width:0;overflow:hidden;border-radius:6px"></div>`;
   // Leading empty cells
   for (let i = 0; i < firstDow; i++) cells += emptyCell;
   for (let d = 1; d <= daysInMo; d++) {
     const isToday = yr === now.getFullYear() && mo === now.getMonth() && d === now.getDate();
     const posts = byDay[d] || [];
-    const compact = posts.length > 1;
-    const postsHtml = posts.slice(0, 2).map(x => chip(x, compact)).join('')
-      + (posts.length > 2 ? `<div style="font-size:9px;color:var(--text-dim);text-align:center;padding:1px 0">+${posts.length-2} more</div>` : '');
+    const postsHtml = posts.slice(0, 3).map(x => chip(x)).join('')
+      + (posts.length > 3 ? `<div style="font-size:9px;color:var(--text-dim);padding:0 3px">+${posts.length-3} more</div>` : '');
     cells += `<div class="uw-cal-day" data-day="${d}"
       ondragover="uwCalDragOver(event)" ondragleave="uwCalDragLeave(event)" ondrop="uwCalDrop(event,${d})"
-      style="border:2px solid ${isToday ? 'var(--accent)' : 'var(--border)'};border-radius:7px;background:var(--bg-primary);padding:3px 4px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden">
-      <div style="font-size:11px;font-weight:${isToday ? '800' : '600'};color:${isToday ? 'var(--accent)' : 'var(--text-secondary)'};text-align:right;margin-bottom:2px;flex-shrink:0">${d}</div>
-      <div style="overflow:hidden;min-height:0;min-width:0">${postsHtml}</div>
+      style="border:1px solid ${isToday ? 'var(--accent)' : 'var(--border)'};border-radius:6px;background:${isToday ? 'rgba(220,38,38,0.08)' : 'var(--bg-primary)'};padding:4px 5px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;min-height:0;min-width:0;overflow:hidden">
+      <div style="font-size:12px;font-weight:${isToday ? '700' : '500'};color:${isToday ? 'var(--accent)' : 'var(--text-primary)'};flex-shrink:0">${d}</div>
+      <div style="display:flex;flex-direction:column;gap:2px;overflow:hidden;min-height:0;min-width:0">${postsHtml}</div>
     </div>`;
   }
   // Trailing empty cells to complete last row
