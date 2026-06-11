@@ -260,6 +260,27 @@ async def _scheduled_posts_loop() -> None:
     minute, picks up due rows, and publishes them by streaming the media from
     Drive — nothing is written to disk.
     """
+    # One-time repair: posts that exhausted their retries because of the
+    # pre-r194 null-posting_user_id bug get returned to the queue — the token
+    # lookup now falls back to the active account, so they can publish.
+    try:
+        async for db in get_db():
+            res = await db.execute(
+                update(ScheduledPost)
+                .where(
+                    ScheduledPost.status == "failed",
+                    ScheduledPost.error_message.like("%no posting account%"),
+                )
+                .values(status="pending", attempts=0, error_message=None,
+                        claimed_by=None, claimed_at=None)
+            )
+            await db.commit()
+            if res.rowcount:
+                logger.info("Re-queued %d scheduled post(s) failed by the null posting account bug", res.rowcount)
+            break
+    except Exception as exc:
+        logger.warning("Scheduled posts repair error: %s", exc)
+
     while True:
         await asyncio.sleep(60)
         try:
@@ -339,17 +360,27 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
 
 async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
     """Fetch a posting account's token by facebook_user_id (no Request needed)."""
-    if not uid:
-        raise RuntimeError("no posting account on scheduled job")
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(
-            ConnectedPostingAccount.facebook_user_id == uid,
-            ConnectedPostingAccount.is_active == True,
+    acc = None
+    if uid:
+        result = await db.execute(
+            select(ConnectedPostingAccount).where(
+                ConnectedPostingAccount.facebook_user_id == uid,
+                ConnectedPostingAccount.is_active == True,
+            )
         )
-    )
-    acc = result.scalar_one_or_none()
+        acc = result.scalar_one_or_none()
     if not acc:
-        raise RuntimeError("posting account not found")
+        # Jobs created before r194 carried a null posting_user_id (portfolio
+        # sessions). Fall back to the most recent active account — same logic
+        # as get_posting_token — so those posts still publish.
+        result = await db.execute(
+            select(ConnectedPostingAccount)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        acc = result.scalars().first()
+    if not acc:
+        raise RuntimeError("no posting account on scheduled job")
     exp = acc.token_expiry
     if exp is not None:
         if exp.tzinfo is None:
