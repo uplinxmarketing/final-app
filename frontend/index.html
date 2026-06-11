@@ -3751,9 +3751,12 @@ async function loadPostingClients() {
     // Restore silently — re-renders the preview card when user opens the chat tab
     _uw.posts = sess.posts; _uw.target = sess.target; _uw.targets = sess.targets;
     _uw.viewMode = sess.viewMode || 'list'; _uw.instructions = sess.instructions || '';
-    const chatName = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
-    _uw._chatId = 'chat_restored_' + Date.now();
+    const chatName = sess.chatName || (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
+    // Reuse the chat id stored in the session so restoring never duplicates
+    // the chat entry; mint one only for legacy sessions that lack it.
+    _uw._chatId = sess.chatId || ('chat_' + Date.now());
     _uw._chatName = chatName;
+    if (!sess.chatId) _uwSave();
     _uwChatsSafeUpsert(_uw._chatId, chatName, sess);
   }
   // We still load posting clients purely so client-assigned pages remain
@@ -5230,6 +5233,8 @@ function _uwSave() {
       targets: _uw.targets,
       viewMode: _uw.viewMode,
       instructions: _uw.instructions,
+      chatId: _uw._chatId || null,
+      chatName: _uw._chatName || null,
       _ts: Date.now()
     };
     sessionStorage.setItem(_UW_SESS_KEY, JSON.stringify(data));
@@ -5441,21 +5446,39 @@ async function startUploadWizard() {
   if (sess && sess.posts && sess.posts.length) {
     _uw.posts = sess.posts; _uw.target = sess.target; _uw.targets = sess.targets;
     _uw.viewMode = sess.viewMode || 'list'; _uw.instructions = sess.instructions || '';
-    const chatName = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
-    if (!_uw._chatId) { _uw._chatId = 'chat_restored_' + Date.now(); _uw._chatName = chatName; }
+    const chatName = sess.chatName || (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
+    if (!_uw._chatId) {
+      _uw._chatId = sess.chatId || ('chat_' + Date.now());
+      _uw._chatName = chatName;
+      if (!sess.chatId) _uwSave();
+    }
     _uwHistReset(); _uwRenderPreview(); return;
   }
+  // A wizard conversation is already on screen (step 1+ rendered, no posts yet) —
+  // re-clicking Upload/Schedule must show it, not stack another picker on top.
+  const msgsEl = document.getElementById('posts-chat-messages');
+  if (msgsEl && msgsEl.querySelector('.uw-target-step')) return;
   await _uwStart();
 }
 
 // Step 0 — verify the Facebook connection is real before anything else, so the
 // chat always reflects the truly-connected account (not a stale flag).
 async function _uwStart() {
-  _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null, instructions:'' };
+  // Keep the chat identity across the reset — restarting the wizard inside an
+  // existing chat must not mint a second chat-history entry for it.
+  const keepChatId = _uw && _uw._chatId || null;
+  const keepChatName = _uw && _uw._chatName || null;
+  _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null, instructions:'', _chatId:keepChatId, _chatName:keepChatName };
 
   // Fast path: the posting interface already loaded pages/clients when entered,
-  // so show the picker instantly instead of re-hitting Meta.
-  if (_postingConnected && _buildPostingTargets().length) { _uwShowTargets(); return; }
+  // so show the picker instantly instead of re-hitting Meta. Portfolios load in
+  // a separate request that can still be in flight — wait for it so the
+  // Business Portfolio quick-pick never randomly disappears from step 1.
+  if (_postingConnected && _buildPostingTargets().length) {
+    if (!_portfoliosLoaded || !_postingPortfolios.length) { try { await loadPostingPortfolios(); } catch(_) {} }
+    _uwShowTargets();
+    return;
+  }
 
   const loading = _appendPostsCard('<div style="font-size:13px;color:var(--text-secondary)">⏳ Checking your connected Facebook account…</div>');
   let connected = _postingConnected;
@@ -5472,9 +5495,10 @@ async function _uwStart() {
     _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:6px">📤 Let's upload some posts!</div>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">First I need a Facebook account connected so I can see your Pages and Instagram accounts.</div>
       <button onclick="openPostingConnectModal()" style="padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🔗 Connect Facebook</button>
-      <button onclick="startUploadWizard()" style="margin-left:8px;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">↻ I've connected — continue</button>`);
+      <button onclick="uwAccountReady()" style="margin-left:8px;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">↻ I've connected — continue</button>`);
     return;
   }
+  if (!_portfoliosLoaded || !_postingPortfolios.length) { try { await loadPostingPortfolios(); } catch(_) {} }
   _uwShowTargets();
 }
 
@@ -5620,7 +5644,18 @@ function uwContinueTarget(btn) {
 function uwChangeAccount() {
   openPostingConnectModal();
   _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary)">Pick or add the Facebook account in the window that opened. When you're done, tap below.</div>
-    <button onclick="startUploadWizard()" style="margin-top:10px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↻ Done — continue</button>`);
+    <button onclick="uwAccountReady()" style="margin-top:10px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↻ Done — continue</button>`);
+}
+
+// After connecting/switching the Facebook account: wipe the stale picker,
+// re-fetch pages for the new account, and restart the wizard from step 0.
+async function uwAccountReady() {
+  const msgs = document.getElementById('posts-chat-messages');
+  if (msgs) msgs.innerHTML = '';
+  _postingConnected = false;
+  _postingPages = []; _postingIgAccounts = [];
+  _portfoliosLoaded = false;
+  await _uwStart();
 }
 
 function uwPickTargets(targets) {
@@ -6582,7 +6617,7 @@ function uwCancel(btn) {
   const fp = document.getElementById('uw-feed-panel');
   if (fp) fp.style.display = 'none';
   _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Okay, cancelled — nothing was published.</div>
-    <button onclick="startUploadWizard()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
+    <button onclick="uwStartOverChat()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
 }
 
 function _uwRenderCards() {
