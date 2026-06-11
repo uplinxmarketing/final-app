@@ -1140,49 +1140,30 @@ a{color:inherit;text-decoration:none}
       </button>
     </div>
 
-    <div class="panel-section">
-      <div class="panel-label">Uploaded Files</div>
-      <div id="upload-list"><div style="font-size:12px;color:var(--text-dim)">No files uploaded</div></div>
-      <button class="panel-btn" style="margin-top:8px" onclick="document.getElementById('file-input').click()">+ Upload Files</button>
-    </div>
-
-    <div class="panel-section" id="panel-section-drive-upload">
-      <div class="panel-label">Google Drive Upload</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
-        Paste a Drive folder link for images and a Doc/Sheet link for ad copy — the AI will download and push them to your campaign.
+    <div class="panel-section" id="panel-section-error-log">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="panel-label" style="margin-bottom:0">Error &amp; System Log</div>
+        <div style="display:flex;gap:5px">
+          <button onclick="_logCopy()" title="Copy all log entries to clipboard"
+            style="padding:3px 9px;border-radius:5px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap"
+            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">📋 Copy</button>
+          <button onclick="_logClear()" title="Clear all log entries"
+            style="padding:3px 9px;border-radius:5px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap"
+            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🗑 Clear</button>
+        </div>
       </div>
-      <div class="panel-field">
-        <label>Images Folder</label>
-        <input type="url" id="drive-images-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="drive.google.com/drive/folders/…">
+      <div id="error-log-entries"
+        style="font-size:10px;font-family:monospace;background:var(--bg-deep);border:1px solid var(--border);border-radius:6px;padding:7px 8px;max-height:340px;overflow-y:auto;color:var(--text-secondary);line-height:1.55;word-break:break-word">
+        <span style="color:var(--text-dim);font-style:italic">No errors logged yet.</span>
       </div>
-      <div class="panel-field">
-        <label>Ad Copy (Doc or Sheet)</label>
-        <input type="url" id="drive-text-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="docs.google.com/…">
-      </div>
-      <div class="panel-field">
-        <label>Landing Page URL</label>
-        <input type="url" id="drive-dest-url"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="https://yoursite.com/page">
-      </div>
-      <div class="panel-field">
-        <label>Ad Set ID</label>
-        <input type="text" id="drive-adset-id"
-          style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:11px;color:var(--text-primary)"
-          placeholder="123456789012">
-      </div>
-      <button onclick="uploadFromDrive()"
-        style="width:100%;padding:7px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;transition:background .15s"
-        onmouseover="this.style.background='var(--accent-hover)'" onmouseout="this.style.background='var(--accent)'">
-        ↑ Upload to Campaign
-      </button>
-      <div id="drive-upload-status" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
-      <div style="font-size:10px;color:var(--text-dim);margin-top:10px;line-height:1.5;border-top:1px solid var(--border);padding-top:8px">
-        💬 Need multiple campaigns or ads with different URLs? Just describe it in the chat — e.g. <em>"Use the images in &lt;folder link&gt; and copy from &lt;doc link&gt;, create ads in ad set 123 pointing to siteA.com, and another batch in ad set 456 pointing to siteB.com."</em>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
+        <button onclick="_logFetchServer()" title="Fetch recent errors from the server log"
+          style="padding:3px 9px;border-radius:5px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap"
+          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">⬇ Fetch Server Log</button>
+        <div id="error-log-count" style="font-size:10px;color:var(--text-dim)">0 entries</div>
       </div>
     </div>
 
@@ -2885,6 +2866,101 @@ async function refreshAiUsage() {
   if (data.alltime_total) {
     _setTextIfExists('ai-token-alltime', `All-time: ${data.alltime_total.toLocaleString()} tokens`);
   }
+}
+
+// ── Error & System Log (admin right panel) ───────────────────────────────────
+const _logEntries = [];
+const _logMax = 200;
+
+function _logAdd(level, msg, detail) {
+  const ts = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  _logEntries.push({ ts, level, msg: String(msg).slice(0, 400), detail: detail ? String(detail).slice(0, 800) : '' });
+  if (_logEntries.length > _logMax) _logEntries.shift();
+  _logRender();
+}
+
+function _logRender() {
+  const el = document.getElementById('error-log-entries');
+  const cnt = document.getElementById('error-log-count');
+  if (!el) return;
+  if (!_logEntries.length) {
+    el.innerHTML = '<span style="color:var(--text-dim);font-style:italic">No errors logged yet.</span>';
+    if (cnt) cnt.textContent = '0 entries';
+    return;
+  }
+  const colorFor = l => l === 'error' ? '#ef4444' : l === 'warn' ? '#f59e0b' : '#22c55e';
+  const labelFor = l => l === 'error' ? '❌' : l === 'warn' ? '⚠️' : 'ℹ️';
+  el.innerHTML = [..._logEntries].reverse().map(e => {
+    const detail = e.detail ? `<div style="color:var(--text-dim);padding-left:8px;margin-top:1px;white-space:pre-wrap">${escHtml(e.detail)}</div>` : '';
+    return `<div style="border-bottom:1px solid var(--border);padding:4px 0;margin-bottom:2px">
+      <span style="color:var(--text-dim)">${e.ts}</span>
+      <span style="color:${colorFor(e.level)};font-weight:700;margin:0 4px">${labelFor(e.level)}</span>
+      <span>${escHtml(e.msg)}</span>${detail}
+    </div>`;
+  }).join('');
+  if (cnt) cnt.textContent = `${_logEntries.length} entr${_logEntries.length === 1 ? 'y' : 'ies'}`;
+  // Auto-scroll to bottom only if user hasn't scrolled up
+  if (el.scrollHeight - el.scrollTop < el.clientHeight + 60) el.scrollTop = el.scrollHeight;
+}
+
+function _logCopy() {
+  const lines = _logEntries.map(e =>
+    `[${e.ts}] [${e.level.toUpperCase()}] ${e.msg}${e.detail ? '\n  ' + e.detail : ''}`
+  ).join('\n');
+  navigator.clipboard.writeText(lines || '(empty log)').then(() => {
+    showToast('Log copied to clipboard');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = lines || '(empty log)';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    showToast('Log copied');
+  });
+}
+
+function _logClear() {
+  _logEntries.length = 0;
+  _logRender();
+}
+
+// Intercept console.error and console.warn to feed the panel.
+(function() {
+  const _origError = console.error.bind(console);
+  const _origWarn = console.warn.bind(console);
+  console.error = function(...args) {
+    _origError(...args);
+    _logAdd('error', args[0], args.slice(1).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  };
+  console.warn = function(...args) {
+    _origWarn(...args);
+    _logAdd('warn', args[0], args.slice(1).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  };
+})();
+
+// Catch unhandled JS errors and promise rejections.
+window.addEventListener('error', e => {
+  _logAdd('error', e.message || 'Unhandled error', `${e.filename}:${e.lineno}`);
+});
+window.addEventListener('unhandledrejection', e => {
+  _logAdd('error', 'Unhandled promise rejection', String(e.reason));
+});
+
+async function _logFetchServer() {
+  try {
+    const data = await api('GET', '/api/ai-usage/log?lines=50').catch(() => null);
+    if (!data || !data.log) { _logAdd('warn', 'Server log empty or unavailable', ''); return; }
+    let count = 0;
+    data.log.split('\n').filter(Boolean).forEach(line => {
+      try {
+        const e = JSON.parse(line);
+        if (e.error || e.empty_reply) {
+          _logAdd('error', `[SERVER] ${e.error || 'empty reply'} — ${e.provider}/${e.model}`,
+            `conv:${e.conv_id || '?'} | ${e.detail || ''}`);
+          count++;
+        }
+      } catch(_) {}
+    });
+    if (!count) _logAdd('info', `[SERVER] Fetched ${data.count} server log entries — no errors found`, '');
+  } catch(e) { _logAdd('error', 'Failed to fetch server log', String(e)); }
 }
 
 async function copyDiagLog() {
@@ -8052,33 +8128,37 @@ async function uwPollJob() {
   if (!status) { _uw.pollTimer = null; return; }
   try {
     const job = await fetch(`/api/posting/jobs/${_uw.jobId}`).then(r=>r.ok?r.json():null);
-    if (!job) { status.textContent='Lost track of job.'; return; }
-    // Items are ordered post-major (post0→fb,post0→ig, post1→fb,…), so map an
-    // item index back to its post card. A post card is ✅ only if every target
-    // for it succeeded.
+    if (!job) { status.textContent='Lost track of job.'; _logAdd('error', `Job ${_uw.jobId} not found`, 'Poll returned null — job may have expired'); return; }
     const nTargets = (_uw.targets || [_uw.target]).filter(Boolean).length || 1;
-    const agg = {}; // postIndex -> {ok, sched, fail}
+    const agg = {};
     (job.results||[]).forEach(r=>{
       const pi = Math.floor(r.index / nTargets);
-      const a = agg[pi] || (agg[pi] = {ok:0, sched:0, fail:0});
+      const a = agg[pi] || (agg[pi] = {ok:0, sched:0, fail:0, errors:[]});
       if (r.success && r.scheduled) a.sched++;
       else if (r.success) a.ok++;
-      else a.fail++;
+      else { a.fail++; if (r.error) a.errors.push(r.error); }
     });
     Object.keys(agg).forEach(pi=>{
       const el = card.querySelector('.uw-res-'+pi); if(!el) return;
       const a = agg[pi];
-      if (a.fail){ el.textContent = a.ok+a.sched ? `⚠️ ${a.fail} failed` : '❌'; el.style.color='var(--accent)'; }
+      if (a.fail){
+        el.textContent = a.ok+a.sched ? `⚠️ ${a.fail} failed` : '❌'; el.style.color='var(--accent)';
+        a.errors.forEach(err => _logAdd('error', `Post ${+pi+1} failed`, err));
+      }
       else if (a.sched){ el.textContent='🕒 Scheduled'; el.style.color='var(--text-secondary)'; }
       else { el.textContent='✅'; el.style.color='var(--success,#22c55e)'; }
     });
     if (job.status==='queued'){ status.textContent = job.position>0?`⏳ ${job.position} job(s) ahead — you can keep chatting`:'⏳ Starting…'; }
     else if (job.status==='running'){ status.textContent=`🔄 Publishing ${job.completed}/${job.total}…`; }
-    else if (job.status==='done'){ status.textContent=''; _uw.jobId=null;
+    else if (job.status==='done'){
+      status.textContent=''; _uw.jobId=null;
+      if (job.failed) _logAdd('warn', `Job done with ${job.failed} failure(s)`, `published:${job.published_count} scheduled:${job.scheduled_count} failed:${job.failed}`);
       _appendPostsCard(`<div style="font-size:13px">✅ <b>All done!</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.</div>`); return; }
-    else if (job.status==='failed'){ status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null; return; }
+    else if (job.status==='failed'){
+      status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
+      _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
     _uw.pollTimer = setTimeout(uwPollJob, 2000);
-  } catch(e){ _uw.pollTimer = setTimeout(uwPollJob, 3000); }
+  } catch(e){ _logAdd('warn', 'Poll error', String(e)); _uw.pollTimer = setTimeout(uwPollJob, 3000); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
