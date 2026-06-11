@@ -5358,6 +5358,34 @@ async def api_scheduled_posts(request: Request, client_id: Optional[int] = None,
     ]
 
 
+@app.delete("/api/posting/published/{post_id}")
+async def api_delete_published_post(
+    post_id: str,
+    request: Request,
+    platform: str = "facebook",
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a published Facebook page post from Meta.
+
+    Instagram is rejected up front: the IG Graph API has no delete operation
+    for published media — it can only be removed in the Instagram app itself.
+    """
+    if platform == "instagram":
+        raise HTTPException(
+            400,
+            "Instagram doesn't allow apps to delete published posts — open the post "
+            "on Instagram and delete it there.",
+        )
+    token = await get_posting_token(request, db)
+    # FB post ids are "<page_id>_<post_id>" — deleting requires the page token.
+    page_id = post_id.split("_")[0]
+    page_token = await _get_page_token(token, page_id)
+    res = await meta_api.delete_scheduled_post(page_token, post_id)
+    if not res.get("success"):
+        raise HTTPException(502, f"Meta refused the delete: {res.get('error', 'unknown error')}")
+    return {"success": True}
+
+
 @app.delete("/api/scheduled-posts/{post_id}")
 async def api_cancel_scheduled_post(post_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
