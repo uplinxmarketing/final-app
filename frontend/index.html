@@ -5404,33 +5404,43 @@ let _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null 
 const _UW_SESS_KEY = 'uplinx_uw_session';
 
 function _uwSave() {
-  if (!_uw.posts || !_uw.posts.length) return;
+  // Persist as soon as targets are picked (step 1) — not just once posts exist —
+  // so the selected account/portfolio survives a reload or window close.
+  const hasTargets = !!(_uw.targets && _uw.targets.length) || !!_uw.target;
+  if ((!_uw.posts || !_uw.posts.length) && !hasTargets) return;
   try {
     const data = {
-      posts: _uw.posts,
+      posts: _uw.posts || [],
       target: _uw.target,
       targets: _uw.targets,
       viewMode: _uw.viewMode,
       instructions: _uw.instructions,
       chatId: _uw._chatId || null,
       chatName: _uw._chatName || null,
+      historyHtml: _uwMsgsSnapshot(),
       _ts: Date.now()
     };
-    sessionStorage.setItem(_UW_SESS_KEY, JSON.stringify(data));
+    // localStorage (not sessionStorage) so closing the window doesn't lose it.
+    localStorage.setItem(_UW_SESS_KEY, JSON.stringify(data));
   } catch(_) {}
 }
 
 function _uwLoad() {
   try {
-    const raw = sessionStorage.getItem(_UW_SESS_KEY);
+    // Prefer localStorage; fall back to legacy sessionStorage sessions.
+    const raw = localStorage.getItem(_UW_SESS_KEY) || sessionStorage.getItem(_UW_SESS_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || !data.posts || !data.posts.length) return null;
+    if (!data) return null;
+    const hasPosts = data.posts && data.posts.length;
+    const hasTargets = (data.targets && data.targets.length) || data.target;
+    if (!hasPosts && !hasTargets) return null;
     return data;
   } catch(_) { return null; }
 }
 
 function _uwClearSession() {
+  try { localStorage.removeItem(_UW_SESS_KEY); } catch(_) {}
   try { sessionStorage.removeItem(_UW_SESS_KEY); } catch(_) {}
 }
 
@@ -5540,6 +5550,10 @@ function _uwChatOpen(id) {
   if (_uw.posts.length) {
     _uwHistReset();
     _uwRenderPreview();
+  } else if (_uw.targets && _uw.targets.length) {
+    // Chat saved at step 2 (targets picked, no posts yet) — resume with a
+    // live step-2 card rather than restarting from the target picker.
+    uwPickTargets(_uw.targets);
   } else {
     startUploadWizard();
   }
@@ -5680,10 +5694,11 @@ async function startUploadWizard() {
     if (!_uw.previewCard) { _uwHistReset(); _uwRenderPreview(); }
     return;
   }
-  // Restore a session saved to sessionStorage (e.g. after a page reload)
+  // Restore a saved session (e.g. after a page reload or window close)
   const sess = _uwLoad();
-  if (sess && sess.posts && sess.posts.length) {
-    _uw.posts = sess.posts; _uw.target = sess.target; _uw.targets = sess.targets;
+  if (sess && (!_uw._chatId || !sess.chatId || sess.chatId === _uw._chatId)
+      && ((sess.posts && sess.posts.length) || (sess.targets && sess.targets.length) || sess.target)) {
+    _uw.posts = sess.posts || []; _uw.target = sess.target; _uw.targets = sess.targets;
     _uw.viewMode = sess.viewMode || 'list'; _uw.instructions = sess.instructions || '';
     const chatName = sess.chatName || (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
     if (!_uw._chatId) {
@@ -5691,7 +5706,16 @@ async function startUploadWizard() {
       _uw._chatName = chatName;
       if (!sess.chatId) _uwSave();
     }
-    _uwHistReset(); _uwRenderPreview(); return;
+    // Put the steps 1 & 2 conversation back so the full chat is visible again.
+    const msgsEl0 = document.getElementById('posts-chat-messages');
+    if (msgsEl0 && sess.historyHtml) msgsEl0.innerHTML = sess.historyHtml;
+    if (_uw.posts.length) { _uwHistReset(); _uwRenderPreview(); }
+    else if (_uw.targets && _uw.targets.length) {
+      // Targets were picked but no posts yet — re-issue a live step-2 card so
+      // the user continues from where they left off instead of restarting.
+      uwPickTargets(_uw.targets);
+    }
+    return;
   }
   // Step 1 picker is already on screen — just make sure chat tab is visible
   const msgsEl = document.getElementById('posts-chat-messages');
@@ -5916,6 +5940,7 @@ function uwPickTargets(targets) {
   if (!_uw._chatId) _uw._chatId = 'chat_' + Date.now();
   _uw._chatName = chatName;
   _uwChatsSafeUpsert(_uw._chatId, chatName, { posts: [], target: _uw.target, targets: _uw.targets, viewMode: _uw.viewMode, instructions: '' });
+  _uwSave(); // persist the account/portfolio selection right away
   const label = targets.map(t => `${t.platform==='instagram'?'📷':'📘'} ${t.name}`).join(' + ');
   _appendPostsMsg('user', `Post to ${label}`);
   // Small segmented toggle: each option is a pill; the active one is filled.
@@ -6813,6 +6838,9 @@ function _uwMsgsSnapshot() {
   if (!msgs) return '';
   const clone = msgs.cloneNode(true);
   clone.querySelectorAll('.msg').forEach(el => { if (el.querySelector('.uw-preview')) el.remove(); });
+  // Empty/welcome screen → no conversation to capture. Returning '' (falsy)
+  // means callers preserve any previously saved history instead of wiping it.
+  if (!clone.querySelector('.msg')) return '';
   clone.querySelectorAll('button,input,select,textarea').forEach(el => {
     el.disabled = true; el.style.pointerEvents = 'none'; el.style.opacity = '.55';
   });
