@@ -5477,11 +5477,12 @@ async function startUploadWizard() {
   if (!pm || pm.style.display === 'none') enterInterface('posts');
   _postTab = 'chat';
   switchPostsTab('chat');
-  // If a session is in progress (from before reload), restore it instead of starting fresh
+  // Resume an active session that already has posts
   if (_uw._chatId && _uw.posts && _uw.posts.length) {
     if (!_uw.previewCard) { _uwHistReset(); _uwRenderPreview(); }
     return;
   }
+  // Restore a session saved to sessionStorage (e.g. after a page reload)
   const sess = _uwLoad();
   if (sess && sess.posts && sess.posts.length) {
     _uw.posts = sess.posts; _uw.target = sess.target; _uw.targets = sess.targets;
@@ -5494,28 +5495,30 @@ async function startUploadWizard() {
     }
     _uwHistReset(); _uwRenderPreview(); return;
   }
-  // A wizard conversation is already on screen (step 1+ rendered, no posts yet) —
-  // re-clicking Upload/Schedule must show it, not stack another picker on top.
+  // Step 1 picker is already on screen — just make sure chat tab is visible
   const msgsEl = document.getElementById('posts-chat-messages');
-  if (msgsEl && msgsEl.querySelector('.uw-target-step')) return;
+  if (msgsEl && msgsEl.querySelector('.uw-target-step')) {
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return;
+  }
   await _uwStart();
 }
 
 // Step 0 — verify the Facebook connection is real before anything else, so the
 // chat always reflects the truly-connected account (not a stale flag).
 async function _uwStart() {
-  // Keep the chat identity across the reset — restarting the wizard inside an
-  // existing chat must not mint a second chat-history entry for it.
+  // Keep the chat identity across the reset so restarting the wizard inside an
+  // existing chat never mints a second history entry.
   const keepChatId = _uw && _uw._chatId || null;
   const keepChatName = _uw && _uw._chatName || null;
   _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null, instructions:'', _chatId:keepChatId, _chatName:keepChatName };
 
-  // Fast path: the posting interface already loaded pages/clients when entered,
-  // so show the picker instantly instead of re-hitting Meta. Portfolios load in
-  // a separate request that can still be in flight — wait for it so the
-  // Business Portfolio quick-pick never randomly disappears from step 1.
+  // Fast path: pages are already loaded — show step 1 immediately, then kick
+  // off the portfolio load in the background if it hasn't completed yet.
+  // We do NOT block on it; the portfolio picker mounts itself via _pfDropEnsure
+  // once _postingPortfolios is populated and _uwShowTargets re-runs.
   if (_postingConnected && _buildPostingTargets().length) {
-    if (!_portfoliosLoaded || !_postingPortfolios.length) { try { await loadPostingPortfolios(); } catch(_) {} }
+    if (!_portfoliosLoaded) loadPostingPortfolios().catch(() => {});
     _uwShowTargets();
     return;
   }
@@ -5538,7 +5541,7 @@ async function _uwStart() {
       <button onclick="uwAccountReady()" style="margin-left:8px;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;cursor:pointer">↻ I've connected — continue</button>`);
     return;
   }
-  if (!_portfoliosLoaded || !_postingPortfolios.length) { try { await loadPostingPortfolios(); } catch(_) {} }
+  if (!_portfoliosLoaded) loadPostingPortfolios().catch(() => {});
   _uwShowTargets();
 }
 
