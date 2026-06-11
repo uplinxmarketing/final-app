@@ -4796,19 +4796,32 @@ function showCalendarPostPreview(idx) {
     </div>`;
   }
 
-  // Footer: full-width branded button for published posts; a note for
-  // scheduled ones (they have no permalink until Meta publishes them).
-  const footer = post.permalink
-    ? `<div style="padding:14px 16px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--bg-secondary)">
-        <a href="${escHtml(post.permalink)}" target="_blank" rel="noopener"
-          style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;box-sizing:border-box;padding:13px 20px;background:${isIg ? 'linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)' : '#1877F2'};color:#fff;border-radius:10px;font-size:14px;font-weight:800;letter-spacing:.2px;text-decoration:none;box-shadow:0 4px 14px ${isIg ? 'rgba(238,42,123,.35)' : 'rgba(24,119,242,.35)'};transition:transform .12s,filter .12s"
-          onmouseover="this.style.transform='translateY(-1px)';this.style.filter='brightness(1.06)'" onmouseout="this.style.transform='';this.style.filter=''">
-          ${isIg ? igIcon(17) : fbIcon(17)}<span>View on ${isIg ? 'Instagram' : 'Facebook'}</span><span style="font-size:15px">↗</span>
-        </a>
-      </div>`
-    : (isPub ? '' : `<div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-dim)">
-        ⏱ This post will appear on ${isIg ? 'Instagram' : 'Facebook'} once it's published.
-      </div>`);
+  // Footer: view + delete actions for published posts; cancel for scheduled.
+  // IG published posts can't be deleted via API — only in the Instagram app.
+  const viewBtn = post.permalink
+    ? `<a href="${escHtml(post.permalink)}" target="_blank" rel="noopener"
+        style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;box-sizing:border-box;padding:13px 20px;background:${isIg ? 'linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)' : '#1877F2'};color:#fff;border-radius:10px;font-size:14px;font-weight:800;letter-spacing:.2px;text-decoration:none;box-shadow:0 4px 14px ${isIg ? 'rgba(238,42,123,.35)' : 'rgba(24,119,242,.35)'};transition:transform .12s,filter .12s"
+        onmouseover="this.style.transform='translateY(-1px)';this.style.filter='brightness(1.06)'" onmouseout="this.style.transform='';this.style.filter=''">
+        ${isIg ? igIcon(17) : fbIcon(17)}<span>View on ${isIg ? 'Instagram' : 'Facebook'}</span><span style="font-size:15px">↗</span>
+      </a>` : '';
+  let actionRow = '';
+  if (isPub && !isIg) {
+    actionRow = `<button onclick="calDeletePublished(${idx})" class="cal-del-btn"
+      style="display:flex;align-items:center;justify-content:center;gap:7px;width:100%;box-sizing:border-box;margin-top:9px;padding:11px 20px;background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:background .12s"
+      onmouseover="this.style.background='var(--accent-soft,rgba(220,38,38,.08))'" onmouseout="this.style.background='transparent'">🗑 Delete Post from Facebook</button>`;
+  } else if (isPub && isIg) {
+    actionRow = `<div style="margin-top:9px;text-align:center;font-size:11px;color:var(--text-dim);line-height:1.5">Instagram doesn't allow apps to delete published posts —<br>use "View on Instagram" above and delete it there.</div>`;
+  } else if (!isPub && post.id) {
+    actionRow = `<button onclick="calCancelScheduled(${idx})" class="cal-del-btn"
+      style="display:flex;align-items:center;justify-content:center;gap:7px;width:100%;box-sizing:border-box;margin-top:${viewBtn ? '9px' : '0'};padding:11px 20px;background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:background .12s"
+      onmouseover="this.style.background='var(--accent-soft,rgba(220,38,38,.08))'" onmouseout="this.style.background='transparent'">🗑 Cancel Scheduled Post</button>`;
+  }
+  const schedNote = (!isPub && !post.permalink)
+    ? `<div style="text-align:center;font-size:12px;color:var(--text-dim);margin-bottom:${actionRow ? '9px' : '0'}">⏱ This post will appear on ${isIg ? 'Instagram' : 'Facebook'} once it's published.</div>`
+    : '';
+  const footer = (viewBtn || actionRow || schedNote)
+    ? `<div style="padding:14px 16px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--bg-secondary)">${schedNote}${viewBtn}${actionRow}</div>`
+    : '';
 
   const existing = document.getElementById('cal-post-preview-modal');
   if (existing) existing.remove();
@@ -4829,6 +4842,46 @@ function showCalendarPostPreview(idx) {
   </div>`;
   modal.onclick = e => { if (e.target === modal) modal.remove(); };
   document.body.appendChild(modal);
+}
+
+// Delete a published Facebook post from Meta (calendar preview modal).
+async function calDeletePublished(idx) {
+  const post = _calClickItems[idx];
+  if (!post || !post.id) return;
+  if (!confirm('Delete this post from Facebook? This removes it from your Page and cannot be undone.')) return;
+  const btn = document.querySelector('#cal-post-preview-modal .cal-del-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting…'; }
+  try {
+    await api('DELETE', `/api/posting/published/${encodeURIComponent(post.id)}?platform=${post.platform || 'facebook'}`);
+    toast('Post deleted from Facebook');
+    const modal = document.getElementById('cal-post-preview-modal');
+    if (modal) modal.remove();
+    loadCalendar();
+  } catch(e) {
+    _logAdd('error', 'Delete published post failed', String(e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Delete Post from Facebook'; }
+    alert('Could not delete the post: ' + (e.message || e));
+  }
+}
+
+// Cancel a pending scheduled post (calendar preview modal).
+async function calCancelScheduled(idx) {
+  const post = _calClickItems[idx];
+  if (!post || !post.id) return;
+  if (!confirm('Cancel this scheduled post? It will not be published.')) return;
+  const btn = document.querySelector('#cal-post-preview-modal .cal-del-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelling…'; }
+  try {
+    await api('DELETE', `/api/scheduled-posts/${post.id}`);
+    toast('Scheduled post cancelled');
+    const modal = document.getElementById('cal-post-preview-modal');
+    if (modal) modal.remove();
+    loadCalendar();
+  } catch(e) {
+    _logAdd('error', 'Cancel scheduled post failed', String(e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Cancel Scheduled Post'; }
+    alert('Could not cancel the post: ' + (e.message || e));
+  }
 }
 
 function showCalendarDay(day) {
