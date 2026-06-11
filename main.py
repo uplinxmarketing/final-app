@@ -230,25 +230,26 @@ async def _token_refresh_loop() -> None:
         try:
             async for db in get_db():
                 threshold = datetime.utcnow() + timedelta(days=7)
-                result = await db.execute(
-                    select(ConnectedMetaAccount).where(
-                        ConnectedMetaAccount.is_active == True,
-                        ConnectedMetaAccount.token_expiry <= threshold,
+                for model in (ConnectedMetaAccount, ConnectedPostingAccount):
+                    result = await db.execute(
+                        select(model).where(
+                            model.is_active == True,
+                            model.token_expiry <= threshold,
+                        )
                     )
-                )
-                accounts = result.scalars().all()
-                for acc in accounts:
-                    token = encryption.decrypt(acc.encrypted_long_token)
-                    refresh = await meta_api.exchange_for_long_lived_token(
-                        token, settings.META_APP_ID, settings.META_APP_SECRET
-                    )
-                    if refresh.get("success") and refresh.get("data", {}).get("access_token"):
-                        new_token = refresh["data"]["access_token"]
-                        acc.encrypted_long_token = encryption.encrypt(new_token)
-                        expiry_days = refresh["data"].get("expires_in", 5184000) // 86400
-                        acc.token_expiry = datetime.utcnow() + timedelta(days=expiry_days)
-                        await db.commit()
-                        logger.info("Refreshed token for %s", acc.facebook_user_id)
+                    accounts = result.scalars().all()
+                    for acc in accounts:
+                        token = encryption.decrypt(acc.encrypted_long_token)
+                        refresh = await meta_api.exchange_for_long_lived_token(
+                            token, settings.META_APP_ID, settings.META_APP_SECRET
+                        )
+                        if refresh.get("success") and refresh.get("data", {}).get("access_token"):
+                            new_token = refresh["data"]["access_token"]
+                            acc.encrypted_long_token = encryption.encrypt(new_token)
+                            expiry_days = refresh["data"].get("expires_in", 5184000) // 86400
+                            acc.token_expiry = datetime.utcnow() + timedelta(days=expiry_days)
+                            await db.commit()
+                            logger.info("Refreshed token for %s", acc.facebook_user_id)
         except Exception as exc:
             logger.warning("Token refresh loop error: %s", exc)
 
@@ -5460,6 +5461,88 @@ async def api_cancel_scheduled_post(post_id: int, request: Request, db: AsyncSes
     post.status = "cancelled"
     await db.commit()
     return {"success": True}
+
+
+@app.get("/api/posting/token-health")
+async def api_posting_token_health(request: Request, db: AsyncSession = Depends(get_db)):
+    """Expiry status of every active posting account token, worst first."""
+    result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+    )
+    now = datetime.now(timezone.utc)
+    out = []
+    for acc in result.scalars().all():
+        days_left = None
+        status = "unknown"
+        if acc.token_expiry:
+            expiry = acc.token_expiry if acc.token_expiry.tzinfo else acc.token_expiry.replace(tzinfo=timezone.utc)
+            days_left = (expiry - now).days
+            status = "expired" if days_left < 0 else "warning" if days_left <= 7 else "ok"
+        out.append({
+            "id": acc.id,
+            "name": acc.user_name or acc.facebook_user_id,
+            "days_left": days_left,
+            "status": status,
+        })
+    rank = {"expired": 0, "warning": 1, "unknown": 2, "ok": 3}
+    out.sort(key=lambda a: rank.get(a["status"], 3))
+    return {"accounts": out}
+
+
+@app.get("/api/posting/notifications")
+async def api_posting_notifications(db: AsyncSession = Depends(get_db)):
+    """Failed scheduled posts from the last 14 days, newest first."""
+    since = datetime.now(timezone.utc) - timedelta(days=14)
+    result = await db.execute(
+        select(ScheduledPost)
+        .where(
+            ScheduledPost.status == "failed",
+            ScheduledPost.scheduled_time >= since,
+        )
+        .order_by(ScheduledPost.scheduled_time.desc())
+        .limit(50)
+    )
+    posts = result.scalars().all()
+    return {
+        "failed": [
+            {
+                "id": p.id,
+                "platform": p.platform,
+                "page_id": p.page_id,
+                "instagram_id": p.instagram_id,
+                "caption": (p.caption or "")[:200],
+                "media_type": p.media_type,
+                "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
+                "error": (p.error_message or "")[:300],
+                "attempts": p.attempts,
+            }
+            for p in posts
+        ]
+    }
+
+
+@app.post("/api/scheduled-posts/{post_id}/retry")
+async def api_retry_scheduled_post(post_id: int, db: AsyncSession = Depends(get_db)):
+    """Re-queue a failed scheduled post for immediate publish."""
+    result = await db.execute(select(ScheduledPost).where(ScheduledPost.id == post_id))
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(404, "Scheduled post not found")
+    if post.status not in ("failed", "cancelled"):
+        raise HTTPException(400, f"Post is {post.status} — only failed or cancelled posts can be retried")
+    post.status = "pending"
+    post.attempts = 0
+    post.error_message = None
+    post.claimed_by = None
+    post.claimed_at = None
+    # Publish on the next worker pass instead of waiting for the original
+    # (now past) scheduled time.
+    if post.scheduled_time and post.scheduled_time.replace(tzinfo=post.scheduled_time.tzinfo or timezone.utc) > datetime.now(timezone.utc):
+        pass  # still in the future — keep the original slot
+    else:
+        post.scheduled_time = datetime.now(timezone.utc)
+    await db.commit()
+    return {"success": True, "message": "Post re-queued — it will publish within a minute."}
 
 
 # ── API usage stats ────────────────────────────────────────────────────────────
