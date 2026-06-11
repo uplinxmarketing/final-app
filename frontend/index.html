@@ -7047,16 +7047,16 @@ function _uwBuildCalendarHtml() {
     return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — click to preview, drag to reschedule"
-      style="display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 3px;overflow:hidden;min-width:0;cursor:grab"
-      onmouseover="this.style.filter='brightness(1.12)'" onmouseout="this.style.filter=''">
+      style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
+      onmouseover="this.style.filter='brightness(1.12)';this.querySelector('.cal-chip-del').style.opacity='1'" onmouseout="this.style.filter='';this.querySelector('.cal-chip-del').style.opacity='0'">
       <span style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
       <span style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
       <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
       <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
-        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 1px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + _uw12h(time) : '🕒 now ⚡'}</button>
-      <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
-        style="background:transparent;border:none;color:var(--text-dim);font-size:8px;line-height:1;cursor:pointer;padding:0 1px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-dim)'">✕</button>
+        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 2px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
+      <button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
+        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s;flex-shrink:0">✕</button>
     </div>`;
   };
   let cells = '';
