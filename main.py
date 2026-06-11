@@ -4,6 +4,7 @@ All routes, OAuth flows, session management, and API endpoints.
 """
 import aiofiles
 import asyncio
+import os
 import json
 import logging
 import hashlib
@@ -1051,7 +1052,20 @@ async def setup_redirect_uris(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0"}
+    # Deployment markers so /health shows exactly what's live:
+    # - commit: the git SHA Render deployed (RENDER_GIT_COMMIT env var)
+    # - release: version.txt baked into that commit (lags one release because
+    #   the bump lands after the code merge and is skipped by the buildFilter)
+    try:
+        release = Path("version.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        release = "unknown"
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "release": release,
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or "unknown",
+    }
 
 
 @app.get("/privacy", response_class=HTMLResponse)
