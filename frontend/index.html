@@ -4270,8 +4270,11 @@ function selectPostingIG(igId) {
 
 // ── Calendar ────────────────────────────────────────────────────────────────
 
+let _calLoadSeq = 0;   // discard stale responses when loadCalendar overlaps itself
 async function loadCalendar() {
+  const seq = ++_calLoadSeq;
   if (!_portfoliosLoaded) { await loadPostingPortfolios(); }
+  if (seq !== _calLoadSeq) return;
   renderCalendarPagePicker();
   if (!_calFbPage && !_calIgPage) {
     const grid = document.getElementById('calendar-grid');
@@ -4292,6 +4295,9 @@ async function loadCalendar() {
         .then(r => r.ok ? r.json() : null)
     );
     const results = await Promise.all(fetches);
+    // A newer loadCalendar started while we were fetching — drop this response
+    // so stale data (old month / old page) never overwrites the current view.
+    if (seq !== _calLoadSeq) return;
     const merged = {};
     for (const result of results) {
       if (!result) continue;
@@ -4303,7 +4309,11 @@ async function loadCalendar() {
     }
     _calData = {days: merged};
     renderCalendarGrid(merged);
-  } catch(e) { renderCalendarGrid({}); }
+  } catch(e) {
+    if (seq !== _calLoadSeq) return;
+    _logAdd('error', 'Calendar load failed', String(e));
+    renderCalendarGrid({});
+  }
 }
 
 // Build the two separate page choosers (one Facebook, one Instagram).
