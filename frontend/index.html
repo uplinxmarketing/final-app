@@ -3748,7 +3748,7 @@ async function loadPostingClients() {
     const chatName = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
     _uw._chatId = 'chat_restored_' + Date.now();
     _uw._chatName = chatName;
-    _uwChatsUpsert(_uw._chatId, chatName, sess);
+    _uwChatsSafeUpsert(_uw._chatId, chatName, sess);
   }
   // We still load posting clients purely so client-assigned pages remain
   // available as posting targets; we no longer render a client list.
@@ -3996,33 +3996,10 @@ async function loadPostingPortfolios() {
   renderPostingPortfolioSidebar();
 }
 
-// Render the user's portfolios in the posts sidebar (replaces the old clients list).
+// The sidebar now shows the AI chat history (_uwRenderChatHistory) — portfolios
+// live in the Portfolios tab and the calendar/feed dropdowns only.
 function renderPostingPortfolioSidebar() {
-  const listEl = document.getElementById('posts-client-list');
-  if (!listEl) return;
-  if (!_postingPortfolios.length) {
-    listEl.innerHTML = `<div style="text-align:center;padding:24px 12px">
-      <div style="font-size:36px;margin-bottom:10px">🗂️</div>
-      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No portfolios yet</div>
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">Create a Business Portfolio to group a Facebook Page + Instagram account, then select it anywhere.</div>
-      <button onclick="openPortfolioModal()" style="margin-top:12px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🗂️ Create portfolio</button>
-    </div>`;
-    return;
-  }
-  listEl.innerHTML = _postingPortfolios.map(p => {
-    const fb = (p.pages||[]).find(x => x.platform === 'facebook');
-    const ig = (p.pages||[]).find(x => x.platform === 'instagram');
-    const sub = [];
-    if (fb) sub.push(`${fbIcon(11)} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(fb.name||'Page')}</span>`);
-    if (ig) sub.push(`${igIcon(11)} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(ig.name||'IG')}</span>`);
-    return `<div onclick="selectSidebarPortfolio(${p.id})" style="margin-bottom:6px;border:1px solid var(--border);background:var(--bg-primary);border-radius:10px;padding:10px 12px;cursor:pointer;transition:border-color .12s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:16px;flex-shrink:0">🗂️</span>
-        <div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</div>
-      </div>
-      ${sub.length ? `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:11px;color:var(--text-secondary)">${sub.map(s=>`<span style="display:flex;align-items:center;gap:6px">${s}</span>`).join('')}</div>` : '<div style="font-size:11px;color:var(--text-dim);margin-top:6px">No pages assigned</div>'}
-    </div>`;
-  }).join('');
+  _uwRenderChatHistory();
 }
 
 // Selecting a portfolio in the sidebar applies it to the workspace + calendar + feed.
@@ -5387,14 +5364,27 @@ function _uwChatOpen(id) {
 function _uwRenderChatHistory() {
   const listEl = document.getElementById('posts-client-list');
   if (!listEl) return;
+  // Rebuild the search-bar + list scaffold if anything else overwrote the sidebar.
+  let body = listEl.querySelector('#uw-chat-list-body');
+  if (!body) {
+    listEl.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0';
+    listEl.innerHTML = `<div style="padding:8px 8px 4px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:6px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:5px 10px">
+          <span style="font-size:12px;color:var(--text-dim)">🔍</span>
+          <input id="uw-chat-search" type="text" placeholder="Search chats…" oninput="document.getElementById('posts-client-list')._searchVal=this.value;_uwRenderChatHistory()" style="flex:1;background:none;border:none;outline:none;font-size:12px;color:var(--text-primary)">
+        </div>
+      </div>
+      <div id="uw-chat-list-body" style="flex:1;overflow-y:auto;padding:4px 8px 8px"></div>`;
+    body = listEl.querySelector('#uw-chat-list-body');
+  }
   const chats = _uwChatsLoad();
   const searchVal = (listEl._searchVal || '').toLowerCase();
   const filtered = searchVal ? chats.filter(c => c.name.toLowerCase().includes(searchVal)) : chats;
   if (!filtered.length) {
-    listEl.querySelector('#uw-chat-list-body').innerHTML = `<div style="text-align:center;padding:20px 10px;font-size:12px;color:var(--text-dim)">${searchVal ? 'No chats found' : 'No saved chats yet.<br>Start uploading posts to create one.'}</div>`;
+    body.innerHTML = `<div style="text-align:center;padding:20px 10px;font-size:12px;color:var(--text-dim)">${searchVal ? 'No chats found' : 'No saved chats yet.<br>Start uploading posts to create one.'}</div>`;
     return;
   }
-  listEl.querySelector('#uw-chat-list-body').innerHTML = filtered.map(c => {
+  body.innerHTML = filtered.map(c => {
     const ago = _uwTimeAgo(c.updatedAt);
     const isActive = _uw._chatId === c.id;
     return `<div class="uw-chat-entry" style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;cursor:pointer;background:${isActive ? 'var(--bg-hover)' : 'transparent'};transition:background .12s;position:relative" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="if('${c.id}'!==(_uw._chatId||''))this.style.background='transparent'" onclick="_uwChatOpen('${c.id}')">
@@ -5405,6 +5395,11 @@ function _uwRenderChatHistory() {
       <button onclick="event.stopPropagation();_uwChatMenu('${c.id}',this)" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px;flex-shrink:0" title="Options">⋯</button>
     </div>`;
   }).join('');
+}
+
+// Defensive wrappers: chat-history bookkeeping must never break the wizard flow.
+function _uwChatsSafeUpsert(id, name, sessionData) {
+  try { _uwChatsUpsert(id, name, sessionData); } catch(e) { console.warn('chat history:', e); }
 }
 
 function _uwChatMenu(id, btn) {
@@ -5682,7 +5677,7 @@ function uwPickTargets(targets) {
   const chatName = targets.map(t => t.name.replace(/^[@📘📷]\s*/, '')).join(' + ');
   if (!_uw._chatId) _uw._chatId = 'chat_' + Date.now();
   _uw._chatName = chatName;
-  _uwChatsUpsert(_uw._chatId, chatName, { posts: [], target: _uw.target, targets: _uw.targets, viewMode: _uw.viewMode, instructions: '' });
+  _uwChatsSafeUpsert(_uw._chatId, chatName, { posts: [], target: _uw.target, targets: _uw.targets, viewMode: _uw.viewMode, instructions: '' });
   const label = targets.map(t => `${t.platform==='instagram'?'📷':'📘'} ${t.name}`).join(' + ');
   _appendPostsMsg('user', `Post to ${label}`);
   // Small segmented toggle: each option is a pill; the active one is filled.
@@ -6614,7 +6609,7 @@ function _uwRenderPreview() {
   _uwRenderCards();
   _uwSave();
   // Update chat history with loaded posts
-  if (_uw._chatId) _uwChatsUpsert(_uw._chatId, _uw._chatName || 'Chat', {
+  if (_uw._chatId) _uwChatsSafeUpsert(_uw._chatId, _uw._chatName || 'Chat', {
     posts: _uw.posts, target: _uw.target, targets: _uw.targets,
     viewMode: _uw.viewMode, instructions: _uw.instructions
   });
@@ -7071,7 +7066,7 @@ function _uwSnap() {
   _uwHist.pos = _uwHist.stack.length - 1;
   _uwSave();
   // Update chat history entry if one exists
-  if (_uw._chatId) _uwChatsUpsert(_uw._chatId, _uw._chatName || 'Chat', {
+  if (_uw._chatId) _uwChatsSafeUpsert(_uw._chatId, _uw._chatName || 'Chat', {
     posts: _uw.posts, target: _uw.target, targets: _uw.targets,
     viewMode: _uw.viewMode, instructions: _uw.instructions
   });
