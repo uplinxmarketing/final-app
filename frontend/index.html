@@ -89,7 +89,9 @@ a{color:inherit;text-decoration:none}
 .chat-breadcrumb{font-size:12px;color:var(--text-dim);margin-top:2px}
 .chat-header-menu{padding:6px 8px;border-radius:var(--radius);color:var(--text-secondary);transition:var(--transition)}
 .chat-header-menu:hover{background:var(--bg-hover);color:var(--text-primary)}
-.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+/* Visual hierarchy: neutral-gray chat canvas → white elevated bubbles →
+   softly tinted cards inside, so each layer is clearly distinguishable. */
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:#f2f3f5}
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text-secondary)}
 .welcome h2{font-family:var(--font-heading);font-size:22px;color:var(--text-primary)}
 .welcome p{font-size:13px;text-align:center;max-width:400px;line-height:1.6}
@@ -98,7 +100,11 @@ a{color:inherit;text-decoration:none}
 .msg.assistant{align-self:flex-start;align-items:flex-start}
 .msg-bubble{padding:12px 16px;border-radius:var(--radius-lg);line-height:1.6;font-size:14px}
 .msg.user .msg-bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px}
-.msg.assistant .msg-bubble{background:var(--bg-tertiary);color:var(--text-primary);border-bottom-left-radius:4px;border:1px solid var(--border)}
+.msg.assistant .msg-bubble{background:#ffffff;color:var(--text-primary);border-bottom-left-radius:4px;border:1px solid #e6e8ec;box-shadow:0 1px 4px rgba(15,23,42,.07)}
+/* Post cards inside bubbles: tinted + bordered so they read as separate
+   objects on the white bubble; lift slightly on hover. */
+.uw-post-card{background:#f8f9fb !important;box-shadow:0 1px 3px rgba(15,23,42,.05);transition:box-shadow .15s,border-color .15s}
+.uw-post-card:hover{box-shadow:0 3px 10px rgba(15,23,42,.10)}
 .msg-meta{font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;align-items:center;gap:8px}
 .msg-copy{opacity:0;transition:var(--transition);cursor:pointer;padding:2px 6px;border-radius:4px;background:var(--bg-hover)}
 .msg:hover .msg-copy{opacity:1}
@@ -5345,13 +5351,29 @@ function _uwChatMenu(id, btn) {
   menu.id = 'uw-chat-ctx-menu';
   menu._forId = id;
   menu.style.cssText = 'position:fixed;z-index:9999;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:4px;min-width:130px;font-size:12px';
-  menu.innerHTML = `<div onclick="_uwChatsDelete('${id}');this.closest('#uw-chat-ctx-menu').remove()" style="padding:7px 12px;border-radius:5px;cursor:pointer;color:var(--accent);display:flex;align-items:center;gap:7px" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background=''">🗑 Delete chat</div>`;
+  menu.innerHTML = `
+    <div onclick="_uwChatRename('${id}');this.closest('#uw-chat-ctx-menu').remove()" style="padding:7px 12px;border-radius:5px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:7px" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background=''">✏️ Rename chat</div>
+    <div onclick="_uwChatsDelete('${id}');this.closest('#uw-chat-ctx-menu').remove()" style="padding:7px 12px;border-radius:5px;cursor:pointer;color:var(--accent);display:flex;align-items:center;gap:7px" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background=''">🗑 Delete chat</div>`;
   const r = btn.getBoundingClientRect();
   menu.style.top = (r.bottom + 4) + 'px';
   menu.style.right = (window.innerWidth - r.right) + 'px';
   document.body.appendChild(menu);
   const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close, true); } };
   setTimeout(() => document.addEventListener('click', close, true), 0);
+}
+
+function _uwChatRename(id) {
+  const chats = _uwChatsLoad();
+  const entry = chats.find(c => c.id === id);
+  if (!entry) return;
+  const name = prompt('Rename chat:', entry.name);
+  if (name === null) return;
+  const clean = name.trim();
+  if (!clean) return;
+  entry.name = clean;
+  _uwChatsSave(chats);
+  if (_uw._chatId === id) _uw._chatName = clean;
+  _uwRenderChatHistory();
 }
 
 function _uwTimeAgo(ts) {
@@ -7040,8 +7062,8 @@ function _uwPostCardGridHtml(p, i) {
     ? new Date(p._schedLocal).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
     : 'Post now';
   return `<div class="uw-post-card" data-i="${i}" onclick="uwCardClick(event,${i})" title="Click to preview on feed"
-    style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : 'var(--border)'};border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-    onmouseover="if(!${sel})this.style.borderColor='var(--text-dim)'" onmouseout="this.style.borderColor='${sel ? 'var(--accent)' : 'var(--border)'}'">
+    style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : '#dde1e7'};border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+    onmouseover="if(!${sel})this.style.borderColor='var(--text-dim)'" onmouseout="this.style.borderColor='${sel ? 'var(--accent)' : '#dde1e7'}'">
     <div style="position:relative">
       ${thumb}
       ${n > 1 ? `<span style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:2px 6px">⧉ ${n}</span>` : ''}
@@ -7082,7 +7104,7 @@ function _uwPostCardHtml(p, i) {
   const t = _uwPostType(p);
   const thumbs = p.mediaList.map((m,j) => _uwThumbHtml(m,i,j)).join('');
   const sel = _uwFeed.open && _uwFeed.i === i;
-  return `<div class="uw-post-card" data-i="${i}" onclick="uwCardClick(event, ${i})" title="Click anywhere to see how this post will look on the feed" style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : 'var(--border)'};border-radius:10px;padding:10px;cursor:pointer">
+  return `<div class="uw-post-card" data-i="${i}" onclick="uwCardClick(event, ${i})" title="Click anywhere to see how this post will look on the feed" style="background:var(--bg-primary);border:1px solid ${sel ? 'var(--accent)' : '#dde1e7'};border-radius:10px;padding:10px;cursor:pointer">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <span style="display:inline-flex;align-items:center;gap:8px">
         <span style="font-size:15px;font-weight:800;color:var(--text-primary)">Post ${i+1}</span>
@@ -7227,17 +7249,15 @@ function uwAddPost() {
   // On the calendar they show on today's cell with an "⚡ now" badge.
   _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null });
   _uwSnap();
-  _uwRenderCards();
+  // Grid/calendar have no inline editor — jump to list view so the full
+  // card (image picker + caption + hashtags + schedule) opens right away.
+  if (_uw.viewMode !== 'list') uwSetViewMode('list');
+  else _uwRenderCards();
   const i = _uw.posts.length - 1;
-  if (_uw.viewMode === 'list') {
-    const wrap = _uw.previewCard.querySelector('.uw-cards');
-    const card = wrap && wrap.querySelector(`.uw-post-card[data-i="${i}"]`);
-    if (card) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
-    uwCarAddOpen(i);
-  } else {
-    // Grid/calendar cards have no inline picker — use a floating chooser.
-    _uwAddPostMediaMenu(i);
-  }
+  const wrap = _uw.previewCard.querySelector('.uw-cards');
+  const card = wrap && wrap.querySelector(`.uw-post-card[data-i="${i}"]`);
+  if (card) card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  uwCarAddOpen(i);
 }
 
 // Floating Drive/device chooser for a freshly added post (grid/calendar views).
@@ -7485,9 +7505,16 @@ function _uwRenderFeed() {
     style="outline:none;border-radius:4px"
     onfocus="this.style.boxShadow='0 0 0 2px rgba(0,149,246,.35)'" onblur="this.style.boxShadow='none'"`;
   const tagsHtml = escHtml(tags);
-  const seeMoreColor = isIg ? '#8e8e8e' : '#65676b';
+  // Platform-authentic truncation: IG shows "... more" in plain gray;
+  // FB shows "See more" in semi-bold that underlines on hover.
+  const moreBtn = isIg
+    ? `<button onclick="uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">more</button>`
+    : `<button onclick="uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See more</button>`;
+  const lessBtn = isIg
+    ? `<button onclick="uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#8e8e8e;cursor:pointer;font-size:inherit;font-weight:400;padding:0">less</button>`
+    : `<button onclick="uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:#65676b;cursor:pointer;font-size:inherit;font-weight:600;padding:0" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">See less</button>`;
   const capBlock = needsMore
-    ? `<span id="uw-cap-short-${_uwFeed.i}">${capHtmlShort}… <button onclick="uwFeedSeeMore(${_uwFeed.i})" style="background:none;border:none;color:${seeMoreColor};cursor:pointer;font-size:inherit;font-weight:600;padding:0">more</button></span><span id="uw-cap-full-${_uwFeed.i}" style="display:none"><span ${edCap}>${capHtmlFull}</span> <button onclick="uwFeedSeeLess(${_uwFeed.i})" style="background:none;border:none;color:${seeMoreColor};cursor:pointer;font-size:inherit;font-weight:600;padding:0">less</button></span>`
+    ? `<span id="uw-cap-short-${_uwFeed.i}">${capHtmlShort}${isIg ? '... ' : '… '}${moreBtn}</span><span id="uw-cap-full-${_uwFeed.i}" style="display:none"><span ${edCap}>${capHtmlFull}</span> ${lessBtn}</span>`
     : `<span ${edCap}>${capHtmlFull}</span>`;
   if (isIg) {
     const ic = _uwIgIcons();
