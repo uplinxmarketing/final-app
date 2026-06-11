@@ -5201,6 +5201,8 @@ async def api_posting_calendar(
                     params={
                         "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
                         "limit": 100,
+                        "since": int(month_start.timestamp()),
+                        "until": int(month_end.timestamp()),
                         "access_token": page_token,
                     },
                 )
@@ -5266,6 +5268,8 @@ async def api_posting_calendar(
         if ct:
             try:
                 dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+                if dt < month_start or dt > month_end:
+                    continue
                 day = str(dt.day)
                 days.setdefault(day, {"scheduled": [], "published": []})
                 days[day]["published"].append(entry)
