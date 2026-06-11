@@ -5283,6 +5283,43 @@ async def api_posting_calendar(
             except Exception:
                 pass
 
+    # For Facebook pages, also fetch Meta-native scheduled posts (they don't
+    # appear in /feed until they publish, so they'd otherwise be invisible).
+    if not is_instagram:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                sched_fb_r = await client.get(
+                    f"{settings.meta_graph_base_url}/{page_id}/scheduled_posts",
+                    params={
+                        "fields": "id,message,scheduled_publish_time,full_picture",
+                        "limit": 100,
+                        "access_token": page_token,
+                    },
+                )
+            if sched_fb_r.status_code == 200:
+                for sp in sched_fb_r.json().get("data", []):
+                    spt = sp.get("scheduled_publish_time")
+                    if not spt:
+                        continue
+                    try:
+                        dt = datetime.fromisoformat(spt.replace("Z", "+00:00"))
+                        if dt < month_start or dt > month_end:
+                            continue
+                        day = str(dt.day)
+                        days.setdefault(day, {"scheduled": [], "published": []})
+                        days[day]["scheduled"].append({
+                            "id": sp.get("id"),
+                            "caption": (sp.get("message") or "")[:140],
+                            "time": dt.isoformat(),
+                            "platform": "facebook",
+                            "media_type": "IMAGE",
+                            "image": sp.get("full_picture"),
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     return {"year": year, "month": month, "days": days}
 
 
