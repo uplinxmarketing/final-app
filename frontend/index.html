@@ -600,7 +600,6 @@ a{color:inherit;text-decoration:none}
       <div id="token-health-banner" style="display:none;margin:8px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.45;flex-shrink:0"></div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
-        <button id="ptab-btn-notifs" class="ptab-nav-btn" onclick="notifOpen()" style="position:relative" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔔 <span>Notifications</span><span id="notif-badge" style="display:none;position:absolute;top:4px;right:8px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;border-radius:9px;padding:1px 6px;min-width:10px;text-align:center">0</span></button>
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
         <button id="ptab-btn-calendar" class="ptab-nav-btn" onclick="switchPostsTab('calendar')" style="border-color:var(--accent);background:var(--accent);color:#fff" onmouseout="if(_postTab!=='calendar'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📅 <span>Calendar</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
@@ -673,7 +672,10 @@ a{color:inherit;text-decoration:none}
           <div class="chat-breadcrumb" id="conv-breadcrumb">No client selected</div>
         </div>
       </div>
-      <button class="chat-header-menu" title="Options">⋮</button>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button onclick="notifOpen()" title="Notifications" style="position:relative;background:none;border:none;cursor:pointer;font-size:17px;padding:6px 8px;color:var(--text-secondary)">🔔<span id="notif-badge" style="display:none;position:absolute;top:1px;right:0;background:#dc2626;color:#fff;font-size:9px;font-weight:800;border-radius:9px;padding:1px 5px;min-width:9px;text-align:center;line-height:1.3">0</span></button>
+        <button class="chat-header-menu" title="Options">⋮</button>
+      </div>
     </div>
     <div class="messages" id="messages">
       <div class="welcome" id="welcome-msg">
@@ -2965,15 +2967,23 @@ function notifOpen() {
   const rows = _notifFailed.length ? _notifFailed.map(f => {
     const when = f.scheduled_time ? new Date(f.scheduled_time).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
     const firstLine = (f.caption || '(no caption)').split('\n')[0].slice(0, 70);
+    const accName = f.account_name || (f.account_uid ? 'account ' + f.account_uid : null);
+    const accLine = accName
+      ? `<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">Posted by: <b style="color:var(--text-secondary)">${escHtml(accName)}</b>${f.account_connected ? '' : ' <span style="color:#dc2626;font-weight:700">(logged out)</span>'}</div>`
+      : '';
+    const action = f.account_connected
+      ? `<button onclick="notifRetry(${f.id}, this)" style="padding:5px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer">↻ Retry now</button>`
+      : `<button onclick="this.closest('.notif-modal').remove();openPostingConnectModal()" style="padding:5px 14px;border-radius:6px;border:1px solid #dc2626;background:transparent;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer">🔑 Reconnect account to retry</button>`;
     return `<div style="border:1px solid #dc262640;border-left:4px solid #dc2626;border-radius:8px;padding:10px;background:var(--bg-primary)">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
         ${platformIcon(f.platform, 13)}
         <span style="font-size:11px;font-weight:800;color:#dc2626">FAILED</span>
         <span style="font-size:10px;color:var(--text-dim)">${when} · ${f.attempts} attempt${f.attempts === 1 ? '' : 's'}</span>
       </div>
+      ${accLine}
       <div style="font-size:12px;color:var(--text-primary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(firstLine)}</div>
       <div style="font-size:10px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">${escHtml(f.error || 'unknown error')}</div>
-      <button onclick="notifRetry(${f.id}, this)" style="padding:5px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer">↻ Retry now</button>
+      ${action}
     </div>`;
   }).join('') : '<div style="text-align:center;padding:30px;font-size:13px;color:var(--text-dim)">No failed posts in the last 14 days 🎉</div>';
   wrap.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;width:min(440px,100%);max-height:80vh;display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">
@@ -3026,16 +3036,10 @@ async function _tokenHealthLoad() {
   } catch(_) {}
 }
 
-// Poll failed posts every 60s and token health every 10 min (only while the
-// posts sidebar is visible — no point hammering the API from other modules).
-setInterval(() => {
-  const el = document.getElementById('posts-sidebar-content');
-  if (el && el.style.display !== 'none') notifLoad();
-}, 60000);
-setInterval(() => {
-  const el = document.getElementById('posts-sidebar-content');
-  if (el && el.style.display !== 'none') _tokenHealthLoad();
-}, 600000);
+// The bell lives in the always-visible chat header — poll failed posts every
+// 60s and token health every 10 min regardless of which module is open.
+setInterval(notifLoad, 60000);
+setInterval(_tokenHealthLoad, 600000);
 setTimeout(() => { notifLoad(); _tokenHealthLoad(); }, 2500);
 
 // Intercept console.error and console.warn to feed the panel.

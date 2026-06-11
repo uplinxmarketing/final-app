@@ -5490,8 +5490,13 @@ async def api_posting_token_health(request: Request, db: AsyncSession = Depends(
 
 
 @app.get("/api/posting/notifications")
-async def api_posting_notifications(db: AsyncSession = Depends(get_db)):
-    """Failed scheduled posts from the last 14 days, newest first."""
+async def api_posting_notifications(request: Request, db: AsyncSession = Depends(get_db)):
+    """Failed scheduled posts from the last 14 days for the CURRENT posting
+    account only — you don't get notified about posts placed by someone
+    else's account. Each entry says whether its posting account is still
+    connected, so the UI can route to reconnect instead of a doomed retry."""
+    session = get_session(request)
+    my_uid = session.get("posting_user_id")
     since = datetime.now(timezone.utc) - timedelta(days=14)
     result = await db.execute(
         select(ScheduledPost)
@@ -5500,25 +5505,40 @@ async def api_posting_notifications(db: AsyncSession = Depends(get_db)):
             ScheduledPost.scheduled_time >= since,
         )
         .order_by(ScheduledPost.scheduled_time.desc())
-        .limit(50)
+        .limit(200)
     )
     posts = result.scalars().all()
-    return {
-        "failed": [
-            {
-                "id": p.id,
-                "platform": p.platform,
-                "page_id": p.page_id,
-                "instagram_id": p.instagram_id,
-                "caption": (p.caption or "")[:200],
-                "media_type": p.media_type,
-                "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
-                "error": (p.error_message or "")[:300],
-                "attempts": p.attempts,
-            }
-            for p in posts
-        ]
-    }
+
+    # Active posting accounts, for connectivity + display names.
+    acc_result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+    )
+    active = {a.facebook_user_id: (a.user_name or a.facebook_user_id) for a in acc_result.scalars().all()}
+
+    failed = []
+    for p in posts:
+        owner_uid = (p.job_data or {}).get("posting_user_id")
+        # Scope: this user's account placed it — or it's a legacy row with no
+        # owner recorded (show those to everyone rather than no one).
+        if owner_uid and my_uid and owner_uid != my_uid:
+            continue
+        failed.append({
+            "id": p.id,
+            "platform": p.platform,
+            "page_id": p.page_id,
+            "instagram_id": p.instagram_id,
+            "caption": (p.caption or "")[:200],
+            "media_type": p.media_type,
+            "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
+            "error": (p.error_message or "")[:300],
+            "attempts": p.attempts,
+            "account_uid": owner_uid,
+            "account_name": active.get(owner_uid) if owner_uid else None,
+            "account_connected": (owner_uid in active) if owner_uid else bool(active),
+        })
+        if len(failed) >= 50:
+            break
+    return {"failed": failed}
 
 
 @app.post("/api/scheduled-posts/{post_id}/retry")
@@ -5530,6 +5550,22 @@ async def api_retry_scheduled_post(post_id: int, db: AsyncSession = Depends(get_
         raise HTTPException(404, "Scheduled post not found")
     if post.status not in ("failed", "cancelled"):
         raise HTTPException(400, f"Post is {post.status} — only failed or cancelled posts can be retried")
+    # If the account that placed this post is disconnected, refuse: retrying
+    # would silently publish via a DIFFERENT account (the worker's fallback).
+    owner_uid = (post.job_data or {}).get("posting_user_id")
+    if owner_uid:
+        acc_result = await db.execute(
+            select(ConnectedPostingAccount).where(
+                ConnectedPostingAccount.facebook_user_id == owner_uid,
+                ConnectedPostingAccount.is_active == True,
+            )
+        )
+        if not acc_result.scalar_one_or_none():
+            raise HTTPException(
+                409,
+                "The Facebook account that placed this post is logged out — "
+                "reconnect that account first, then retry.",
+            )
     post.status = "pending"
     post.attempts = 0
     post.error_message = None
