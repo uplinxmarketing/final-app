@@ -361,7 +361,15 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
 
 
 async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
-    """Fetch a posting account's token by facebook_user_id (no Request needed)."""
+    """Fetch a posting account's token by facebook_user_id (no Request needed).
+
+    If uid is provided and that account is logged out / disconnected, we raise
+    immediately rather than falling back to a different account — that would
+    silently publish a post from the wrong Facebook account.
+
+    The any-active-account fallback is kept only for legacy jobs that have
+    no uid recorded at all (pre-r194 null posting_user_id rows).
+    """
     acc = None
     if uid:
         result = await db.execute(
@@ -371,10 +379,13 @@ async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
             )
         )
         acc = result.scalar_one_or_none()
-    if not acc:
-        # Jobs created before r194 carried a null posting_user_id (portfolio
-        # sessions). Fall back to the most recent active account — same logic
-        # as get_posting_token — so those posts still publish.
+        if not acc:
+            raise RuntimeError(
+                f"the Facebook account that placed this post ({uid}) is logged out — "
+                "reconnect it to resume scheduled posts"
+            )
+    else:
+        # Legacy job with no uid: fall back to most recent active account.
         result = await db.execute(
             select(ConnectedPostingAccount)
             .where(ConnectedPostingAccount.is_active == True)
