@@ -2578,6 +2578,7 @@ function _appendPostsMsg(role, content) {
 }
 
 async function sendPostsMessage() {
+  if (_postsStreamAbort) return; // a stream is already in flight — ignore re-entrant calls
   const input = document.getElementById('posts-chat-input');
   const text = input.value.trim();
   if (!text) return;
@@ -2585,7 +2586,8 @@ async function sendPostsMessage() {
   if (!_postsConvId) {
     const conv = await api('POST', '/api/conversations', { title: 'Posts Chat', client_id: state.activeClientId || null });
     if (!conv) return;
-    _postsConvId = conv.id;
+    // Guard: another concurrent call may have resolved first and already set the id
+    if (!_postsConvId) _postsConvId = conv.id;
   }
 
   input.value = ''; autoResize(input);
@@ -5512,6 +5514,10 @@ async function _uwStart() {
   const keepChatId = _uw && _uw._chatId || null;
   const keepChatName = _uw && _uw._chatName || null;
   _uw = { target:null, posts:[], jobId:null, pollTimer:null, previewCard:null, instructions:'', _chatId:keepChatId, _chatName:keepChatName };
+  // Remove any stale step-1 cards left from a previous (possibly duplicate) call
+  // so the user never sees multiple target-pickers stacked in the same chat.
+  const msgs = document.getElementById('posts-chat-messages');
+  if (msgs) msgs.querySelectorAll('.msg').forEach(el => { if (el.querySelector('.uw-target-step')) el.remove(); });
 
   // Fast path: pages are already loaded — show step 1 immediately, then kick
   // off the portfolio load in the background if it hasn't completed yet.
