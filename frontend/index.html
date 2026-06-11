@@ -6562,15 +6562,22 @@ function _uwBuildCalendarHtml() {
   const daysInMo = new Date(yr, mo + 1, 0).getDate();
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
 
-  // Group scheduled posts by day
+  // One chip per (post × platform) — FB and IG can be scheduled on different
+  // days independently. Immediate (unscheduled) chips live on today's cell.
   const byDay = {};
+  const today = now.getDate();
+  const inThisMonth = yr === now.getFullYear() && mo === now.getMonth();
   _uw.posts.forEach((p, idx) => {
-    if (!p._schedLocal) return;
-    const d = new Date(p._schedLocal);
-    if (d.getFullYear() === yr && d.getMonth() === mo) {
-      const day = d.getDate();
-      (byDay[day] = byDay[day] || []).push({ p, idx });
-    }
+    (targets.length ? targets : [{platform:'facebook'}]).forEach(t => {
+      const sched = _uwPlatSched(p, t.platform);
+      if (sched) {
+        const d = new Date(sched);
+        if (d.getFullYear() === yr && d.getMonth() === mo)
+          (byDay[d.getDate()] = byDay[d.getDate()] || []).push({ p, idx, plat: t.platform, sched });
+      } else if (inThisMonth) {
+        (byDay[today] = byDay[today] || []).push({ p, idx, plat: t.platform, sched: null });
+      }
+    });
   });
 
   // Build grid cells
@@ -6578,28 +6585,34 @@ function _uwBuildCalendarHtml() {
   const histBtn = (en) => `padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg-secondary);color:${en ? 'var(--text-secondary)' : 'var(--border)'};font-size:13px;font-weight:700;cursor:${en ? 'pointer' : 'default'}`;
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
     .map(d => `<div style="font-size:11px;font-weight:700;color:var(--text-dim);text-align:center;padding:5px 2px">${d}</div>`).join('');
-  // One calendar post chip — draggable, clickable, with 🕒 and ✕ controls.
-  const chip = ({ p, idx }, compact) => {
+  // One calendar chip per (post × platform) — draggable, clickable, with the
+  // post name on top, a type color stripe, 🕒 and ✕ controls.
+  const chip = ({ p, idx, plat, sched }, compact) => {
     const img = p.mediaList[0];
     const firstLine = (p.caption || '').split(/[\n.!?]/)[0].trim().slice(0, 60);
-    const logos = targets.map(t => t.platform === 'instagram' ? _uwIgLogo(11) : _uwFbLogo(11)).join('');
-    const time = p._schedLocal ? p._schedLocal.slice(11, 16) : '';
-    return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx})" ondragend="uwCalDragEnd(event)"
-      onclick="uwShowFeedPreview(${idx});event.stopPropagation()"
-      title="Post ${idx+1}${firstLine ? ': ' + firstLine : ''} — drag to another day to reschedule"
-      style="position:relative;width:100%;min-width:0;box-sizing:border-box;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:grab;margin-bottom:3px">
-      <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
-        style="position:absolute;top:2px;right:2px;z-index:2;width:16px;height:16px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
+    const logo = plat === 'instagram' ? _uwIgLogo(10) : _uwFbLogo(10);
+    const tc = _uwTypeColor(p);
+    const time = sched ? sched.slice(11, 16) : '';
+    return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
+      onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
+      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — drag to another day to reschedule"
+      style="position:relative;width:100%;min-width:0;box-sizing:border-box;background:var(--bg-primary);border:1px solid ${tc.color};border-top:3px solid ${tc.color};border-radius:6px;overflow:hidden;cursor:grab;margin-bottom:3px">
+      <div style="display:flex;align-items:center;gap:3px;padding:2px 4px;background:${tc.soft};min-width:0">
+        ${logo}
+        <span style="font-size:9px;font-weight:800;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">Post ${idx+1}</span>
+        <span style="font-size:8px;font-weight:700;color:${tc.color};margin-left:auto;flex-shrink:0">${tc.short}</span>
+        <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
+          style="flex-shrink:0;width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;border:none;font-size:8px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
+      </div>
       ${img && !img.is_video
-        ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:100%;height:${compact ? 34 : 44}px;object-fit:cover;display:block;pointer-events:none">`
-        : `<div style="height:${compact ? 26 : 34}px;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--bg-secondary)">${img ? '🎬' : '🖼️'}</div>`}
-      <div style="padding:3px 5px 4px;min-width:0">
-        <div style="display:flex;align-items:center;gap:3px;min-width:0">${logos}
-          <span style="font-size:9px;font-weight:800;color:var(--text-primary);margin-left:1px;flex-shrink:0">P${idx+1}</span>
-          <button onclick="uwCalTimeOpen(${idx},event)" title="Set posting time"
-            style="margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:9px;font-weight:700;cursor:pointer;padding:0 2px;display:inline-flex;align-items:center;gap:2px;flex-shrink:0">🕒${time ? ' ' + time : ''}</button>
+        ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:100%;height:${compact ? 28 : 38}px;object-fit:cover;display:block;pointer-events:none">`
+        : `<div style="height:${compact ? 22 : 30}px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--bg-secondary)">${img ? '🎬' : '🖼️'}</div>`}
+      <div style="padding:2px 4px 3px;min-width:0">
+        <div style="display:flex;align-items:center;gap:3px;min-width:0">
+          <div style="font-size:9.5px;line-height:1.3;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1">${escHtml(firstLine) || '<i>No caption</i>'}</div>
+          <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
+            style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8.5px;font-weight:700;cursor:pointer;padding:0 1px;display:inline-flex;align-items:center;gap:1px;flex-shrink:0">${time ? '🕒 ' + time : '⚡ now'}</button>
         </div>
-        <div style="font-size:10px;line-height:1.35;color:var(--text-secondary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-top:1px;min-width:0">${escHtml(firstLine) || '<i>No caption</i>'}</div>
       </div>
     </div>`;
   };
@@ -6626,29 +6639,12 @@ function _uwBuildCalendarHtml() {
   for (let i = 0; i < trail; i++) cells += emptyCell;
   const rows = Math.ceil((firstDow + daysInMo) / 7);
 
-  // Unscheduled posts — draggable onto a calendar day to schedule them.
-  const unscheduled = _uw.posts.map((p, idx) => ({ p, idx })).filter(({p}) => !p._schedLocal);
-  const unschedHtml = unscheduled.length ? `
-    <div style="margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;flex-shrink:0">
-      <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px">⚡ Post immediately — ${unscheduled.length} post${unscheduled.length>1?'s':''} <span style="font-weight:400">(drag onto a day to schedule)</span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${unscheduled.map(({p, idx}) => {
-        const img = p.mediaList[0];
-        const logos = targets.map(t => t.platform === 'instagram' ? _uwIgLogo(10) : _uwFbLogo(10)).join('');
-        return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx})" ondragend="uwCalDragEnd(event)"
-          onclick="uwShowFeedPreview(${idx})" title="Post ${idx+1} — drag onto a day to schedule"
-          style="position:relative;width:72px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;overflow:hidden;cursor:grab">
-          <button onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Delete this post"
-            style="position:absolute;top:2px;right:2px;z-index:2;width:15px;height:15px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
-          ${img && !img.is_video
-            ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:100%;height:44px;object-fit:cover;display:block;pointer-events:none">`
-            : `<div style="height:36px;display:flex;align-items:center;justify-content:center;font-size:16px">${img?'🎬':'🖼️'}</div>`}
-          <div style="padding:3px 5px">
-            <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">${logos}</div>
-            <div style="font-size:9px;font-weight:700;color:var(--text-primary)">Post ${idx+1}</div>
-          </div>
-        </div>`;
-      }).join('')}</div>
-    </div>` : '';
+  // Type color legend (post / reel / carousel).
+  const legend = `<div style="display:flex;align-items:center;gap:12px;margin-top:6px;flex-shrink:0;flex-wrap:wrap">
+    ${[['#3b82f6','Post'],['#a855f7','Reel'],['#f59e0b','Carousel']].map(([c,l]) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-secondary)"><span style="width:10px;height:10px;border-radius:3px;background:${c}"></span>${l}</span>`).join('')}
+    <span style="font-size:10px;color:var(--text-dim);margin-left:auto">⚡ now = posts the moment you hit Publish · chips on today</span>
+  </div>`;
 
   // Size the grid so the entire month fits on screen without scrolling:
   // cap the calendar's total height to the visible viewport area.
@@ -6668,21 +6664,53 @@ function _uwBuildCalendarHtml() {
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:repeat(${rows},minmax(82px,1fr));gap:4px;height:calc(min(56vh, 620px));width:100%;box-sizing:border-box">${cells}</div>
-    ${unschedHtml}
+    ${legend}
   </div>`;
 }
 
-// ─── Calendar interactions: drag-to-reschedule, time, delete, add, history ───
-let _uwCalDragIdx = null;
+// Effective schedule for a (post, platform) pair: the per-platform override if
+// set, otherwise the post's shared schedule. null/undefined → post immediately.
+function _uwPlatSched(p, plat) {
+  if (p._platSched && Object.prototype.hasOwnProperty.call(p._platSched, plat)) return p._platSched[plat];
+  return p._schedLocal;
+}
+function _uwSetPlatSched(p, plat, val) {
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+  if (targets.length > 1) {
+    p._platSched = p._platSched || {};
+    p._platSched[plat] = val;
+  } else {
+    p._schedLocal = val;
+    p._sched = val ? new Date(val).toISOString() : null;
+  }
+}
 
-function uwCalDragStart(e, idx) {
-  _uwCalDragIdx = idx;
+// Type → color coding for calendar chips.
+function _uwTypeColor(p) {
+  if (p.media_type === 'REELS' || (p.mediaList[0] && p.mediaList[0].is_video))
+    return { color:'#a855f7', soft:'rgba(168,85,247,.12)', label:'Reel', short:'REEL' };
+  if (p.mediaList.length > 1)
+    return { color:'#f59e0b', soft:'rgba(245,158,11,.12)', label:'Carousel', short:'CRSL' };
+  return { color:'#3b82f6', soft:'rgba(59,130,246,.12)', label:'Post', short:'POST' };
+}
+
+// Open the feed mockup for a calendar chip in the chip's own platform mode.
+function uwCalOpenPreview(idx, plat) {
+  _uwFeed.mode = plat;
+  uwShowFeedPreview(idx);
+}
+
+// ─── Calendar interactions: drag-to-reschedule, time, delete, add, history ───
+let _uwCalDrag = null; // { idx, plat }
+
+function uwCalDragStart(e, idx, plat) {
+  _uwCalDrag = { idx, plat: plat || 'facebook' };
   e.dataTransfer.effectAllowed = 'move';
   try { e.dataTransfer.setData('text/plain', String(idx)); } catch(_) {}
 }
-function uwCalDragEnd() { _uwCalDragIdx = null; }
+function uwCalDragEnd() { _uwCalDrag = null; }
 function uwCalDragOver(e) {
-  if (_uwCalDragIdx == null) return;
+  if (!_uwCalDrag) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const cell = e.currentTarget;
@@ -6695,31 +6723,36 @@ function uwCalDragLeave(e) {
 function uwCalDrop(e, day) {
   e.preventDefault();
   const cell = e.currentTarget; if (cell) cell.style.boxShadow = '';
-  const idx = _uwCalDragIdx != null ? _uwCalDragIdx : parseInt(e.dataTransfer.getData('text/plain'), 10);
-  _uwCalDragIdx = null;
+  if (!_uwCalDrag) return;
+  const { idx, plat } = _uwCalDrag;
+  _uwCalDrag = null;
   const p = _uw.posts[idx]; if (!p) return;
-  const time = p._schedLocal ? p._schedLocal.slice(11, 16) : '12:00';
+  const cur = _uwPlatSched(p, plat);
+  const time = cur ? cur.slice(11, 16) : '12:00';
   const mm = String(_uw.calMonth + 1).padStart(2, '0'), dd = String(day).padStart(2, '0');
   const val = `${_uw.calYear}-${mm}-${dd}T${time}`;
-  if (val === p._schedLocal) return;
-  p._schedLocal = val;
-  p._sched = new Date(val).toISOString();
+  if (val === cur) return;
+  _uwSetPlatSched(p, plat, val);
   _uwSnap();
   _uwRenderCards();
 }
 
-// Small floating time picker next to the clicked 🕒 icon.
-function uwCalTimeOpen(idx, e) {
+// Small floating time picker next to the clicked 🕒 icon. Clearing the field
+// (or picking "now") makes that platform's copy post immediately.
+function uwCalTimeOpen(idx, plat, e) {
   e.stopPropagation();
   document.querySelectorAll('.uw-cal-pop').forEach(el => el.remove());
   const p = _uw.posts[idx]; if (!p) return;
-  const cur = p._schedLocal ? p._schedLocal.slice(11, 16) : '12:00';
+  const curSched = _uwPlatSched(p, plat);
+  const cur = curSched ? curSched.slice(11, 16) : new Date().toTimeString().slice(0, 5);
+  const platLabel = plat === 'instagram' ? 'Instagram' : 'Facebook';
   const pop = document.createElement('div');
   pop.className = 'uw-cal-pop';
   pop.style.cssText = 'position:fixed;z-index:2000;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:9px 10px;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;gap:7px;align-items:center';
-  pop.innerHTML = `<span style="font-size:11px;font-weight:700;color:var(--text-secondary)">Post ${idx+1} time:</span>
+  pop.innerHTML = `<span style="font-size:11px;font-weight:700;color:var(--text-secondary)">Post ${idx+1} · ${platLabel}:</span>
     <input type="time" value="${cur}" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 7px;color:var(--text-primary);font-size:12px">
-    <button style="padding:4px 11px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">✓</button>`;
+    <button class="uw-tp-ok" style="padding:4px 11px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">✓</button>
+    <button class="uw-tp-now" title="Post immediately instead of scheduling" style="padding:4px 9px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⚡ now</button>`;
   document.body.appendChild(pop);
   const r = pop.getBoundingClientRect();
   pop.style.left = Math.min(e.clientX, window.innerWidth - r.width - 12) + 'px';
@@ -6727,18 +6760,20 @@ function uwCalTimeOpen(idx, e) {
   const input = pop.querySelector('input');
   const apply = () => {
     const t = input.value || '12:00';
-    const datePart = p._schedLocal
-      ? p._schedLocal.slice(0, 10)
+    const datePart = curSched
+      ? curSched.slice(0, 10)
       : `${_uw.calYear}-${String(_uw.calMonth+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
     const val = `${datePart}T${t}`;
-    if (val !== p._schedLocal) {
-      p._schedLocal = val; p._sched = new Date(val).toISOString();
-      _uwSnap();
-    }
+    if (val !== curSched) { _uwSetPlatSched(p, plat, val); _uwSnap(); }
     pop.remove();
     _uwRenderCards();
   };
-  pop.querySelector('button').onclick = apply;
+  pop.querySelector('.uw-tp-ok').onclick = apply;
+  pop.querySelector('.uw-tp-now').onclick = () => {
+    if (curSched) { _uwSetPlatSched(p, plat, null); _uwSnap(); }
+    pop.remove();
+    _uwRenderCards();
+  };
   input.onkeydown = ev => { if (ev.key === 'Enter') apply(); };
   setTimeout(() => {
     const close = ev => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', close); } };
@@ -6988,11 +7023,9 @@ async function _uwDriveAddToPost(postIdx, files, folders) {
 
 // Add a brand-new empty post to the preview — pick its image(s) from Drive or device.
 function uwAddPost() {
-  // New posts default to today at noon — the date input on the card (or a
-  // calendar drag) moves them to any other day.
-  const d = new Date();
-  const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T12:00`;
-  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:new Date(val).toISOString(), _schedLocal:val });
+  // New posts are unscheduled — they publish the moment you hit Publish.
+  // On the calendar they show on today's cell with an "⚡ now" badge.
+  _uw.posts.push({ mediaList:[], media_type:'IMAGE', caption:'', hashtags:[], _sched:null, _schedLocal:null });
   _uwSnap();
   _uwRenderCards();
   const i = _uw.posts.length - 1;
@@ -7319,8 +7352,11 @@ async function uwPublish(btn) {
       ? { local_file_id: m.local_file_id, mime_type: m.mime_type, filename: m.name }
       : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name });
     targets.forEach(t => {
+      // Per-platform schedule override (set by dragging a chip on the calendar)
+      // takes precedence over the post's shared schedule.
+      const platLocal = _uwPlatSched(p, t.platform);
       const item = { platform:t.platform, caption:p.caption, hashtags:p.hashtags, media_type:p.media_type,
-        scheduled_time: p._sched || null,
+        scheduled_time: platLocal ? new Date(platLocal).toISOString() : null,
         media: mediaArr };
       if (t.platform==='instagram') item.instagram_id=t.id; else item.page_id=t.id;
       items.push(item);
