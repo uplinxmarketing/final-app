@@ -704,6 +704,65 @@ class UserPageAssignment(Base):
         )
 
 
+class UserApiUsage(Base):
+    """Durable per-app-user API usage counters (Meta calls + AI tokens).
+
+    One row per user, incremented as work happens.  Survives restarts —
+    unlike the in-memory session trackers — so the admin dashboard can show
+    lifetime usage per user.
+    """
+
+    __tablename__ = "user_api_usage"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    meta_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserApiUsage user_id={self.user_id} meta={self.meta_calls} ai={self.ai_input_tokens + self.ai_output_tokens}>"
+
+
+async def bump_user_usage(
+    db: "AsyncSession",
+    user_id: Optional[int],
+    *,
+    meta_calls: int = 0,
+    ai_input: int = 0,
+    ai_output: int = 0,
+    ai_calls: int = 0,
+) -> None:
+    """Increment a user's durable usage counters.  No-op when user_id is None.
+
+    Commits its own change; swallows errors so usage tracking never breaks the
+    request it piggybacks on.
+    """
+    if not user_id or (not meta_calls and not ai_input and not ai_output and not ai_calls):
+        return
+    try:
+        row = await db.get(UserApiUsage, user_id)
+        if row is None:
+            row = UserApiUsage(user_id=user_id)
+            db.add(row)
+        row.meta_calls = (row.meta_calls or 0) + meta_calls
+        row.ai_input_tokens = (row.ai_input_tokens or 0) + ai_input
+        row.ai_output_tokens = (row.ai_output_tokens or 0) + ai_output
+        row.ai_calls = (row.ai_calls or 0) + ai_calls
+        row.updated_at = _utcnow()
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 class UserClientAssignment(Base):
     """Links a user to a client they are allowed to manage."""
 
