@@ -947,14 +947,21 @@ class ClaudeAgent:
                 _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
                     "conv_id": conversation_id, "error": "rate_limit", "detail": str(exc),
                     "provider": self._provider, "model": self.model})
-                yield _sse({"type": "error", "message": "Rate limit reached. Please wait a moment and retry."})
+                yield _sse({"type": "error", "message": "AI rate limit reached — please wait 1–2 minutes and try again. If this keeps happening, switch to a different AI model in Settings."})
                 return
             except anthropic.APIStatusError as exc:
                 logger.error("Anthropic API error %d: %s", exc.status_code, exc.message)
                 _write_log_entry({"ts": datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z",
                     "conv_id": conversation_id, "error": f"api_status_{exc.status_code}",
                     "detail": exc.message, "provider": self._provider, "model": self.model})
-                yield _sse({"type": "error", "message": f"Claude API error ({exc.status_code}): {exc.message}"})
+                err_msg = exc.message or ""
+                # Credit / billing exhaustion
+                if exc.status_code in (402, 529) or "credit" in err_msg.lower() or "billing" in err_msg.lower() or "exceeded" in err_msg.lower():
+                    yield _sse({"type": "error", "message": "AI credits exhausted — top up your Anthropic account at console.anthropic.com/billing, then retry. If you have multiple AI providers configured, switch to another in Settings."})
+                elif exc.status_code == 529 or "overloaded" in err_msg.lower():
+                    yield _sse({"type": "error", "message": "Claude is temporarily overloaded — please try again in 1–2 minutes, or switch to a faster model in Settings."})
+                else:
+                    yield _sse({"type": "error", "message": f"Claude API error ({exc.status_code}): {err_msg}"})
                 return
             except Exception as exc:
                 # Catch OpenAI/Groq SDK errors and any other unexpected errors
@@ -969,7 +976,9 @@ class ClaudeAgent:
                 elif "401" in err_str or "authentication" in err_str.lower():
                     yield _sse({"type": "error", "message": "Invalid API key — go to Settings → Open Setup Wizard and re-enter your API key for the selected provider."})
                 elif "429" in err_str or "rate_limit" in err_str.lower():
-                    yield _sse({"type": "error", "message": "Rate limit reached. Please wait and retry."})
+                    yield _sse({"type": "error", "message": "AI rate limit reached — please wait 1–2 minutes and try again."})
+                elif "insufficient_quota" in err_str.lower() or "quota" in err_str.lower() or "credit" in err_str.lower() or "billing" in err_str.lower():
+                    yield _sse({"type": "error", "message": "AI credits exhausted — top up your API account balance and retry."})
                 else:
                     yield _sse({"type": "error", "message": f"Unexpected error: {err_str}"})
                 return
