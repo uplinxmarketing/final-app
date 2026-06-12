@@ -91,6 +91,44 @@ async def purge_expired_tokens(db: AsyncSession) -> int:
     return result.rowcount or 0
 
 
+async def open_drive_stream(
+    drive_file_id: str, google_token: str, chunk_size: int = 256 * 1024
+) -> tuple[int, Optional[AsyncIterator[bytes]]]:
+    """Open a Drive download and verify the status BEFORE any bytes flow.
+
+    ``stream_drive_file`` raises inside the generator — by then Starlette has
+    already sent ``200 OK`` headers, so a Drive 401/404 reached Meta as a 200
+    with a broken body and an opaque "media fetch" error. This variant lets
+    the ``/media/{token}`` endpoint return a real 502 instead.
+
+    Returns ``(status_code, body_iterator)``; the iterator is ``None`` when
+    Drive answered with an error (connection already closed in that case).
+    """
+    url = f"{GOOGLE_DRIVE_BASE}/files/{drive_file_id}"
+    headers = {"Authorization": f"Bearer {google_token}"}
+    client = httpx.AsyncClient(timeout=None)
+    try:
+        req = client.build_request("GET", url, headers=headers, params={"alt": "media"})
+        response = await client.send(req, stream=True)
+    except Exception:
+        await client.aclose()
+        raise
+    if response.status_code != 200:
+        await response.aclose()
+        await client.aclose()
+        return response.status_code, None
+
+    async def _body() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in response.aiter_bytes(chunk_size):
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
+
+    return response.status_code, _body()
+
+
 async def stream_drive_file(
     drive_file_id: str, google_token: str, chunk_size: int = 256 * 1024
 ) -> AsyncIterator[bytes]:

@@ -1007,6 +1007,15 @@ async def schedule_facebook_post(
         )
 
 
+_IG_NO_NATIVE_SCHEDULING = (
+    "Instagram's API has no native scheduling — the 'published'/"
+    "'scheduled_publish_time' parameters are not supported and the post would "
+    "either be rejected or publish immediately. Schedule Instagram posts "
+    "through the app's own queue instead (Posts tab → bulk composer with a "
+    "scheduled time, which stores the post and publishes it when due)."
+)
+
+
 async def schedule_instagram_post(
     token: str,
     ig_account_id: str,
@@ -1014,42 +1023,14 @@ async def schedule_instagram_post(
     media_path: str,
     scheduled_time: int,
 ) -> dict[str, Any]:
-    """Schedule an Instagram feed post.
+    """Refused: Instagram cannot schedule natively — use the app's queue.
 
-    Step 1 – create a media container.
-    Step 2 – publish (or schedule) the container.
-
-    Note: Instagram's Content Publishing API requires a publicly reachable
-    ``image_url`` for the container creation step.  ``media_path`` is treated
-    as a URL here; callers are responsible for hosting the asset.
+    This used to send ``published=false`` + ``scheduled_publish_time`` to
+    ``/{ig}/media``, parameters the IG Content Publishing API does not
+    support, then immediately called ``/media_publish`` — so the post either
+    errored or published right away instead of at the scheduled time.
     """
-    # Step 1: create container
-    container_url = f"{BASE_URL}/{ig_account_id}/media"
-    container_result = await _api_request(
-        "POST",
-        container_url,
-        data={
-            "image_url": media_path,
-            "caption": caption,
-            "published": "false",
-            "scheduled_publish_time": str(scheduled_time),
-            "access_token": token,
-        },
-    )
-    if not container_result["success"]:
-        return container_result
-
-    creation_id: str = container_result["data"].get("id", "")
-    if not creation_id:
-        return {"success": False, "error": "No creation_id in container response"}
-
-    # Step 2: publish
-    publish_url = f"{BASE_URL}/{ig_account_id}/media_publish"
-    return await _api_request(
-        "POST",
-        publish_url,
-        data={"creation_id": creation_id, "access_token": token},
-    )
+    return {"success": False, "error": _IG_NO_NATIVE_SCHEDULING}
 
 
 async def schedule_facebook_reel(
@@ -1086,39 +1067,8 @@ async def schedule_instagram_reel(
     caption: str,
     scheduled_time: int,
 ) -> dict[str, Any]:
-    """Schedule an Instagram Reel.
-
-    ``video_path`` is treated as a publicly accessible video URL for the
-    container creation step (Instagram requires a hosted URL).
-    """
-    # Step 1: create container
-    container_url = f"{BASE_URL}/{ig_account_id}/media"
-    container_result = await _api_request(
-        "POST",
-        container_url,
-        data={
-            "media_type": "REELS",
-            "video_url": video_path,
-            "caption": caption,
-            "published": "false",
-            "scheduled_publish_time": str(scheduled_time),
-            "access_token": token,
-        },
-    )
-    if not container_result["success"]:
-        return container_result
-
-    creation_id: str = container_result["data"].get("id", "")
-    if not creation_id:
-        return {"success": False, "error": "No creation_id in container response"}
-
-    # Step 2: publish
-    publish_url = f"{BASE_URL}/{ig_account_id}/media_publish"
-    return await _api_request(
-        "POST",
-        publish_url,
-        data={"creation_id": creation_id, "access_token": token},
-    )
+    """Refused: Instagram cannot schedule natively — use the app's queue."""
+    return {"success": False, "error": _IG_NO_NATIVE_SCHEDULING}
 
 
 async def schedule_instagram_story(
@@ -1127,35 +1077,8 @@ async def schedule_instagram_story(
     media_path: str,
     scheduled_time: int,
 ) -> dict[str, Any]:
-    """Schedule an Instagram Story.
-
-    ``media_path`` must be a publicly accessible image URL.
-    """
-    container_url = f"{BASE_URL}/{ig_account_id}/media"
-    container_result = await _api_request(
-        "POST",
-        container_url,
-        data={
-            "media_type": "STORIES",
-            "image_url": media_path,
-            "published": "false",
-            "scheduled_publish_time": str(scheduled_time),
-            "access_token": token,
-        },
-    )
-    if not container_result["success"]:
-        return container_result
-
-    creation_id: str = container_result["data"].get("id", "")
-    if not creation_id:
-        return {"success": False, "error": "No creation_id in container response"}
-
-    publish_url = f"{BASE_URL}/{ig_account_id}/media_publish"
-    return await _api_request(
-        "POST",
-        publish_url,
-        data={"creation_id": creation_id, "access_token": token},
-    )
+    """Refused: Instagram cannot schedule natively — use the app's queue."""
+    return {"success": False, "error": _IG_NO_NATIVE_SCHEDULING}
 
 
 async def get_scheduled_posts(token: str, page_id: str) -> dict[str, Any]:
