@@ -885,13 +885,18 @@ a{color:inherit;text-decoration:none}
         <!-- Tab: Compose -->
         <div id="posts-tab-compose" style="display:none;flex:1;overflow-y:auto;padding:20px">
           <div style="max-width:620px;margin:0 auto">
-            <div style="display:flex;gap:8px;margin-bottom:16px">
-              <button id="ptab-facebook" onclick="selectPostPlatform('facebook')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer"><span class="ptab-ico"></span>Facebook Page</button>
-              <button id="ptab-instagram" onclick="selectPostPlatform('instagram')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer"><span class="ptab-ico"></span>Instagram</button>
-            </div>
             <div style="margin-bottom:14px">
-              <label id="posts-acct-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
-              <div id="compose-target-host"></div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Pick a Facebook Page, an Instagram account, or <b>both</b> — your post goes out to every selection at once, just like Meta Business Suite.</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div>
+                  <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Facebook Page</label>
+                  <div id="compose-fb-host"></div>
+                </div>
+                <div>
+                  <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Instagram Account</label>
+                  <div id="compose-ig-host"></div>
+                </div>
+              </div>
             </div>
             <div style="margin-bottom:14px">
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
@@ -4090,8 +4095,8 @@ function selectPostPage(page) {
   }
   if (_postingConnected) {
     showPostsWorkspace('content');
-    selectPostPlatform(page.platform || 'facebook');
-    ssSet('compose', page.id);
+    // Re-mount the compose pickers; _selectedPostPage pre-fills its side.
+    populatePostTargetSelect();
     switchPostsTab(_postTab);
   } else {
     showPostsWorkspace('connect');
@@ -4386,36 +4391,47 @@ function renderPostingsSidebar() {
 
 
 function populatePostTargetSelect() {
-  const host = document.getElementById('compose-target-host');
-  if (!host) return;
-  const isFB = _postPlatform === 'facebook';
-  const source = isFB ? _postingPages : _postingIgAccounts;
-  const items = (source||[]).map(p => ({
-    id: p.id,
-    name: isFB ? (p.name||p.id) : '@'+(p.username||p.name||p.id),
-    username: p.username, picture_url: p.picture_url, platform: _postPlatform,
-  }));
-  const selId = (_selectedPostPage && items.some(i => i.id === _selectedPostPage.id)) ? _selectedPostPage.id : null;
-  ssMount('compose-target-host', 'compose', {
-    items, platform: _postPlatform, selId,
-    placeholder: isFB ? 'Select a Facebook Page…' : 'Select an Instagram account…',
-    empty: 'No accounts found',
+  const fbHost = document.getElementById('compose-fb-host');
+  const igHost = document.getElementById('compose-ig-host');
+  if (!fbHost && !igHost) return;
+  // Same target universe as the AI wizard (own pages + client-assigned pages).
+  const all = _buildPostingTargets();
+  const fbItems = all.filter(t => t.platform === 'facebook')
+    .map(t => ({ id:t.id, name:t.name+(t.client?' · '+t.client:''), picture_url:t.picture_url, platform:'facebook' }));
+  const igItems = all.filter(t => t.platform === 'instagram')
+    .map(t => ({ id:t.id, name:t.name+(t.client?' · '+t.client:''), picture_url:t.picture_url, platform:'instagram' }));
+  // Keep any current selections; let a sidebar page pick pre-fill its side.
+  const prevFb = ssValue('composefb'), prevIg = ssValue('composeig');
+  let selFb = fbItems.some(i => i.id === prevFb) ? prevFb : null;
+  let selIg = igItems.some(i => i.id === prevIg) ? prevIg : null;
+  if (_selectedPostPage) {
+    if (_selectedPostPage.platform === 'instagram') {
+      if (igItems.some(i => i.id === _selectedPostPage.id)) selIg = _selectedPostPage.id;
+    } else if (fbItems.some(i => i.id === _selectedPostPage.id)) selFb = _selectedPostPage.id;
+  }
+  if (fbHost) ssMount('compose-fb-host', 'composefb', {
+    items: fbItems, platform:'facebook', selId: selFb,
+    placeholder:'Select a Facebook Page…', empty:'No Facebook Pages',
+    onpick: _composeTargetsChanged,
   });
+  if (igHost) ssMount('compose-ig-host', 'composeig', {
+    items: igItems, platform:'instagram', selId: selIg,
+    placeholder:'Select an Instagram account…', empty:'No Instagram accounts',
+    onpick: _composeTargetsChanged,
+  });
+  _composeTargetsChanged();
 }
 
+// Show IG-only options (post type) only while an Instagram account is selected.
+function _composeTargetsChanged() {
+  const typeRow = document.getElementById('post-type-row');
+  if (typeRow) typeRow.style.display = ssValue('composeig') ? '' : 'none';
+}
+
+// Compat shim — the compose tab no longer has FB/IG platform tabs; both
+// dropdowns are always visible and either or both can be selected.
 function selectPostPlatform(platform) {
   _postPlatform = platform;
-  const isFB = platform === 'facebook';
-  const onStyle = 'display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer';
-  const offStyle = 'display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer';
-  const fbBtn = document.getElementById('ptab-facebook');
-  const igBtn = document.getElementById('ptab-instagram');
-  if (fbBtn) { fbBtn.style.cssText = isFB ? onStyle : offStyle; const i = fbBtn.querySelector('.ptab-ico'); if (i) i.innerHTML = fbIcon(14); }
-  if (igBtn) { igBtn.style.cssText = isFB ? offStyle : onStyle; const i = igBtn.querySelector('.ptab-ico'); if (i) i.innerHTML = igIcon(14); }
-  const acctLabel = document.getElementById('posts-acct-label');
-  if (acctLabel) acctLabel.textContent = isFB ? 'Facebook Page' : 'Instagram Account';
-  const typeRow = document.getElementById('post-type-row');
-  if (typeRow) typeRow.style.display = isFB ? 'none' : '';
   populatePostTargetSelect();
 }
 
@@ -4434,13 +4450,13 @@ function selectPostType(type) {
 function selectPostingPage(pageId) {
   const page = _postingPages.find(p => p.id === pageId);
   if (page) { selectPostPage({id: page.id, name: page.name, platform: 'facebook', picture_url: page.picture_url}); }
-  else { selectPostPlatform('facebook'); ssSet('compose', pageId); }
+  else { populatePostTargetSelect(); ssSet('composefb', pageId); _composeTargetsChanged(); }
 }
 
 function selectPostingIG(igId) {
   const acc = _postingIgAccounts.find(a => a.id === igId);
   if (acc) { selectPostPage({id: acc.id, name: '@' + (acc.username || acc.name || acc.id), platform: 'instagram', picture_url: acc.picture_url, page_id: acc.page_id}); }
-  else { selectPostPlatform('instagram'); ssSet('compose', igId); }
+  else { populatePostTargetSelect(); ssSet('composeig', igId); _composeTargetsChanged(); }
 }
 
 // ── Calendar ────────────────────────────────────────────────────────────────
@@ -5250,35 +5266,47 @@ function loadFeed() {
 }
 
 async function submitPost() {
-  const target = ssValue('compose');
+  const fbId = ssValue('composefb');
+  const igId = ssValue('composeig');
   const caption = document.getElementById('post-caption').value.trim();
   const mediaUrl = document.getElementById('post-media-url').value.trim();
   const scheduleTime = document.getElementById('post-schedule-time').value;
   const statusEl = document.getElementById('post-status-msg');
   const btn = document.getElementById('post-submit-btn');
-  if (!target) { statusEl.textContent = '⚠ Select a page or account.'; statusEl.style.color='var(--error)'; return; }
+  if (!fbId && !igId) { statusEl.textContent = '⚠ Select a Facebook Page, an Instagram account, or both.'; statusEl.style.color='var(--error)'; return; }
   if (!caption && !mediaUrl) { statusEl.textContent = '⚠ Add a caption or media URL.'; statusEl.style.color='var(--error)'; return; }
+  if (igId && !mediaUrl) { statusEl.textContent = '⚠ Instagram posts require a media URL.'; statusEl.style.color='var(--error)'; return; }
   btn.disabled = true; btn.textContent = 'Publishing…';
   statusEl.textContent = '';
-  try {
-    const endpoint = _postPlatform === 'facebook' ? '/api/posting/publish/facebook' : '/api/posting/publish/instagram';
-    const body = _postPlatform === 'facebook'
-      ? {page_id: target, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null}
-      : {instagram_id: target, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null};
-    const r = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Failed to publish');
-    statusEl.textContent = scheduleTime ? '✓ Scheduled!' : '✓ Published!';
+  // One request per selected platform — both run from the same form, exactly
+  // like cross-posting in Meta Business Suite.
+  const jobs = [];
+  if (fbId) jobs.push({ label:'Facebook', endpoint:'/api/posting/publish/facebook',
+    body:{page_id: fbId, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null} });
+  if (igId) jobs.push({ label:'Instagram', endpoint:'/api/posting/publish/instagram',
+    body:{instagram_id: igId, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null} });
+  const ok = [], failed = [];
+  for (const j of jobs) {
+    try {
+      const r = await fetch(j.endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(j.body)});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || 'Failed to publish');
+      ok.push(j.label);
+    } catch(e) {
+      failed.push(`${j.label}: ${e.message}`);
+    }
+  }
+  if (!failed.length) {
+    statusEl.textContent = `✓ ${scheduleTime ? 'Scheduled' : 'Published'} to ${ok.join(' + ')}!`;
     statusEl.style.color = 'var(--success)';
     clearPostComposer();
-    setTimeout(loadPostsScheduled, 800);
-    if (!scheduleTime) setTimeout(loadCalendar, 2000);
-  } catch(e) {
-    statusEl.textContent = '⚠ ' + e.message;
-    statusEl.style.color = 'var(--error)';
-  } finally {
-    btn.disabled = false; btn.textContent = '🚀 Publish / Schedule';
+  } else {
+    statusEl.textContent = (ok.length ? `✓ ${ok.join(' + ')} OK — ` : '') + '⚠ ' + failed.join(' · ');
+    statusEl.style.color = ok.length ? 'var(--warning,#f59e0b)' : 'var(--error)';
   }
+  setTimeout(loadPostsScheduled, 800);
+  if (!scheduleTime && ok.length) setTimeout(loadCalendar, 2000);
+  btn.disabled = false; btn.textContent = '🚀 Publish / Schedule';
 }
 
 function clearPostComposer() {
