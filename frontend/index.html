@@ -231,10 +231,10 @@ a{color:inherit;text-decoration:none}
   .cal-chip .chip-cap { display: none !important; }
 }
 @container (max-width: 110px) {
-  .cal-chip .chip-thumb, .cal-chip .chip-time { display: none !important; }
+  .cal-chip .chip-thumb { display: none !important; }
 }
 @container (max-width: 78px) {
-  .cal-chip .chip-badge, .cal-chip .chip-pnum { display: none !important; }
+  .cal-chip .chip-badge, .cal-chip .chip-pnum, .cal-chip .chip-time { display: none !important; }
 }
 </style>
 </head>
@@ -2775,17 +2775,43 @@ async function uwLoadPendingPreview() {
     const data = await r.json();
     const media = data.media || [];
     if (!media.length) return;
-    if ((data.targets || []).length) _uw.targets = data.targets;
-    if (!(_uw.targets || []).length) {
-      _appendPostsCard(`<div style="font-size:13px">⚠️ The AI prepared <b>${media.length}</b> file(s) but didn't specify where to post. Ask it again mentioning the Facebook page or Instagram account, or use 📤 the upload wizard.</div>`);
+    // Guard: a preview with possible manual edits (captions, hashtags, times)
+    // is already on screen. Replacing it silently wiped all those edits, so
+    // ask before discarding anything.
+    if ((_uw.posts || []).length) {
+      window._uwPendingPreviewData = data;
+      const btnStyle = 'padding:9px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer';
+      _appendPostsCard(`<div style="font-size:13px;margin-bottom:10px">⚠️ The AI prepared a <b>new</b> preview with ${media.length} file(s), but you already have <b>${_uw.posts.length}</b> post(s) in progress — replacing them will discard their captions, hashtags and scheduled times.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="this.closest('.msg').remove();window._uwPendingPreviewData=null" style="${btnStyle};background:var(--accent);color:#fff;border:none">Keep my current posts</button>
+          <button onclick="uwApplyPendingPreview(this)" style="${btnStyle};background:transparent;color:var(--text-secondary);border:1px solid var(--border)">Replace with the new preview</button>
+        </div>`);
       return;
     }
-    _uw.imgSrc = 'drive';
-    _uw.mediaPool = media;
-    _uw.posts = _uwGroupPosts(media, data.captions || []);
-    await _uwAiMatch(_uw.posts, data.captions || []);
-    _uwRenderPreview();
+    await _uwApplyPreviewData(data);
   } catch (e) { /* silent — the agent's text reply still stands */ }
+}
+
+async function _uwApplyPreviewData(data) {
+  const media = data.media || [];
+  if ((data.targets || []).length) _uw.targets = data.targets;
+  if (!(_uw.targets || []).length) {
+    _appendPostsCard(`<div style="font-size:13px">⚠️ The AI prepared <b>${media.length}</b> file(s) but didn't specify where to post. Ask it again mentioning the Facebook page or Instagram account, or use 📤 the upload wizard.</div>`);
+    return;
+  }
+  _uw.imgSrc = 'drive';
+  _uw.mediaPool = media;
+  _uw.posts = _uwGroupPosts(media, data.captions || []);
+  await _uwAiMatch(_uw.posts, data.captions || []);
+  _uwRenderPreview();
+}
+
+async function uwApplyPendingPreview(btn) {
+  const data = window._uwPendingPreviewData;
+  window._uwPendingPreviewData = null;
+  const card = btn.closest('.msg');
+  if (card) card.remove();
+  if (data) await _uwApplyPreviewData(data);
 }
 
 // ── Wizard chat assist ───────────────────────────────────────────────────────
@@ -7531,7 +7557,14 @@ async function _uwAiMatch(posts, captions) {
                                      type:x.c.type || '', file:x.c.file || '' })),
     });
     if (!res || !res.success || !Array.isArray(res.assignments)) return false;
+    // Remember each candidate's current content so posts the model gives no
+    // caption keep what they had (re-runs must never wipe manual edits).
+    const before = new Map(cands.map(x => [x.i, {
+      caption: x.p.caption, hashtags: x.p.hashtags,
+      _sched: x.p._sched, _schedLocal: x.p._schedLocal, _capIdx: x.p._capIdx,
+    }]));
     cands.forEach(x => { x.p.caption=''; x.p.hashtags=[]; x.p._sched=null; x.p._schedLocal=null; x.p._capIdx=null; });
+    const assigned = new Set();
     res.assignments.forEach(pair => {
       const p = posts[pair[0]];
       const c = pair[1] == null ? null : captions[pair[1]];
@@ -7541,6 +7574,13 @@ async function _uwAiMatch(posts, captions) {
       p.hashtags = st.tags;
       p._capIdx = pair[1];
       if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
+      assigned.add(pair[0]);
+    });
+    cands.forEach(x => {
+      if (!assigned.has(x.i)) {
+        const b = before.get(x.i);
+        if (b) Object.assign(x.p, b);
+      }
     });
     return true;
   } catch(e) { return false; }
