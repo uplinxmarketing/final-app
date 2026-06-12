@@ -5961,6 +5961,10 @@ Rules:
 link exists anywhere, reply handled:true asking for the folder link, with no actions.
 - If the user asks to publish, reply handled:true telling them to press the \
 Publish button on the preview card when ready — publishing is manual by design.
+- CRITICAL: If the state shows step:3 (a "posts" array is present), NEVER return \
+build_preview or ai_handle — those actions destroy all existing captions and \
+schedules. At step 3, only set_time, spread_times, delete_post, and set_caption \
+are valid.
 - Multiple actions are allowed and run in order."""
 
 

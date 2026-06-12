@@ -2944,10 +2944,12 @@ function _uwAssistApply(actions) {
       const inp = step.querySelector('.uw-instructions');
       if (inp) inp.value = String(a.text);
       _uw.instructions = String(a.text);
-    } else if (a.type === 'build_preview' && step) {
+    } else if (a.type === 'build_preview' && step && !_uw.previewCard) {
+      // Step-2-only: never rebuild when posts already exist (step 3).
       const btn = step.querySelector('button[onclick^="uwBuildPreview"]');
       if (btn) setTimeout(() => uwBuildPreview(btn), 0);
-    } else if (a.type === 'ai_handle' && step) {
+    } else if (a.type === 'ai_handle' && step && !_uw.previewCard) {
+      // Step-2-only: skip if the preview is already built.
       const btn = step.querySelector('.uw-ai-btn');
       if (btn) setTimeout(() => uwAiHandle(btn), 0);
     }
@@ -7307,6 +7309,9 @@ function uwAiHandle(btn) {
 // Unified preview builder — gathers media + captions from whatever sources the
 // user picked (Drive folder / device upload) and matches captions by index.
 async function uwBuildPreview(btn) {
+  // Guard: never rebuild if a preview is already on screen — that would silently
+  // discard all captions, hashtags and scheduled times the user set in step 3.
+  if (_uw.previewCard) return;
   const step = btn.closest('.uw-step');
   _uw.instructions = (step.querySelector('.uw-instructions')?.value || '').trim();
   const status = step.querySelector('.uw-scan-status');
