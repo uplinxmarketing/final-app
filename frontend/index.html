@@ -5034,12 +5034,18 @@ function showCalendarPostPreview(idx) {
 
   const capHtml = escHtml(caption).replace(/\n/g, '<br>');
 
+  // Page avatar for the mockup header — real picture with letter fallback.
+  const pagePic = isIg ? ((_calIgPage && _calIgPage.picture_url) || '') : ((_calFbPage && _calFbPage.picture_url) || '');
+  const initial = pageName.charAt(0).toUpperCase();
+  const igAvatarContent = `<div style="position:relative;width:28px;height:28px;flex-shrink:0;overflow:hidden;border-radius:50%;background:#c7c7c7;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">${initial}${pagePic ? `<img src="${escHtml(pagePic)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}</div>`;
+  const fbAvatarContent = `<div style="position:relative;width:40px;height:40px;border-radius:50%;background:#1877F2;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;flex-shrink:0;overflow:hidden">${initial}${pagePic ? `<img src="${escHtml(pagePic)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}</div>`;
+
   let mockup = '';
   if (isIg) {
     const ic = (typeof _uwIgIcons === 'function') ? _uwIgIcons() : {heart:'',comment:'',share:'',save:''};
     mockup = `<div style="max-width:380px;margin:0 auto;background:#fff;border:1px solid #dbdbdb;border-radius:8px;overflow:hidden;color:#262626;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
       <div style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-        <div style="padding:2px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);flex-shrink:0"><div style="padding:2px;border-radius:50%;background:#fff"><div style="width:28px;height:28px;border-radius:50%;background:#c7c7c7;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px">${pageName.charAt(0).toUpperCase()}</div></div></div>
+        <div style="padding:2px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);flex-shrink:0"><div style="padding:2px;border-radius:50%;background:#fff">${igAvatarContent}</div></div>
         <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(pageName)}</div><div style="font-size:11px;color:#8e8e8e">${escHtml(when)}</div></div>
         <span style="font-size:16px;letter-spacing:1px;color:#262626;font-weight:700">···</span>
       </div>
@@ -5052,7 +5058,7 @@ function showCalendarPostPreview(idx) {
     const ic = (typeof _uwFbIcons === 'function') ? _uwFbIcons() : {like:'',comment:'',share:''};
     mockup = `<div style="max-width:420px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;color:#050505;box-shadow:0 1px 2px rgba(0,0,0,.15);font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 8px">
-        <div style="width:40px;height:40px;border-radius:50%;background:#1877F2;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;flex-shrink:0">${pageName.charAt(0).toUpperCase()}</div>
+        ${fbAvatarContent}
         <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(pageName)}</div><div style="font-size:12px;color:#65676b;display:flex;align-items:center;gap:4px">${escHtml(when)} · <svg width="12" height="12" viewBox="0 0 16 16" fill="#65676b"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm5.9 7.2h-2.4a11 11 0 0 0-.8-3.7 6.4 6.4 0 0 1 3.2 3.7zM8 1.7c.7 0 1.7 1.5 2 5.5H6c.3-4 1.3-5.5 2-5.5zM2.1 8.8h2.4c.1 1.4.4 2.6.8 3.7a6.4 6.4 0 0 1-3.2-3.7zm2.4-1.6H2.1a6.4 6.4 0 0 1 3.2-3.7c-.4 1.1-.7 2.3-.8 3.7zM8 14.3c-.7 0-1.7-1.5-2-5.5h4c-.3 4-1.3 5.5-2 5.5zm2.7-1.8c.4-1.1.7-2.3.8-3.7h2.4a6.4 6.4 0 0 1-3.2 3.7z"/></svg></div></div>
         <span style="font-size:16px;letter-spacing:1px;color:#65676b;font-weight:700">···</span>
       </div>
@@ -5126,7 +5132,14 @@ async function calDeletePublished(idx) {
     toast('Post deleted from Facebook');
     const modal = document.getElementById('cal-post-preview-modal');
     if (modal) modal.remove();
-    loadCalendar();
+    // Optimistic: remove from cache and re-render without a full API reload.
+    if (_calData && _calData.days) {
+      for (const day of Object.keys(_calData.days)) {
+        const d = _calData.days[day];
+        d.published = (d.published || []).filter(p => p.id !== post.id);
+      }
+      renderCalendarGrid(_calData.days);
+    }
   } catch(e) {
     _logAdd('error', 'Delete published post failed', String(e.message || e));
     if (btn) { btn.disabled = false; btn.textContent = '🗑 Delete Post from Facebook'; }
@@ -5146,7 +5159,15 @@ async function calCancelScheduled(idx) {
     toast('Scheduled post cancelled');
     const modal = document.getElementById('cal-post-preview-modal');
     if (modal) modal.remove();
-    loadCalendar();
+    // Remove just this post from the cached grid data and re-render without
+    // firing a full API reload (which fetches both FB and IG calendars).
+    if (_calData && _calData.days) {
+      for (const day of Object.keys(_calData.days)) {
+        const d = _calData.days[day];
+        d.scheduled = (d.scheduled || []).filter(s => s.id !== post.id);
+      }
+      renderCalendarGrid(_calData.days);
+    }
   } catch(e) {
     _logAdd('error', 'Cancel scheduled post failed', String(e.message || e));
     if (btn) { btn.disabled = false; btn.textContent = '🗑 Cancel Scheduled Post'; }

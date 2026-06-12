@@ -5985,12 +5985,23 @@ async def api_posting_calendar(
         if p.scheduled_time:
             day = str(p.scheduled_time.day)
             days.setdefault(day, {"scheduled": [], "published": []})
+            # Resolve a thumbnail URL for the first media item so the
+            # calendar chip and preview modal can show the image.
+            jd = p.job_data or {}
+            sched_media = (jd.get("media") or [])
+            sched_img = None
+            if sched_media:
+                m0 = sched_media[0]
+                fid = m0.get("local_file_id") or m0.get("cache_file_id")
+                if fid:
+                    sched_img = f"/api/uploads/{fid}"
             days[day]["scheduled"].append({
                 "id": p.id,
                 "caption": (p.caption or "")[:140],
                 "time": p.scheduled_time.isoformat(),
                 "platform": p.platform,
                 "media_type": p.media_type,
+                "image": sched_img,
             })
     for p in published:
         # Normalise FB-feed vs IG-media shapes into one entry.
