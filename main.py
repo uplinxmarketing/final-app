@@ -2137,7 +2137,7 @@ async def api_switch_posting_account(
     session_data = {**dict(existing), "posting_user_id": acc.facebook_user_id}
     response = JSONResponse({"success": True, "user_name": acc.user_name or acc.facebook_user_id})
     response.set_cookie(
-        "session",
+        SESSION_COOKIE,
         create_session_token(session_data),
         httponly=True,
         samesite="lax",
@@ -2185,9 +2185,9 @@ async def api_disconnect_posting(
     pending_count: int = pending_result.scalar() or 0
 
     if pending_count > 0 and not confirm:
-        raise HTTPException(
-            409,
-            {
+        return JSONResponse(
+            status_code=409,
+            content={
                 "message": (
                     f"This account has {pending_count} pending scheduled "
                     f"Instagram post{'s' if pending_count != 1 else ''} that will "
