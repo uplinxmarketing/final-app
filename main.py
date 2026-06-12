@@ -4232,21 +4232,29 @@ async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(
 # ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
 
 def _ensure_jpeg_sync(data: bytes, mime: str, filename: str) -> tuple[bytes, str, str]:
-    """Convert an image to JPEG if it isn't one — IG only accepts JPEG.
+    """Normalize an image for Instagram ingestion.
 
-    Returns (bytes, mime, filename) unchanged on any failure so an unexpected
-    format degrades to the old behaviour instead of breaking the fetch.
+    IG's media fetcher is strict: it accepts only JPEG, mishandles CMYK and
+    progressive encodings, and rejects very large dimensions. Re-encode every
+    image as a baseline RGB JPEG capped at 1920px on the longest side, with
+    EXIF orientation applied. Returns input unchanged on any decode failure so
+    unexpected formats degrade to the old passthrough behaviour.
     """
-    if mime in ("image/jpeg", "image/jpg"):
-        return data, mime, filename
     try:
         import io
-        from PIL import Image
+        from PIL import Image, ImageOps
         img = Image.open(io.BytesIO(data))
+        img.load()
+        img = ImageOps.exif_transpose(img)
         if img.mode != "RGB":
             img = img.convert("RGB")
+        w, h = img.size
+        max_dim = 1920
+        if max(w, h) > max_dim:
+            scale = max_dim / max(w, h)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=92)
+        img.save(buf, format="JPEG", quality=90, progressive=False, optimize=True)
         new_name = (filename.rsplit(".", 1)[0] if "." in filename else filename) + ".jpg"
         return buf.getvalue(), "image/jpeg", new_name
     except Exception:
@@ -4604,18 +4612,42 @@ async def _publish_instagram_drive(
     caption = _compose_caption(item.caption, item.hashtags)
     base = settings.meta_graph_base_url
     minted: list[str] = []
+    prefetched_paths: list[Path] = []
 
     async def _mint(m: DriveMediaItem) -> str:
         # For local uploads, store as "local:<file_id>" so the proxy reads from disk.
         # A disk backup made at schedule time is preferred over live Drive
         # streaming — the post then publishes even if Drive is disconnected.
+        mime = m.mime_type or ""
         if m.local_file_id:
             file_ref = f"local:{m.local_file_id}"
         elif m.cache_file_id and (_UPLOAD_DIR / m.cache_file_id).exists():
             file_ref = f"local:{m.cache_file_id}"
         else:
             file_ref = m.drive_file_id
-        tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", m.mime_type, m.filename)
+            # Pre-download Drive images to disk so Meta's fetch is served
+            # instantly from local storage. Streaming from Drive during Meta's
+            # fetch added seconds of latency; when Meta's fetcher timed out it
+            # surfaced as an opaque code-2 publish error — carousels (two
+            # fetches) failed almost every time. Images also get normalized
+            # (RGB baseline JPEG) once here instead of on every fetch.
+            if mime.startswith("image/"):
+                try:
+                    gtok = await _google_token_for_uid(google_uid, db)
+                    dl = await google_api.download_drive_file(m.drive_file_id, gtok)
+                    if dl.get("success"):
+                        data, mime, _name = await asyncio.to_thread(
+                            _ensure_jpeg_sync, dl["bytes"], mime, m.filename)
+                        cache_id = f"igprefetch_{secrets.token_hex(8)}.jpg"
+                        ppath = _UPLOAD_DIR / cache_id
+                        async with aiofiles.open(ppath, "wb") as fh:
+                            await fh.write(data)
+                        prefetched_paths.append(ppath)
+                        file_ref = f"local:{cache_id}"
+                except Exception as exc:
+                    logger.warning("IG prefetch failed for %s, falling back to live Drive stream: %s",
+                                   m.drive_file_id, exc)
+        tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", mime, m.filename)
         # Commit immediately so the public /media endpoint (a separate request,
         # possibly on another worker) can resolve the token when Meta fetches it.
         await db.commit()
@@ -4716,6 +4748,11 @@ async def _publish_instagram_drive(
                 await db.commit()
             except Exception:
                 pass  # TTL purge will clean these up anyway
+        for ppath in prefetched_paths:
+            try:
+                ppath.unlink(missing_ok=True)
+            except Exception:
+                pass  # the hourly upload purge will get it
 
 
 async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: str) -> dict:
