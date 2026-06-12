@@ -73,6 +73,9 @@ agent = ClaudeAgent()
 # that with multiple server workers the same post/job is never processed twice.
 WORKER_ID = secrets.token_hex(4)
 
+# Configurable upload directory — override via UPLOADS_DIR env var.
+_UPLOAD_DIR = Path(settings.UPLOADS_DIR)
+
 # ── Password helpers ───────────────────────────────────────────────────────────
 
 def _hash_password(pw: str) -> str:
@@ -189,6 +192,11 @@ async def _deferred_startup() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure upload directory exists (supports custom UPLOADS_DIR path)
+    try:
+        _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as _exc:
+        logger.warning(f"Could not create uploads dir {_UPLOAD_DIR}: {_exc}")
     try:
         await init_db()
     except Exception as _exc:
@@ -607,59 +615,91 @@ async def _recover_stale_jobs() -> None:
 _CHECKPOINT_KEY = "scheduled_posts_checkpoint"
 
 
-async def _scheduled_posts_checkpoint_loop() -> None:
-    """Every 5 minutes, snapshot all pending scheduled posts into AppSetting.
+def _write_checkpoint_file(payload: str) -> None:
+    """Write checkpoint JSON to CHECKPOINT_FILE if configured."""
+    path = (settings.CHECKPOINT_FILE or "").strip()
+    if not path:
+        return
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(payload, encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Checkpoint file write error (%s): %s", path, exc)
 
-    This provides a durable backup that survives a full server restart.  On the
-    next startup (in _recover_stale_jobs) we already handle "processing" rows.
-    But if posts were "pending" during a long outage and some were missed, an
-    admin can always inspect this checkpoint via the AppSetting key.
 
-    The checkpoint is also used by the /api/system/scheduled-checkpoint endpoint
-    so the admin panel can display the backup count.
-    """
+def _read_checkpoint_file() -> str | None:
+    """Read checkpoint JSON from CHECKPOINT_FILE if it exists and configured."""
+    path = (settings.CHECKPOINT_FILE or "").strip()
+    if not path:
+        return None
+    try:
+        p = Path(path)
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Checkpoint file read error (%s): %s", path, exc)
+    return None
+
+
+async def _build_checkpoint_snapshot(db: AsyncSession) -> tuple[list, str]:
+    """Return (snapshot list, json payload) of all pending scheduled posts."""
+    result = await db.execute(
+        select(ScheduledPost).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.job_data.isnot(None),
+        ).order_by(ScheduledPost.scheduled_time)
+    )
+    pending = result.scalars().all()
+    snapshot = [
+        {
+            "id": p.id,
+            "sched_uid": (p.job_data or {}).get("sched_uid"),
+            "platform": p.platform,
+            "page_id": p.page_id,
+            "instagram_id": p.instagram_id,
+            "caption": p.caption or "",
+            "media_type": p.media_type,
+            "timezone": p.timezone or "UTC",
+            "scheduled_time": p.scheduled_time.isoformat(),
+            "attempts": p.attempts,
+            "job_data": p.job_data,
+        }
+        for p in pending
+    ]
+    payload = json.dumps({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "count": len(snapshot),
+        "posts": snapshot,
+    })
+    return snapshot, payload
+
+
+async def _save_checkpoint(db: AsyncSession) -> None:
+    """Snapshot pending posts to DB AppSetting and (if configured) to a file."""
     from database import AppSetting
+    _, payload = await _build_checkpoint_snapshot(db)
+    row = await db.get(AppSetting, _CHECKPOINT_KEY)
+    if row is None:
+        db.add(AppSetting(key=_CHECKPOINT_KEY, value=payload, is_secret=False))
+    else:
+        row.value = payload
+    await db.commit()
+    _write_checkpoint_file(payload)
+
+
+async def _scheduled_posts_checkpoint_loop() -> None:
+    """Snapshot pending scheduled posts to DB + optional file every 60s.
+
+    60s interval (vs the old 5m) tightens the loss window when posts are
+    pending. Also writes to CHECKPOINT_FILE so posts survive a SQLite wipe
+    on server redeploy when that path is on a persistent disk.
+    """
     while True:
-        await asyncio.sleep(300)  # every 5 minutes
+        await asyncio.sleep(60)
         try:
             async for db in get_db():
-                result = await db.execute(
-                    select(ScheduledPost).where(
-                        ScheduledPost.status == "pending",
-                        ScheduledPost.job_data.isnot(None),
-                    ).order_by(ScheduledPost.scheduled_time)
-                )
-                pending = result.scalars().all()
-                # Full payload (including job_data) so posts can actually be
-                # RESTORED after a table reset — not just listed.
-                snapshot = [
-                    {
-                        "id": p.id,
-                        "sched_uid": (p.job_data or {}).get("sched_uid"),
-                        "platform": p.platform,
-                        "page_id": p.page_id,
-                        "instagram_id": p.instagram_id,
-                        "caption": p.caption or "",
-                        "media_type": p.media_type,
-                        "timezone": p.timezone or "UTC",
-                        "scheduled_time": p.scheduled_time.isoformat(),
-                        "attempts": p.attempts,
-                        "job_data": p.job_data,
-                    }
-                    for p in pending
-                ]
-                payload = json.dumps({
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "count": len(snapshot),
-                    "posts": snapshot,
-                })
-                row = await db.get(AppSetting, _CHECKPOINT_KEY)
-                if row is None:
-                    from database import AppSetting as _AS
-                    db.add(_AS(key=_CHECKPOINT_KEY, value=payload, is_secret=False))
-                else:
-                    row.value = payload
-                await db.commit()
+                await _save_checkpoint(db)
                 break
         except Exception as exc:
             logger.debug("Checkpoint loop error: %s", exc)
@@ -668,20 +708,20 @@ async def _scheduled_posts_checkpoint_loop() -> None:
 async def _restore_scheduled_from_checkpoint() -> None:
     """On startup, re-insert pending scheduled posts that vanished from the table.
 
-    Protects against table truncation / bad migrations: any post in the last
-    checkpoint snapshot whose ``sched_uid`` is no longer present in
-    scheduled_posts (in ANY status) is re-created as pending. Posts whose due
-    time already passed are restored too — the worker publishes them late
-    rather than never.
+    Reads the checkpoint from the DB AppSetting first; if that's empty (e.g.
+    after a SQLite wipe), falls back to CHECKPOINT_FILE on disk. Any post in
+    the snapshot whose sched_uid is no longer present is re-created as pending.
+    Posts whose due time already passed are restored too (published late).
     """
     from database import AppSetting
     try:
         async for db in get_db():
             row = await db.get(AppSetting, _CHECKPOINT_KEY)
-            if row is None or not row.value:
+            raw_value = (row.value if row else None) or _read_checkpoint_file()
+            if not raw_value:
                 break
             try:
-                data = json.loads(row.value)
+                data = json.loads(raw_value)
             except Exception:
                 break
             posts = data.get("posts") or []
@@ -3588,7 +3628,7 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
                 path = Path(entry["path"])
                 break
         if path is None:
-            path = Path("uploads") / local_id
+            path = _UPLOAD_DIR / local_id
         if not path.exists():
             raise HTTPException(404, "Local media file not found")
         async def _local_iter(p: Path):
@@ -3695,7 +3735,7 @@ async def _resolve_media_bytes(m: DriveMediaItem, google_token: str) -> dict:
     """Download bytes from Drive or read from local upload storage."""
     if m.local_file_id:
         # Local file: read from disk
-        path = Path("uploads") / m.local_file_id
+        path = _UPLOAD_DIR / m.local_file_id
         if not path.exists():
             # Try to find by scanning _session_uploads values
             for uploads in _session_uploads.values():
@@ -4080,6 +4120,8 @@ async def _schedule_ig_job(
     )
     db.add(row)
     await db.flush()
+    # Checkpoint immediately so the new post is durable before the next loop tick.
+    await _save_checkpoint(db)
     return row.id
 
 
@@ -4696,7 +4738,7 @@ class AiMatchRequest(BaseModel):
 
 def _local_thumb_b64(local_id: str) -> Optional[tuple[str, str]]:
     """Downscale a locally-uploaded image to ≤512px and return (b64, mime)."""
-    path = Path("uploads") / local_id
+    path = _UPLOAD_DIR / local_id
     if not path.exists():
         for uploads in _session_uploads.values():
             entry = next((u for u in uploads if u["file_id"] == local_id), None)
@@ -6128,11 +6170,24 @@ async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)
             f"{stuck_count} post(s) stuck mid-publish — they will be retried automatically "
             "after the server restarts."
         )
-    if pending_count > 0 and settings.DATABASE_URL.startswith("sqlite"):
+    using_sqlite = settings.DATABASE_URL.startswith("sqlite")
+    has_checkpoint_file = bool((settings.CHECKPOINT_FILE or "").strip())
+    has_custom_uploads = settings.UPLOADS_DIR not in ("uploads", "./uploads", "uploads/")
+
+    if pending_count > 0 and using_sqlite and not has_checkpoint_file:
         issues.append(
-            "Scheduled posts are stored in a temporary SQLite database — they WILL be lost "
-            "when the server redeploys. Set DATABASE_URL to a PostgreSQL database to make "
-            "scheduled posts durable."
+            "⚠️ DURABILITY RISK: Scheduled posts are stored in a temporary SQLite database "
+            "that is wiped on every server redeploy. "
+            "Fix option A (easiest): set CHECKPOINT_FILE=/data/checkpoint.json and "
+            "UPLOADS_DIR=/data/uploads on a persistent disk — posts will survive redeploys. "
+            "Fix option B (recommended): set DATABASE_URL to a PostgreSQL connection string "
+            "(free tier available on Supabase or Render)."
+        )
+    elif pending_count > 0 and using_sqlite and has_checkpoint_file:
+        issues.append(
+            "Using SQLite with file checkpoint. Posts survive redeploys as long as "
+            f"CHECKPOINT_FILE ({settings.CHECKPOINT_FILE}) is on a persistent disk. "
+            "For full durability, migrate to PostgreSQL."
         )
 
     return {
@@ -6144,6 +6199,12 @@ async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)
         "next_due_at": next_due.isoformat() if next_due else None,
         "issues": issues,
         "status": "degraded" if (expired_tokens or failed_24h > 0 or overdue_count or stuck_count) else "ok",
+        "durability": {
+            "database": "postgresql" if not using_sqlite else "sqlite",
+            "checkpoint_file": settings.CHECKPOINT_FILE or None,
+            "uploads_dir": settings.UPLOADS_DIR,
+            "persistent_uploads": has_custom_uploads,
+        },
     }
 
 

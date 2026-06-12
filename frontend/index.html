@@ -3074,13 +3074,42 @@ async function _systemHealthLoad() {
     const r = await fetch('/api/system/health');
     if (!r.ok) return;
     const d = await r.json();
-    if (!d.issues || !d.issues.length) { banner.style.display = 'none'; return; }
+    const dur = d.durability || {};
+    const isSqlite = dur.database === 'sqlite';
+    const hasCheckpointFile = !!dur.checkpoint_file;
+    const hasPersistentUploads = !!dur.persistent_uploads;
+    const hasPendingPosts = (d.pending_scheduled || 0) > 0;
+
+    // Build durability warning block
+    let durHtml = '';
+    if (isSqlite && hasPendingPosts && !hasCheckpointFile) {
+      durHtml = `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:11.5px;line-height:1.6;color:#78350f">
+        <strong>⚠️ Scheduled posts will be lost on server redeploy (SQLite)</strong><br>
+        To protect your posts, set these environment variables on your server:<br>
+        <code style="background:#fff8e1;padding:2px 6px;border-radius:4px;font-size:11px">CHECKPOINT_FILE=/data/checkpoint.json</code> — saves post metadata to disk<br>
+        <code style="background:#fff8e1;padding:2px 6px;border-radius:4px;font-size:11px">UPLOADS_DIR=/data/uploads</code> — keeps media files on persistent disk<br>
+        <em>Or set <code style="background:#fff8e1;padding:2px 5px;border-radius:4px">DATABASE_URL</code> to a PostgreSQL URL for full durability (free on Supabase/Render).</em>
+      </div>`;
+    } else if (isSqlite && hasPendingPosts && hasCheckpointFile && !hasPersistentUploads) {
+      durHtml = `<div style="background:#fffbeb;border:1px solid #fbbf24;border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:11px;line-height:1.5;color:#92400e">
+        ✅ Checkpoint file set — post metadata survives redeploys.<br>
+        ⚠️ Media files are still in the default uploads/ folder (ephemeral). Set
+        <code style="background:#fff8e1;padding:1px 4px;border-radius:3px">UPLOADS_DIR=/data/uploads</code> on your persistent disk to protect them.
+      </div>`;
+    } else if (!isSqlite) {
+      // PostgreSQL — no warning needed, but surface it if admin wants to see
+    }
+
+    const issues = d.issues || [];
+    // Filter out the durability issue from generic issues list (shown in durHtml above)
+    const otherIssues = issues.filter(i => !i.includes('DURABILITY RISK') && !i.includes('SQLite with file checkpoint'));
+    if (!otherIssues.length && !durHtml) { banner.style.display = 'none'; return; }
     const isErr = d.status === 'degraded';
     banner.style.display = 'block';
-    banner.style.background = isErr ? '#dc262612' : '#f59e0b12';
-    banner.style.border = `1px solid ${isErr ? '#dc262640' : '#f59e0b40'}`;
+    banner.style.background = isErr ? '#dc262608' : 'transparent';
+    banner.style.border = isErr ? '1px solid #dc262630' : 'none';
     banner.style.color = 'var(--text-primary)';
-    banner.innerHTML = d.issues.map(i => `⚠️ ${escHtml(i)}`).join('<br>');
+    banner.innerHTML = durHtml + otherIssues.map(i => `<div style="margin-bottom:3px">⚠️ ${escHtml(i)}</div>`).join('');
   } catch(_) {}
 }
 
@@ -5509,7 +5538,13 @@ async function bulkPublishAll() {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res || !res.job_id) { statusEl.textContent = 'Submit failed.'; btn.disabled = false; return; }
     _bulkJobId = res.job_id;
-    statusEl.textContent = (res.message || 'Queued.') + (res.warning ? ' ' + res.warning : '');
+    if (res.warning) {
+      statusEl.innerHTML = escHtml(res.message || 'Queued.') + `<br><span style="color:#d97706;font-size:12px">⚠️ ${escHtml(res.warning)}<br>
+        To protect scheduled posts: set <code>CHECKPOINT_FILE=/data/checkpoint.json</code> and <code>UPLOADS_DIR=/data/uploads</code>
+        (persistent disk), or use a PostgreSQL <code>DATABASE_URL</code>.</span>`;
+    } else {
+      statusEl.textContent = res.message || 'Queued.';
+    }
     bulkPollJob();   // start polling for live progress
   } catch(e) {
     statusEl.textContent = 'Submit error: ' + (e.message || e);
@@ -8419,7 +8454,10 @@ async function uwPublish(btn) {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res || !res.job_id) { status.textContent='Submit failed — please try again.'; btn.disabled=false; return; }
     _uw.jobId = res.job_id; status.textContent = res.message || 'Queued!';
-    if (res.warning) _appendPostsCard(`<div style="font-size:12px;color:#d97706;line-height:1.6">${res.warning}</div>`);
+    if (res.warning) _appendPostsCard(`<div style="font-size:12px;color:#d97706;line-height:1.6">⚠️ ${escHtml(res.warning)}<br>
+      To protect scheduled posts from server redeploys, set <code>CHECKPOINT_FILE=/data/checkpoint.json</code>
+      and <code>UPLOADS_DIR=/data/uploads</code> (on a persistent disk), or set <code>DATABASE_URL</code>
+      to a PostgreSQL connection string.</div>`);
     // Kill any poll chain left over from a previous publish so two timers
     // don't poll the same job in parallel.
     clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
