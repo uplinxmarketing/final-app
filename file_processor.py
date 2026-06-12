@@ -23,7 +23,11 @@ import aiofiles
 logger = logging.getLogger("uplinx")
 
 ALLOWED_EXTENSIONS: set[str] = {"jpg", "jpeg", "png", "gif", "mp4", "mov", "pdf", "md"}
-UPLOAD_DIR = Path("uploads")
+try:
+    from config import settings as _settings
+    UPLOAD_DIR = Path(_settings.UPLOADS_DIR)
+except Exception:
+    UPLOAD_DIR = Path("uploads")
 
 # MIME type families allowed per extension group
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}

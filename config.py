@@ -234,6 +234,17 @@ class Settings(BaseSettings):
     AUTO_CLEAR_UPLOADS_HOURS: int = 24
     """Number of hours after which uploaded files are automatically purged."""
 
+    UPLOADS_DIR: str = "uploads"
+    """Directory for storing uploaded media files.
+    On hosts with a persistent disk (Render, Railway, Fly.io), set this to a
+    path on that disk (e.g. /data/uploads) so media files survive redeploys."""
+
+    CHECKPOINT_FILE: str = ""
+    """Path to a JSON file for durable backups of pending scheduled posts.
+    On hosts with a persistent disk, set this to a path on that disk
+    (e.g. /data/checkpoint.json) so posts survive SQLite database wipes.
+    Leave blank to store the checkpoint only inside the database."""
+
     # ------------------------------------------------------------------
     # Validators
     # ------------------------------------------------------------------
