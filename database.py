@@ -161,6 +161,10 @@ class ConnectedPostingAccount(Base):
         DateTime(timezone=True), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # App-user who connected this Facebook account.  NULL on legacy rows.
+    owner_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     def __repr__(self) -> str:
         return (
@@ -810,6 +814,10 @@ class ScheduledPost(Base):
     claimed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Earliest time at which a pending retry should be attempted (exponential back-off).
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -894,6 +902,8 @@ async def init_db() -> None:
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS claimed_by VARCHAR",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+            "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE",
         ]:
             try:
                 await conn.execute(_text(_stmt))

@@ -609,6 +609,8 @@ a{color:inherit;text-decoration:none}
       </div>
       <!-- Token expiry warning banner (filled by _tokenHealthLoad) -->
       <div id="token-health-banner" style="display:none;margin:8px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.45;flex-shrink:0"></div>
+      <!-- System health banner (filled by _systemHealthLoad) -->
+      <div id="system-health-banner" style="display:none;margin:4px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.5;flex-shrink:0"></div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
@@ -3049,10 +3051,28 @@ async function _tokenHealthLoad() {
 }
 
 // The bell lives in the always-visible chat header — poll failed posts every
+async function _systemHealthLoad() {
+  const banner = document.getElementById('system-health-banner');
+  if (!banner) return;
+  try {
+    const r = await fetch('/api/system/health');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.issues || !d.issues.length) { banner.style.display = 'none'; return; }
+    const isErr = d.status === 'degraded';
+    banner.style.display = 'block';
+    banner.style.background = isErr ? '#dc262612' : '#f59e0b12';
+    banner.style.border = `1px solid ${isErr ? '#dc262640' : '#f59e0b40'}`;
+    banner.style.color = 'var(--text-primary)';
+    banner.innerHTML = d.issues.map(i => `⚠️ ${escHtml(i)}`).join('<br>');
+  } catch(_) {}
+}
+
 // 60s and token health every 10 min regardless of which module is open.
 setInterval(notifLoad, 60000);
 setInterval(_tokenHealthLoad, 600000);
-setTimeout(() => { notifLoad(); _tokenHealthLoad(); }, 2500);
+setInterval(_systemHealthLoad, 600000);
+setTimeout(() => { notifLoad(); _tokenHealthLoad(); _systemHealthLoad(); }, 2500);
 
 // Intercept console.error and console.warn to feed the panel.
 (function() {
@@ -8656,7 +8676,7 @@ async function loadPostingAccountsList() {
             <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_email||''}</div>
           </div>
         </div>
-        <button onclick="disconnectPostingAccount(${a.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
+        <button onclick="disconnectPostingAccount(${a.id},${JSON.stringify(a.user_name||a.facebook_user_id)},false)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
       </div>`;
     }).join('');
   } catch(e) { /* silent */ }
@@ -8688,11 +8708,56 @@ async function connectPostingWithToken() {
   }
 }
 
-async function disconnectPostingAccount(id) {
-  await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
+async function disconnectPostingAccount(id, name, confirm) {
+  if (!confirm) {
+    // First call: check pending posts without actually disconnecting.
+    const r = await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
+    if (r.status === 409) {
+      const d = await r.json().catch(() => ({}));
+      const detail = d.detail || {};
+      const count = detail.pending_count || 0;
+      const msg = detail.message || `Disconnecting will affect ${count} pending post(s).`;
+      _showDisconnectWarning(id, name || 'this account', count, msg);
+      return;
+    }
+    if (!r.ok) { toast('Disconnect failed', 'error'); return; }
+  } else {
+    // Confirmed: force-disconnect.
+    const r = await fetch(`/api/accounts/posting/${id}?confirm=true`, {method:'DELETE'});
+    if (!r.ok) { toast('Disconnect failed', 'error'); return; }
+    const d = await r.json().catch(() => ({}));
+    if (d.pending_posts_cancelled > 0)
+      toast(`Account disconnected. ${d.pending_posts_cancelled} pending post(s) will not be published.`, 'warning');
+    else
+      toast('Account disconnected.', 'success');
+  }
+  document.querySelectorAll('.disconnect-warn-modal').forEach(el => el.remove());
   loadPostingAccountsList();
   loadPostingInterface();
   updateStatusIndicators();
+}
+
+function _showDisconnectWarning(id, name, count, msg) {
+  document.querySelectorAll('.disconnect-warn-modal').forEach(el => el.remove());
+  const wrap = document.createElement('div');
+  wrap.className = 'disconnect-warn-modal';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
+  wrap.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid #dc262655;border-radius:14px;width:min(420px,100%);padding:24px;display:flex;flex-direction:column;gap:16px" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:22px">⚠️</span>
+      <span style="font-size:15px;font-weight:800;color:var(--text-primary)">Disconnect ${escHtml(name)}?</span>
+    </div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">${escHtml(msg)}</div>
+    ${count > 0 ? `<div style="background:#dc262612;border:1px solid #dc262640;border-radius:8px;padding:10px 12px;font-size:12px;color:#dc2626;line-height:1.5">
+      <b>${count} scheduled Instagram post${count===1?'':'s'} will fail</b> — Instagram scheduling is handled by this app, and without this account's token those posts cannot be published.
+    </div>` : ''}
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="this.closest('.disconnect-warn-modal').remove()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">Cancel</button>
+      <button onclick="disconnectPostingAccount(${id},'${escHtml(name)}',true)" style="padding:8px 18px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Disconnect anyway</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
 }
 
 function openOAuthPopup(url) {

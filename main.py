@@ -207,6 +207,7 @@ async def lifespan(app: FastAPI):
     _bg_tasks.append(asyncio.create_task(_token_refresh_loop()))
     _bg_tasks.append(asyncio.create_task(_scheduled_posts_loop()))
     _bg_tasks.append(asyncio.create_task(_publish_jobs_loop()))
+    _bg_tasks.append(asyncio.create_task(_scheduled_posts_checkpoint_loop()))
     logger.info("Uplinx Meta Manager started")
     yield
     for task in _bg_tasks:
@@ -293,6 +294,10 @@ async def _scheduled_posts_loop() -> None:
                         ScheduledPost.status == "pending",
                         ScheduledPost.job_data.isnot(None),
                         ScheduledPost.scheduled_time <= now,
+                        or_(
+                            ScheduledPost.next_retry_at.is_(None),
+                            ScheduledPost.next_retry_at <= now,
+                        ),
                     ).limit(10)
                 )
                 due_ids = list(result.scalars().all())
@@ -322,6 +327,30 @@ async def _scheduled_posts_loop() -> None:
             logger.warning("Scheduled posts loop error: %s", exc)
 
 
+_RETRY_BACKOFF_SECONDS = [300, 600, 1800, 3600]  # 5m, 10m, 30m, 1h
+
+
+def _classify_meta_error(err_body: dict) -> tuple[str, bool]:
+    """Return (human_message, is_rate_limit) from a Meta API error response."""
+    err = err_body.get("error", err_body)
+    code = err.get("code", 0)
+    msg = err.get("message", "Unknown error")
+    subcode = err.get("error_subcode", 0)
+    # Rate / quota limits
+    if code in (4, 17, 32, 341) or subcode in (2446079, 2446085):
+        return f"Meta API rate limit reached (code {code}) — the post will be retried automatically.", True
+    # Token / auth
+    if code == 190:
+        return f"Meta access token expired or invalid — reconnect your Facebook account.", False
+    # Missing permission
+    if code in (10, 200, 230, 270):
+        return f"Missing Meta permission (code {code}): {msg}", False
+    # Scheduled time invalid (caught earlier but just in case)
+    if code == 100:
+        return f"Meta rejected the post: {msg}", False
+    return msg, False
+
+
 async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
     """Publish a single due scheduled post, updating its status in place."""
     job = post.job_data or {}
@@ -347,15 +376,25 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             post.meta_post_id = r.get("media_id")
             post.published_at = datetime.now(timezone.utc)
             post.error_message = None
+            post.next_retry_at = None
         else:
             raise RuntimeError(r.get("error", "publish failed"))
     except Exception as exc:
-        post.error_message = str(exc)[:500]
-        # Give up after 5 tries; otherwise return it to the queue for retry next
-        # cycle (clear the claim so any worker can pick it up again).
-        post.status = "failed" if post.attempts >= 5 else "pending"
-        post.claimed_by = None
-        post.claimed_at = None
+        err_str = str(exc)
+        post.error_message = err_str[:500]
+        max_attempts = 5
+        if post.attempts >= max_attempts:
+            post.status = "failed"
+            post.claimed_by = None
+            post.claimed_at = None
+            post.next_retry_at = None
+        else:
+            # Exponential back-off: don't retry immediately (wastes Meta quota).
+            delay = _RETRY_BACKOFF_SECONDS[min(post.attempts - 1, len(_RETRY_BACKOFF_SECONDS) - 1)]
+            post.status = "pending"
+            post.claimed_by = None
+            post.claimed_at = None
+            post.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
         logger.warning("Scheduled post %s attempt %d failed: %s", post.id, post.attempts, exc)
     await db.commit()
 
@@ -504,6 +543,62 @@ async def _recover_stale_jobs() -> None:
             break
     except Exception as exc:
         logger.warning("Stale job recovery error: %s", exc)
+
+
+_CHECKPOINT_KEY = "scheduled_posts_checkpoint"
+
+
+async def _scheduled_posts_checkpoint_loop() -> None:
+    """Every 5 minutes, snapshot all pending scheduled posts into AppSetting.
+
+    This provides a durable backup that survives a full server restart.  On the
+    next startup (in _recover_stale_jobs) we already handle "processing" rows.
+    But if posts were "pending" during a long outage and some were missed, an
+    admin can always inspect this checkpoint via the AppSetting key.
+
+    The checkpoint is also used by the /api/system/scheduled-checkpoint endpoint
+    so the admin panel can display the backup count.
+    """
+    from database import AppSetting
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        try:
+            async for db in get_db():
+                result = await db.execute(
+                    select(ScheduledPost).where(
+                        ScheduledPost.status == "pending",
+                        ScheduledPost.job_data.isnot(None),
+                    ).order_by(ScheduledPost.scheduled_time)
+                )
+                pending = result.scalars().all()
+                snapshot = [
+                    {
+                        "id": p.id,
+                        "platform": p.platform,
+                        "page_id": p.page_id,
+                        "instagram_id": p.instagram_id,
+                        "caption": (p.caption or "")[:500],
+                        "scheduled_time": p.scheduled_time.isoformat(),
+                        "attempts": p.attempts,
+                        "job_data_keys": list((p.job_data or {}).keys()),
+                    }
+                    for p in pending
+                ]
+                payload = json.dumps({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "count": len(snapshot),
+                    "posts": snapshot,
+                })
+                row = await db.get(AppSetting, _CHECKPOINT_KEY)
+                if row is None:
+                    from database import AppSetting as _AS
+                    db.add(_AS(key=_CHECKPOINT_KEY, value=payload, is_secret=False))
+                else:
+                    row.value = payload
+                await db.commit()
+                break
+        except Exception as exc:
+            logger.debug("Checkpoint loop error: %s", exc)
 
 
 async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
@@ -1935,11 +2030,27 @@ class MetaAppUpdateRequest(BaseModel):
 
 @app.get("/api/accounts/posting")
 async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_db)):
-    """List connected Posting app Meta accounts (no tokens exposed)."""
+    """List connected Posting app Meta accounts (no tokens exposed).
+
+    Non-admin users only see accounts they connected themselves (owner_user_id
+    matches their user_id).  Admins see all connected accounts.  Legacy accounts
+    with no owner (owner_user_id IS NULL) are visible to everyone so nothing
+    breaks for existing deployments.
+    """
     session = get_session(request)
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
-    )
+    is_admin = session.get("user_role") == "admin"
+    app_user_id: Optional[int] = session.get("user_id")
+
+    q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+    if not is_admin and app_user_id:
+        # Show accounts owned by this user OR legacy accounts with no owner.
+        q = q.where(
+            or_(
+                ConnectedPostingAccount.owner_user_id == app_user_id,
+                ConnectedPostingAccount.owner_user_id.is_(None),
+            )
+        )
+    result = await db.execute(q)
     accounts = result.scalars().all()
     return [
         {
@@ -1950,6 +2061,7 @@ async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_
             "token_expiry": a.token_expiry.isoformat() if a.token_expiry else None,
             "last_used_at": a.last_used_at.isoformat() if a.last_used_at else None,
             "is_current": a.facebook_user_id == session.get("posting_user_id"),
+            "owner_user_id": a.owner_user_id,
         }
         for a in accounts
     ]
@@ -1965,7 +2077,15 @@ async def api_switch_posting_account(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Switch the current session to a different connected posting account."""
+    """Switch the current session to a different connected posting account.
+
+    Enforces ownership: non-admin users can only switch to accounts they own,
+    or legacy accounts with no recorded owner.
+    """
+    session = get_session(request)
+    is_admin = session.get("user_role") == "admin"
+    app_user_id: Optional[int] = session.get("user_id")
+
     result = await db.execute(
         select(ConnectedPostingAccount).where(
             ConnectedPostingAccount.facebook_user_id == req.facebook_user_id,
@@ -1975,6 +2095,10 @@ async def api_switch_posting_account(
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(404, "Account not found or disconnected")
+
+    # Ownership check: block non-admin users from switching to someone else's account.
+    if not is_admin and acc.owner_user_id is not None and app_user_id and acc.owner_user_id != app_user_id:
+        raise HTTPException(403, "You do not have access to that account")
     existing = get_session(request)
     session_data = {**dict(existing), "posting_user_id": acc.facebook_user_id}
     response = JSONResponse({"success": True, "user_name": acc.user_name or acc.facebook_user_id})
@@ -1989,14 +2113,59 @@ async def api_switch_posting_account(
 
 
 @app.delete("/api/accounts/posting/{account_id}")
-async def api_disconnect_posting(account_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+async def api_disconnect_posting(
+    account_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    confirm: bool = False,
+):
+    """Disconnect a posting account.
+
+    If the account has pending scheduled posts that will be orphaned, the
+    endpoint returns HTTP 409 with the post count unless ``?confirm=true`` is
+    passed.  Ownership is enforced: non-admins may only disconnect their own
+    accounts.
+    """
+    session = get_session(request)
+    is_admin = session.get("user_role") == "admin"
+    app_user_id: Optional[int] = session.get("user_id")
+
     result = await db.execute(select(ConnectedPostingAccount).where(ConnectedPostingAccount.id == account_id))
     acc = result.scalar_one_or_none()
     if not acc:
         raise HTTPException(404, "Account not found")
+
+    # Ownership guard.
+    if not is_admin and acc.owner_user_id is not None and app_user_id and acc.owner_user_id != app_user_id:
+        raise HTTPException(403, "You do not have permission to disconnect that account")
+
+    # Count pending scheduled posts that will be stranded.
+    pending_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.job_data.isnot(None),
+            # posted via this account (stored inside JSON job_data)
+            ScheduledPost.job_data["posting_user_id"].astext == acc.facebook_user_id,
+        )
+    )
+    pending_count: int = pending_result.scalar() or 0
+
+    if pending_count > 0 and not confirm:
+        raise HTTPException(
+            409,
+            {
+                "message": (
+                    f"This account has {pending_count} pending scheduled "
+                    f"Instagram post{'s' if pending_count != 1 else ''} that will "
+                    "fail if you disconnect. Pass ?confirm=true to disconnect anyway."
+                ),
+                "pending_count": pending_count,
+            },
+        )
+
     acc.is_active = False
     await db.commit()
-    return {"success": True}
+    return {"success": True, "pending_posts_cancelled": pending_count}
 
 
 @app.post("/api/accounts/posting/token")
@@ -2034,6 +2203,9 @@ async def api_posting_direct_token(
     acc = result.scalar_one_or_none()
     encrypted = encryption.encrypt(token)
 
+    session = get_session(request)
+    connecting_user_id: Optional[int] = session.get("user_id")
+
     if acc:
         acc.encrypted_short_token = encrypted
         acc.encrypted_long_token = encrypted
@@ -2042,6 +2214,8 @@ async def api_posting_direct_token(
         acc.token_expiry = None
         acc.is_active = True
         acc.last_used_at = datetime.utcnow()
+        if acc.owner_user_id is None and connecting_user_id:
+            acc.owner_user_id = connecting_user_id
     else:
         acc = ConnectedPostingAccount(
             facebook_user_id=user_id,
@@ -2053,6 +2227,7 @@ async def api_posting_direct_token(
             created_at=datetime.utcnow(),
             last_used_at=datetime.utcnow(),
             is_active=True,
+            owner_user_id=connecting_user_id,
         )
         db.add(acc)
 
@@ -2306,6 +2481,10 @@ async def auth_meta_posting_callback(
     )
     acc = result.scalar_one_or_none()
     now = datetime.utcnow()
+    # Resolve the app-user performing this OAuth so we can link the account.
+    existing_token = request.cookies.get(SESSION_COOKIE)
+    existing_session = verify_session_token(existing_token) if existing_token else {}
+    connecting_user_id: Optional[int] = existing_session.get("user_id")
     if acc:
         acc.encrypted_short_token = encryption.encrypt(short_token)
         acc.encrypted_long_token = encryption.encrypt(long_token)
@@ -2314,6 +2493,9 @@ async def auth_meta_posting_callback(
         acc.user_email = email
         acc.is_active = True
         acc.last_used_at = now
+        # Update owner only if not set yet, or if an admin re-connects on behalf.
+        if acc.owner_user_id is None and connecting_user_id:
+            acc.owner_user_id = connecting_user_id
     else:
         acc = ConnectedPostingAccount(
             facebook_user_id=uid,
@@ -2325,13 +2507,12 @@ async def auth_meta_posting_callback(
             created_at=now,
             last_used_at=now,
             is_active=True,
+            owner_user_id=connecting_user_id,
         )
         db.add(acc)
     await db.commit()
 
     # Merge posting_user_id into existing session so user auth cookie is preserved
-    existing_token = request.cookies.get(SESSION_COOKIE)
-    existing_session = verify_session_token(existing_token) if existing_token else {}
     session_data = {**existing_session, "posting_user_id": uid}
     session_token = create_session_token(session_data)
     redirect = RedirectResponse("/auth/done?type=posting")
@@ -3369,6 +3550,19 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
     if scheduled_ts and scheduled_ts < int(datetime.now(timezone.utc).timestamp()) + 600:
         scheduled_ts = None
 
+    def _fb_err(res: dict) -> dict:
+        """Translate a meta_api failure dict to a user-friendly error."""
+        raw = res.get("error", "publish failed")
+        # meta_api already returns the error message string; classify it.
+        try:
+            # If it's a dict (shouldn't be, but defensive), stringify.
+            if isinstance(raw, dict):
+                human, _ = _classify_meta_error(raw)
+                return {"success": False, "error": human}
+        except Exception:
+            pass
+        return {"success": False, "error": raw}
+
     # Single video (REELS/VIDEO both post as a Page video)
     if len(item.media) == 1 and item.media_type in ("VIDEO", "REELS"):
         m = item.media[0]
@@ -3380,7 +3574,7 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
             filename=m.filename, scheduled_publish_time=scheduled_ts,
         )
         if not res["success"]:
-            return res
+            return _fb_err(res)
         return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
 
     # Single photo
@@ -3394,7 +3588,7 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
             filename=m.filename, scheduled_publish_time=scheduled_ts,
         )
         if not res["success"]:
-            return res
+            return _fb_err(res)
         return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
 
     # Carousel (multiple photos)
@@ -3408,14 +3602,14 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
                 page_token, item.page_id, dl["bytes"], filename=m.filename
             )
             if not up["success"]:
-                return up
+                return _fb_err(up)
             media_ids.append(up["data"]["media_id"])
         res = await meta_api.publish_page_carousel(
             page_token, item.page_id, media_ids, caption=caption,
             scheduled_publish_time=scheduled_ts,
         )
         if not res["success"]:
-            return res
+            return _fb_err(res)
         return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("id")}
 
     return {"success": False, "error": f"Unsupported facebook media_type: {item.media_type}"}
@@ -3465,7 +3659,9 @@ async def _publish_instagram_drive(
             async with httpx.AsyncClient(timeout=60) as client:
                 cr = await client.post(f"{base}/{item.instagram_id}/media", data=container)
             if cr.status_code not in (200, 201):
-                return {"success": False, "error": cr.json().get("error", {}).get("message", "container failed")}
+                _err_body = cr.json() if cr.content else {}
+                _human_msg, _ = _classify_meta_error(_err_body)
+                return {"success": False, "error": _human_msg}
             creation_id = cr.json().get("id")
             return await _ig_publish_container(item.instagram_id, creation_id, user_token, base)
 
@@ -3482,7 +3678,9 @@ async def _publish_instagram_drive(
                     child_payload["image_url"] = public_url
                 cr = await client.post(f"{base}/{item.instagram_id}/media", data=child_payload)
                 if cr.status_code not in (200, 201):
-                    return {"success": False, "error": cr.json().get("error", {}).get("message", "carousel child failed")}
+                    _err_body = cr.json() if cr.content else {}
+                    _human_msg, _ = _classify_meta_error(_err_body)
+                    return {"success": False, "error": _human_msg}
                 child_ids.append(cr.json().get("id"))
             parent_payload = {
                 "access_token": user_token,
@@ -3493,7 +3691,9 @@ async def _publish_instagram_drive(
                 parent_payload["caption"] = caption
             pr = await client.post(f"{base}/{item.instagram_id}/media", data=parent_payload)
         if pr.status_code not in (200, 201):
-            return {"success": False, "error": pr.json().get("error", {}).get("message", "carousel parent failed")}
+            _err_body = pr.json() if pr.content else {}
+            _human_msg, _ = _classify_meta_error(_err_body)
+            return {"success": False, "error": _human_msg}
         return await _ig_publish_container(item.instagram_id, pr.json().get("id"), user_token, base)
     finally:
         # Tokens can be revoked after publish completes; IG has already fetched.
@@ -3524,7 +3724,9 @@ async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: 
             data={"creation_id": creation_id, "access_token": token},
         )
     if pub.status_code not in (200, 201):
-        return {"success": False, "error": pub.json().get("error", {}).get("message", "publish failed")}
+        _err_body = pub.json() if pub.content else {}
+        _human_msg, _ = _classify_meta_error(_err_body)
+        return {"success": False, "error": _human_msg}
     return {"success": True, "media_id": pub.json().get("id")}
 
 
@@ -5615,6 +5817,7 @@ async def api_retry_scheduled_post(post_id: int, db: AsyncSession = Depends(get_
     post.error_message = None
     post.claimed_by = None
     post.claimed_at = None
+    post.next_retry_at = None
     # Publish on the next worker pass instead of waiting for the original
     # (now past) scheduled time.
     if post.scheduled_time and post.scheduled_time.replace(tzinfo=post.scheduled_time.tzinfo or timezone.utc) > datetime.now(timezone.utc):
@@ -5623,6 +5826,98 @@ async def api_retry_scheduled_post(post_id: int, db: AsyncSession = Depends(get_
         post.scheduled_time = datetime.now(timezone.utc)
     await db.commit()
     return {"success": True, "message": "Post re-queued — it will publish within a minute."}
+
+
+# ── System health & checkpoint ─────────────────────────────────────────────────
+
+@app.get("/api/system/health")
+async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return overall system health: pending posts, API status, token status."""
+    now = datetime.now(timezone.utc)
+
+    # Pending scheduled posts count
+    pending_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.job_data.isnot(None),
+        )
+    )
+    pending_count: int = pending_result.scalar() or 0
+
+    # Processing posts (claimed by a worker right now)
+    processing_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "processing",
+        )
+    )
+    processing_count: int = processing_result.scalar() or 0
+
+    # Failed posts in last 24h
+    failed_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "failed",
+            ScheduledPost.scheduled_time >= now - timedelta(hours=24),
+        )
+    )
+    failed_24h: int = failed_result.scalar() or 0
+
+    # Next due post
+    next_result = await db.execute(
+        select(ScheduledPost.scheduled_time).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.job_data.isnot(None),
+        ).order_by(ScheduledPost.scheduled_time).limit(1)
+    )
+    next_due = next_result.scalar_one_or_none()
+
+    # Token health summary
+    token_result = await db.execute(
+        select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+    )
+    posting_accounts = token_result.scalars().all()
+    expired_tokens = []
+    warning_tokens = []
+    for acc in posting_accounts:
+        if acc.token_expiry:
+            expiry = acc.token_expiry if acc.token_expiry.tzinfo else acc.token_expiry.replace(tzinfo=timezone.utc)
+            days = (expiry - now).days
+            if days < 0:
+                expired_tokens.append(acc.user_name or acc.facebook_user_id)
+            elif days <= 7:
+                warning_tokens.append(acc.user_name or acc.facebook_user_id)
+
+    issues = []
+    if expired_tokens:
+        issues.append(f"Expired tokens: {', '.join(expired_tokens)} — reconnect to publish scheduled posts")
+    if warning_tokens:
+        issues.append(f"Tokens expiring soon: {', '.join(warning_tokens)}")
+    if failed_24h > 0:
+        issues.append(f"{failed_24h} post(s) failed in the last 24 hours — check Notifications")
+
+    return {
+        "pending_scheduled": pending_count,
+        "processing_now": processing_count,
+        "failed_last_24h": failed_24h,
+        "next_due_at": next_due.isoformat() if next_due else None,
+        "issues": issues,
+        "status": "degraded" if (expired_tokens or failed_24h > 0) else "ok",
+    }
+
+
+@app.get("/api/system/scheduled-checkpoint")
+async def api_scheduled_checkpoint(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return the most recent pending-posts checkpoint (admin only)."""
+    session = get_session(request)
+    if session.get("user_role") != "admin":
+        raise HTTPException(403, "Admin only")
+    from database import AppSetting
+    row = await db.get(AppSetting, _CHECKPOINT_KEY)
+    if not row:
+        return {"checkpoint": None}
+    try:
+        return {"checkpoint": json.loads(row.value)}
+    except Exception:
+        return {"checkpoint": row.value}
 
 
 # ── API usage stats ────────────────────────────────────────────────────────────
