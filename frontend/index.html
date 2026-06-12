@@ -921,6 +921,7 @@ a{color:inherit;text-decoration:none}
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px">
               <button onclick="submitPost()" id="post-submit-btn" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish / Schedule</button>
               <button onclick="clearPostComposer()" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13px;cursor:pointer">Clear</button>
+              <div style="width:100%;margin-top:4px;font-size:11px;color:var(--text-dim);line-height:1.5">📘 Facebook posts appear in Meta Business Suite → Content immediately after publishing. 📷 Scheduled Instagram posts appear in Business Suite after they publish. If Meta shows "being used for ads" when deleting a post, click Delete again to confirm — this is a Meta warning, not an error.</div>
               <span id="post-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
             </div>
             <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">SCHEDULED POSTS</div>
@@ -5551,7 +5552,8 @@ async function bulkPollJob() {
     } else if (job.status === 'running') {
       statusEl.textContent = `🔄 Publishing ${job.completed} of ${job.total}… (${job.published_count} published, ${job.scheduled_count} scheduled, ${job.failed} failed)`;
     } else if (job.status === 'done') {
-      statusEl.textContent = `✅ Done: ${job.published_count} published, ${job.scheduled_count} scheduled, ${job.failed} failed.`;
+      statusEl.innerHTML = `✅ Done: ${job.published_count} published, ${job.scheduled_count} scheduled, ${job.failed} failed.`
+        + (job.scheduled_count > 0 ? ` <span style="font-size:11px;color:var(--text-dim)">📷 Instagram scheduled posts appear in Meta Business Suite after they publish at their scheduled time. 📘 Facebook scheduled posts show in Business Suite → Scheduled immediately.</span>` : '');
       btn.disabled = false;
       _bulkJobId = null;
       loadActiveJobsBanner();
@@ -8356,6 +8358,27 @@ function uwCardClick(e, i) {
   uwShowFeedPreview(i);
 }
 
+function _uwConfirmNoCaptions(nEmpty, nTotal) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px';
+    wrap.onclick = e => { if (e.target === wrap) { wrap.remove(); resolve(false); } };
+    wrap.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid #f59e0b55;border-radius:14px;width:min(400px,100%);padding:24px;display:flex;flex-direction:column;gap:16px" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">⚠️</span>
+        <span style="font-size:15px;font-weight:800;color:var(--text-primary)">${nEmpty === nTotal ? 'All posts have no caption' : `${nEmpty} post${nEmpty===1?'':'s'} ha${nEmpty===1?'s':'ve'} no caption`}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Posts without captions will publish with <b>no text</b>. Meta allows this for photos, but captions help with reach and searchability. Are you sure you want to continue?</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="this.closest('div[style*=fixed]').remove();_uwNoCaptionResolve(false)" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">Go back &amp; add captions</button>
+        <button onclick="this.closest('div[style*=fixed]').remove();_uwNoCaptionResolve(true)" style="padding:8px 18px;border-radius:8px;border:none;background:#f59e0b;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Publish without captions</button>
+      </div>
+    </div>`;
+    window._uwNoCaptionResolve = (v) => { delete window._uwNoCaptionResolve; resolve(v); };
+    document.body.appendChild(wrap);
+  });
+}
+
 async function uwPublish(btn) {
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
   if (!_uw.posts.length || !targets.length) return;
@@ -8366,6 +8389,12 @@ async function uwPublish(btn) {
   if (empty >= 0) {
     status.textContent = `Post ${empty + 1} has no image — add one with ＋ or remove the post.`;
     return;
+  }
+  // Warn (but don't block) if any post has no caption.
+  const noCaption = _uw.posts.filter(p => !(p.caption || '').trim()).length;
+  if (noCaption > 0) {
+    const proceed = await _uwConfirmNoCaptions(noCaption, _uw.posts.length);
+    if (!proceed) return;
   }
   // One item per (post × target) — posting to both FB and IG creates two items.
   // A post's media array may hold multiple files (carousel).
@@ -8455,7 +8484,14 @@ async function uwPollJob() {
             return `⚠️ Post ${Math.floor(r.index/nTargets)+1}${plat?' ('+plat+')':''}: ${escHtml(r.error||'unknown error')}`;
           }).join('<br>') + '</div>';
       }
-      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}</div>`); return; }
+      const hasFbScheduled = (job.results||[]).some(r => r.success && r.scheduled && !r.scheduled_id);
+      const hasIgScheduled = (job.results||[]).some(r => r.success && r.scheduled && r.scheduled_id);
+      const schedNote = (hasFbScheduled || hasIgScheduled) ? `<div style="margin-top:8px;font-size:11px;color:var(--text-dim);line-height:1.5;border-top:1px solid var(--border);padding-top:8px">${
+        hasFbScheduled ? '📘 Facebook scheduled posts appear in <b>Meta Business Suite → Content → Scheduled</b> immediately.<br>' : ''
+      }${
+        hasIgScheduled ? '📷 Instagram scheduled posts are managed by this app and will appear in <b>Meta Business Suite only after they publish</b> at their scheduled time.' : ''
+      }</div>` : '';
+      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}${schedNote}</div>`); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }

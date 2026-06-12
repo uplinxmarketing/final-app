@@ -371,7 +371,10 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             media=[DriveMediaItem(**m) for m in job.get("media", [])],
             media_type=job.get("media_type", "IMAGE"),
         )
-        r = await _publish_instagram_drive(item, posting_token, google_uid, job.get("base_url", ""), db)
+        # Always prefer the live BASE_URL setting over the URL recorded at
+        # schedule time; the server may have redeployed with a different domain.
+        base_url = _effective_base_url() or job.get("base_url", "")
+        r = await _publish_instagram_drive(item, posting_token, google_uid, base_url, db)
         if r.get("success"):
             post.status = "published"
             post.meta_post_id = r.get("media_id")
@@ -3492,13 +3495,28 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
 
 def _public_base_url(request: Request) -> str:
     """Best-effort public base URL for building media-proxy links Meta can reach."""
-    configured = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
-    if configured:
+    # Prefer BASE_URL from config (set in .env / environment) if it is a real
+    # deployment URL and not the localhost default.
+    configured = (settings.BASE_URL or "").strip().rstrip("/")
+    if configured and not configured.startswith("http://localhost") and not configured.startswith("http://127."):
         return configured
-    # Honour proxy headers (Render terminates TLS upstream).
+    # Honour proxy headers (Render, Railway, etc. terminate TLS upstream).
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
     return f"{proto}://{host}"
+
+
+def _effective_base_url() -> str:
+    """Public base URL for use in background workers (no Request available).
+
+    Uses BASE_URL from settings if it looks like a real deployment URL.
+    Falls back to an empty string which will cause media URLs to be
+    relative — acceptable only if the scheduler never runs in that case.
+    """
+    configured = (settings.BASE_URL or "").strip().rstrip("/")
+    if configured and not configured.startswith("http://localhost") and not configured.startswith("http://127."):
+        return configured
+    return ""
 
 
 async def _get_page_token(user_token: str, page_id: str) -> str:
@@ -3615,19 +3633,26 @@ async def _publish_facebook_drive(item: BulkPostItem, user_token: str, google_to
             return _fb_err(res)
         return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
 
-    # Single photo
+    # Single photo — upload as unpublished then attach to a feed post so it
+    # appears in Business Suite's Content section (not just the Photos library)
+    # and is NOT indexed as an ad asset. Same approach as carousel items.
     if len(item.media) == 1 and item.media_type == "IMAGE":
         m = item.media[0]
         dl = await _resolve_media_bytes(m, google_token)
         if not dl.get("success"):
             return {"success": False, "error": f"Media download failed: {dl.get('error')}"}
-        res = await meta_api.publish_page_photo_bytes(
-            page_token, item.page_id, dl["bytes"], caption=caption,
-            filename=m.filename, scheduled_publish_time=scheduled_ts,
+        up = await meta_api.upload_unpublished_page_photo_bytes(
+            page_token, item.page_id, dl["bytes"], filename=m.filename
+        )
+        if not up["success"]:
+            return _fb_err(up)
+        res = await meta_api.publish_page_carousel(
+            page_token, item.page_id, [up["data"]["media_id"]], caption=caption,
+            scheduled_publish_time=scheduled_ts,
         )
         if not res["success"]:
             return _fb_err(res)
-        return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("post_id") or res["data"].get("id")}
+        return {"success": True, "scheduled": bool(scheduled_ts), "post_id": res["data"].get("id")}
 
     # Carousel (multiple photos)
     if item.media_type == "IMAGE":
