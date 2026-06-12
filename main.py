@@ -490,6 +490,39 @@ async def _scheduled_posts_loop() -> None:
 
 _RETRY_BACKOFF_SECONDS = [300, 600, 1800, 3600]  # 5m, 10m, 30m, 1h
 
+# Meta transient errors: code 1 = unknown, code 2 = "Please retry your request
+# later". These resolve on retry in the vast majority of cases.
+_META_TRANSIENT_CODES = {1, 2}
+
+
+async def _meta_post_retry(
+    client: httpx.AsyncClient, url: str, data: dict, retries: int = 4
+) -> httpx.Response:
+    """POST to the Meta Graph API, retrying transient code-1/2 errors.
+
+    Returns the last response either way — callers keep their existing
+    status-code / error-body handling.
+    """
+    resp: httpx.Response | None = None
+    for attempt in range(retries):
+        resp = await client.post(url, data=data)
+        if resp.status_code in (200, 201):
+            return resp
+        try:
+            code = (resp.json().get("error") or {}).get("code", 0)
+        except Exception:
+            code = 0
+        if code not in _META_TRANSIENT_CODES:
+            return resp
+        if attempt < retries - 1:
+            wait = 5 * (attempt + 1)  # 5s, 10s, 15s
+            logger.warning(
+                "Meta transient error (code %s) on %s — retry %d/%d in %ds",
+                code, url.split("?")[0], attempt + 1, retries - 1, wait,
+            )
+            await asyncio.sleep(wait)
+    return resp
+
 
 def _classify_meta_error(err_body: dict) -> tuple[str, bool]:
     """Return (human_message, is_rate_limit) from a Meta API error response."""
@@ -4397,7 +4430,7 @@ async def _publish_instagram_drive(
             else:
                 container["image_url"] = public_url
             async with httpx.AsyncClient(timeout=60) as client:
-                cr = await client.post(f"{base}/{item.instagram_id}/media", data=container)
+                cr = await _meta_post_retry(client, f"{base}/{item.instagram_id}/media", container)
             if cr.status_code not in (200, 201):
                 _err_body = cr.json() if cr.content else {}
                 _human_msg, _ = _classify_meta_error(_err_body)
@@ -4416,7 +4449,7 @@ async def _publish_instagram_drive(
                     child_payload["video_url"] = public_url
                 else:
                     child_payload["image_url"] = public_url
-                cr = await client.post(f"{base}/{item.instagram_id}/media", data=child_payload)
+                cr = await _meta_post_retry(client, f"{base}/{item.instagram_id}/media", child_payload)
                 if cr.status_code not in (200, 201):
                     _err_body = cr.json() if cr.content else {}
                     _human_msg, _ = _classify_meta_error(_err_body)
@@ -4429,7 +4462,7 @@ async def _publish_instagram_drive(
             }
             if caption:
                 parent_payload["caption"] = caption
-            pr = await client.post(f"{base}/{item.instagram_id}/media", data=parent_payload)
+            pr = await _meta_post_retry(client, f"{base}/{item.instagram_id}/media", parent_payload)
         if pr.status_code not in (200, 201):
             _err_body = pr.json() if pr.content else {}
             _human_msg, _ = _classify_meta_error(_err_body)
@@ -4488,9 +4521,10 @@ async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: 
                     "BASE_URL is not publicly reachable by Meta."
                 ),
             }
-        pub = await client.post(
+        pub = await _meta_post_retry(
+            client,
             f"{base}/{ig_id}/media_publish",
-            data={"creation_id": creation_id, "access_token": token},
+            {"creation_id": creation_id, "access_token": token},
         )
     if pub.status_code not in (200, 201):
         _err_body = pub.json() if pub.content else {}
@@ -6030,7 +6064,7 @@ async def api_publish_facebook(
             if scheduled_ts:
                 payload["published"] = "false"
                 payload["scheduled_publish_time"] = str(scheduled_ts)
-            r = await client.post(f"{base}/{req.page_id}/photos", data=payload)
+            r = await _meta_post_retry(client, f"{base}/{req.page_id}/photos", payload)
         else:
             # Text / link post
             payload = {
@@ -6040,7 +6074,7 @@ async def api_publish_facebook(
             if scheduled_ts:
                 payload["published"] = "false"
                 payload["scheduled_publish_time"] = str(scheduled_ts)
-            r = await client.post(f"{base}/{req.page_id}/feed", data=payload)
+            r = await _meta_post_retry(client, f"{base}/{req.page_id}/feed", payload)
 
     if r.status_code not in (200, 201):
         err = r.json().get("error", {}).get("message", "Failed to publish to Facebook")
@@ -6098,7 +6132,7 @@ async def api_publish_instagram(
 
     # Step 1 — create media container
     async with httpx.AsyncClient(timeout=30) as client:
-        cr = await client.post(f"{base}/{req.instagram_id}/media", data=container_data)
+        cr = await _meta_post_retry(client, f"{base}/{req.instagram_id}/media", container_data)
     if cr.status_code not in (200, 201):
         err = cr.json().get("error", {}).get("message", "Failed to create Instagram media container")
         _sess_ig = get_session(request)
@@ -6114,9 +6148,10 @@ async def api_publish_instagram(
 
     # Step 2 — publish the container
     async with httpx.AsyncClient(timeout=30) as client:
-        pr = await client.post(
+        pr = await _meta_post_retry(
+            client,
             f"{base}/{req.instagram_id}/media_publish",
-            data={"creation_id": creation_id, "access_token": token},
+            {"creation_id": creation_id, "access_token": token},
         )
     if pr.status_code not in (200, 201):
         err = pr.json().get("error", {}).get("message", "Failed to publish Instagram media")
