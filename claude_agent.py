@@ -420,6 +420,34 @@ class ClaudeAgent:
             tokens_used,
         )
 
+    async def _save_partial_response(
+        self,
+        conversation_id: int,
+        text: str,
+        tool_calls: Optional[list],
+        tokens_used: int,
+        db: AsyncSession,
+    ) -> None:
+        """Persist whatever the AI streamed before an error cut it off.
+
+        Without this, text the user already watched stream in vanishes from
+        the conversation on reload — the user message is saved but the reply
+        is not, which looks like data loss.
+        """
+        if not (text or "").strip():
+            return
+        try:
+            await self.save_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=text + "\n\n*[Response interrupted by an error — partial reply saved.]*",
+                tool_calls=tool_calls or None,
+                tokens_used=tokens_used,
+                db=db,
+            )
+        except Exception as exc:
+            logger.error("Failed to save partial assistant message: %s", exc)
+
     # ------------------------------------------------------------------
     # System prompt construction
     # ------------------------------------------------------------------
@@ -941,6 +969,7 @@ class ClaudeAgent:
                     "conv_id": conversation_id, "error": "connection_error", "detail": str(exc),
                     "provider": self._provider, "model": self.model})
                 yield _sse({"type": "error", "message": "Connection to Claude failed. Please retry."})
+                await self._save_partial_response(conversation_id, full_response_text + accumulated_text, all_tool_calls, total_tokens, db)
                 return
             except anthropic.RateLimitError as exc:
                 logger.error("Anthropic rate limit: %s", exc)
@@ -948,6 +977,7 @@ class ClaudeAgent:
                     "conv_id": conversation_id, "error": "rate_limit", "detail": str(exc),
                     "provider": self._provider, "model": self.model})
                 yield _sse({"type": "error", "message": "AI rate limit reached — please wait 1–2 minutes and try again. If this keeps happening, switch to a different AI model in Settings."})
+                await self._save_partial_response(conversation_id, full_response_text + accumulated_text, all_tool_calls, total_tokens, db)
                 return
             except anthropic.APIStatusError as exc:
                 logger.error("Anthropic API error %d: %s", exc.status_code, exc.message)
@@ -962,6 +992,7 @@ class ClaudeAgent:
                     yield _sse({"type": "error", "message": "Claude is temporarily overloaded — please try again in 1–2 minutes, or switch to a faster model in Settings."})
                 else:
                     yield _sse({"type": "error", "message": f"Claude API error ({exc.status_code}): {err_msg}"})
+                await self._save_partial_response(conversation_id, full_response_text + accumulated_text, all_tool_calls, total_tokens, db)
                 return
             except Exception as exc:
                 # Catch OpenAI/Groq SDK errors and any other unexpected errors
@@ -981,6 +1012,7 @@ class ClaudeAgent:
                     yield _sse({"type": "error", "message": "AI credits exhausted — top up your API account balance and retry."})
                 else:
                     yield _sse({"type": "error", "message": f"Unexpected error: {err_str}"})
+                await self._save_partial_response(conversation_id, full_response_text + accumulated_text, all_tool_calls, total_tokens, db)
                 return
 
             full_response_text += accumulated_text

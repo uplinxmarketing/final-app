@@ -2474,7 +2474,17 @@ async function sendMessage() {
       body: JSON.stringify({ message: text, attachments: state.uploads.map(u=>u.path) }),
       signal: _streamAbort.signal,
     });
-    if (resp.status === 401) { if (!_dashboardUnlocked) showConnectScreen(); return; }
+    if (resp.status === 401) { typing.remove(); if (!_dashboardUnlocked) showConnectScreen(); return; }
+    if (!resp.ok) {
+      // Non-stream error (no AI key, rate limit, …) — message was NOT saved
+      // server-side, so put it back in the input box for an easy retry.
+      typing.remove();
+      let detail = 'Request failed (' + resp.status + ')';
+      try { const d = await resp.json(); detail = d.detail || detail; } catch(_) {}
+      appendMessage('assistant', `⚠️ ${detail}`);
+      input.value = text; autoResize(input);
+      return;
+    }
     typing.remove();
 
     aiDiv = document.createElement('div');
@@ -2521,6 +2531,8 @@ async function sendMessage() {
     } else {
       if (aiDiv) { aiDiv.remove(); }
       appendMessage('assistant', `Sorry, I couldn't reach the server. Please check your connection and try again.\n\nError: ${e.message}`);
+      // Restore the typed message so it isn't lost on a network failure.
+      input.value = text; autoResize(input);
       console.error('Chat error:', e);
     }
   } finally {
@@ -2643,6 +2655,14 @@ async function sendPostsMessage() {
       signal: _postsStreamAbort.signal,
     });
     if (resp.status === 401) { typingDiv.remove(); if (!_dashboardUnlocked) showConnectScreen(); return; }
+    if (!resp.ok) {
+      typingDiv.remove();
+      let detail = 'Request failed (' + resp.status + ')';
+      try { const d = await resp.json(); detail = d.detail || detail; } catch(_) {}
+      _appendPostsMsg('assistant', `⚠️ ${detail}`);
+      input.value = text; autoResize(input);
+      return;
+    }
     typingDiv.remove();
 
     aiDiv = document.createElement('div');
@@ -2674,6 +2694,8 @@ async function sendPostsMessage() {
     if (e.name !== 'AbortError') {
       if (aiDiv) aiDiv.remove();
       _appendPostsMsg('assistant', 'Sorry, I could not reach the server. Please try again.');
+      // Restore the typed message so it isn't lost on a network failure.
+      input.value = text; autoResize(input);
     } else if (aiDiv) {
       clearTimeout(renderTimer);
       if (accText) bubble.innerHTML = renderMarkdown(accText) + '<em style="color:var(--text-dim);font-size:11px;display:block;margin-top:6px">[stopped]</em>';

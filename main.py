@@ -3289,11 +3289,17 @@ async def api_delete_upload(file_id: str, request: Request):
             path = u["path"]
             break
     if path:
-        import os
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        # Never delete a file that a pending/scheduled post still needs —
+        # otherwise that post is guaranteed to fail at publish time. The file
+        # is removed from the user's upload tray either way; the physical file
+        # stays on disk until the post publishes (then the hourly purge gets it).
+        protected = await _protected_upload_ids()
+        if protected is not None and file_id not in protected:
+            import os
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
         _session_uploads[session_key] = [u for u in uploads if u["file_id"] != file_id]
     return {"success": True}
 
