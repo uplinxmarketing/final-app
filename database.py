@@ -959,6 +959,80 @@ class PublishJob(Base):
         )
 
 
+class PostingEventLog(Base):
+    """Persistent audit log for all posting and scheduling events across all users.
+
+    Every publish attempt, failure, cancellation, token error, Drive error, and
+    other diagnostics are recorded here. The admin dashboard can query and copy
+    this log to diagnose issues without needing server log access.
+    """
+
+    __tablename__ = "posting_event_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # info | warning | error
+    level: Mapped[str] = mapped_column(String(10), nullable=False, default="info", index=True)
+    # publish_ok | publish_fail | schedule_ok | schedule_fail | cancel |
+    # token_error | drive_error | media_error | job_ok | job_fail | system
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    platform: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    page_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    page_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    post_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, index=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<PostingEventLog id={self.id} level={self.level!r} type={self.event_type!r}>"
+
+
+async def log_posting_event(
+    db: AsyncSession,
+    event_type: str,
+    message: str,
+    level: str = "info",
+    platform: str = "",
+    detail: str = "",
+    user_id: Optional[int] = None,
+    username: str = "",
+    page_id: str = "",
+    page_name: str = "",
+    post_id: Optional[int] = None,
+    job_id: Optional[int] = None,
+) -> None:
+    """Record a posting/scheduling event to the persistent audit log.
+
+    Never raises — errors are swallowed so audit logging never breaks the
+    calling code.  Uses a savepoint (nested transaction) so a log failure
+    doesn't roll back the surrounding operation.
+    """
+    try:
+        row = PostingEventLog(
+            level=level,
+            event_type=event_type,
+            platform=platform or None,
+            user_id=user_id or None,
+            username=username or None,
+            page_id=page_id or None,
+            page_name=page_name or None,
+            post_id=post_id or None,
+            job_id=job_id or None,
+            message=str(message)[:1000],
+            detail=str(detail)[:3000] if detail else None,
+            created_at=_utcnow(),
+        )
+        async with db.begin_nested():
+            db.add(row)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Database initialisation
 # ---------------------------------------------------------------------------

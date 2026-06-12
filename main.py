@@ -45,6 +45,7 @@ from database import (
     User, UserPageAssignment, UserClientAssignment,
     PublishJob, BusinessPortfolio,
     UserApiUsage, bump_user_usage,
+    PostingEventLog, log_posting_event,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -334,11 +335,22 @@ async def _token_refresh_loop() -> None:
                                 await db.commit()
                                 logger.info("Refreshed token for %s", acc.facebook_user_id)
                             else:
+                                _ref_err = refresh.get("error", "unknown error")
                                 logger.warning("Meta token refresh failed for %s: %s",
-                                               acc.facebook_user_id, refresh.get("error"))
+                                               acc.facebook_user_id, _ref_err)
+                                await log_posting_event(db, "token_error",
+                                    f"Meta posting token refresh failed for {acc.user_name or acc.facebook_user_id}",
+                                    level="warning", platform="facebook",
+                                    detail=str(_ref_err)[:500])
                         except Exception as acc_exc:
                             logger.warning("Meta token refresh error for %s: %s",
                                            getattr(acc, "facebook_user_id", "?"), acc_exc)
+                            try:
+                                await log_posting_event(db, "token_error",
+                                    f"Meta posting token error for {getattr(acc, 'facebook_user_id', '?')}",
+                                    level="error", platform="facebook", detail=str(acc_exc)[:500])
+                            except Exception:
+                                pass
                 # Google: access tokens last 1h — refresh proactively when
                 # expiring within 10 min so Drive media never 401s mid-publish,
                 # and the refresh token stays in active use (Google revokes
@@ -366,11 +378,21 @@ async def _token_refresh_loop() -> None:
                                 await db.commit()
                                 logger.info("Refreshed Google token for %s", gacc.user_email or gacc.google_user_id)
                             else:
+                                _g_err = refresh.get("error", "unknown error")
                                 logger.warning("Google token refresh failed for %s: %s",
-                                               gacc.user_email or gacc.google_user_id, refresh.get("error"))
+                                               gacc.user_email or gacc.google_user_id, _g_err)
+                                await log_posting_event(db, "token_error",
+                                    f"Google token refresh failed for {gacc.user_email or gacc.google_user_id}",
+                                    level="warning", platform="google", detail=str(_g_err)[:500])
                         except Exception as g_exc:
                             logger.warning("Google token refresh error for %s: %s",
                                            gacc.user_email or gacc.google_user_id, g_exc)
+                            try:
+                                await log_posting_event(db, "token_error",
+                                    f"Google token error for {gacc.user_email or gacc.google_user_id}",
+                                    level="error", platform="google", detail=str(g_exc)[:500])
+                            except Exception:
+                                pass
                 except Exception as gblock_exc:
                     logger.warning("Google token refresh block error: %s", gblock_exc)
         except Exception as exc:
@@ -530,6 +552,10 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             # Publish confirmed by Meta — the disk backups of this post's
             # Drive media are no longer needed.
             _purge_drive_cache(job)
+            await log_posting_event(db, "publish_ok", f"Scheduled post #{post.id} published successfully",
+                level="info", platform=post.platform or "instagram",
+                page_id=job.get("page_id",""), post_id=post.id,
+                detail=f"meta_post_id={r.get('media_id')} attempts={post.attempts}")
         else:
             raise RuntimeError(r.get("error", "publish failed"))
     except Exception as exc:
@@ -541,13 +567,18 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             post.claimed_by = None
             post.claimed_at = None
             post.next_retry_at = None
+            await log_posting_event(db, "publish_fail", f"Scheduled post #{post.id} permanently failed after {post.attempts} attempts",
+                level="error", platform=post.platform or "instagram",
+                page_id=job.get("page_id",""), post_id=post.id, detail=err_str[:2000])
         else:
-            # Exponential back-off: don't retry immediately (wastes Meta quota).
             delay = _RETRY_BACKOFF_SECONDS[min(post.attempts - 1, len(_RETRY_BACKOFF_SECONDS) - 1)]
             post.status = "pending"
             post.claimed_by = None
             post.claimed_at = None
             post.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+            await log_posting_event(db, "publish_fail", f"Scheduled post #{post.id} failed (attempt {post.attempts}/{max_attempts}), retrying in {delay//60}m",
+                level="warning", platform=post.platform or "instagram",
+                page_id=job.get("page_id",""), post_id=post.id, detail=err_str[:2000])
         logger.warning("Scheduled post %s attempt %d failed: %s", post.id, post.attempts, exc)
     await db.commit()
 
@@ -883,6 +914,9 @@ async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
         job.status = "failed"
         job.error = str(exc)[:500]
         job.finished_at = datetime.now(timezone.utc)
+        await log_posting_event(db, "token_error", f"Bulk job #{job.id} failed: could not get posting/google token",
+            level="error", detail=str(exc)[:2000], job_id=job.id,
+            username=job.created_by_name or job.created_by or "")
         await db.commit()
         return
 
@@ -911,16 +945,36 @@ async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
         results.append({"index": idx, **r})
         job.results = list(results)   # new list object so the JSON column is marked dirty
         job.completed = idx + 1
+        _page_id = getattr(item, "page_id", "") or getattr(item, "instagram_id", "") or ""
         if r.get("success"):
             job.succeeded = (job.succeeded or 0) + 1
             if r.get("scheduled"):
                 job.scheduled_count = (job.scheduled_count or 0) + 1
+                await log_posting_event(db, "schedule_ok",
+                    f"Job #{job.id} item {idx+1}: {item.platform} post scheduled",
+                    level="info", platform=item.platform, page_id=_page_id,
+                    post_id=r.get("scheduled_id"), job_id=job.id,
+                    username=job.created_by_name or job.created_by or "")
+            else:
+                await log_posting_event(db, "publish_ok",
+                    f"Job #{job.id} item {idx+1}: {item.platform} post published",
+                    level="info", platform=item.platform, page_id=_page_id,
+                    job_id=job.id, username=job.created_by_name or job.created_by or "")
         else:
             job.failed = (job.failed or 0) + 1
+            await log_posting_event(db, "publish_fail",
+                f"Job #{job.id} item {idx+1}: {item.platform} post failed",
+                level="error", platform=item.platform, page_id=_page_id,
+                job_id=job.id, username=job.created_by_name or job.created_by or "",
+                detail=r.get("error","")[:2000])
         await db.commit()  # progress is now visible to every poller
 
     job.status = "done"
     job.finished_at = datetime.now(timezone.utc)
+    await log_posting_event(db, "job_ok" if not job.failed else "job_fail",
+        f"Bulk job #{job.id} complete: {job.succeeded} ok, {job.failed} failed, {job.scheduled_count} scheduled",
+        level="info" if not job.failed else "warning", job_id=job.id,
+        username=job.created_by_name or job.created_by or "")
     await db.commit()
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -1853,6 +1907,62 @@ async def api_users_usage(request: Request, db: AsyncSession = Depends(get_db)):
         for r in rows
     }
     return {"usage": usage}
+
+
+# ── Posting event log (admin only) ───────────────────────────────────────────
+
+@app.get("/api/admin/posting-events")
+async def api_admin_posting_events(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    limit: int = 300,
+    level: str = "",
+    platform: str = "",
+    event_type: str = "",
+):
+    """Persistent audit log of all posting/scheduling events — admin only."""
+    await require_admin(request, db)
+    limit = max(1, min(limit, 1000))
+    q = select(PostingEventLog).order_by(PostingEventLog.created_at.desc()).limit(limit)
+    if level:
+        q = q.where(PostingEventLog.level == level)
+    if platform:
+        q = q.where(PostingEventLog.platform == platform)
+    if event_type:
+        q = q.where(PostingEventLog.event_type == event_type)
+    result = await db.execute(q)
+    rows = result.scalars().all()
+    return {
+        "count": len(rows),
+        "events": [
+            {
+                "id": e.id,
+                "ts": e.created_at.isoformat() if e.created_at else None,
+                "level": e.level,
+                "event_type": e.event_type,
+                "platform": e.platform,
+                "username": e.username,
+                "user_id": e.user_id,
+                "page_id": e.page_id,
+                "page_name": e.page_name,
+                "post_id": e.post_id,
+                "job_id": e.job_id,
+                "message": e.message,
+                "detail": e.detail,
+            }
+            for e in rows
+        ],
+    }
+
+
+@app.delete("/api/admin/posting-events")
+async def api_admin_clear_posting_events(request: Request, db: AsyncSession = Depends(get_db)):
+    """Clear all posting event log entries — admin only."""
+    await require_admin(request, db)
+    from sqlalchemy import delete as _delete
+    result = await db.execute(_delete(PostingEventLog))
+    await db.commit()
+    return {"deleted": result.rowcount}
 
 
 # ── Client assignment endpoints ───────────────────────────────────────────────
@@ -3846,6 +3956,9 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
         google_token = await _google_token_for_uid(mapping.google_user_id, db)
     except Exception as exc:
         logger.warning("media_proxy could not resolve Google token: %s", exc)
+        await log_posting_event(db, "token_error",
+            f"Media proxy: could not resolve Google token for user {mapping.google_user_id}",
+            level="error", platform="google", detail=str(exc)[:500])
         raise HTTPException(502, "Could not access source media")
     # Verify Drive answered 200 before we start the response — otherwise Meta
     # receives a 200 with a broken body and reports an opaque fetch error.
@@ -3853,9 +3966,16 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
         status_code, body = await media_bridge.open_drive_stream(mapping.drive_file_id, google_token)
     except Exception as exc:
         logger.warning("media_proxy Drive connect failed for %s: %s", mapping.drive_file_id, exc)
+        await log_posting_event(db, "drive_error",
+            f"Media proxy: Drive connect failed for {mapping.drive_file_id}",
+            level="error", platform="system", detail=str(exc)[:500])
         raise HTTPException(502, "Could not reach source media")
     if body is None:
         logger.warning("media_proxy: Drive returned %s for %s", status_code, mapping.drive_file_id)
+        await log_posting_event(db, "drive_error",
+            f"Media proxy: Drive returned HTTP {status_code} for {mapping.drive_file_id}",
+            level="error", platform="system",
+            detail=f"google_user_id={mapping.google_user_id}")
         raise HTTPException(502, f"Source media unavailable (Drive HTTP {status_code})")
     return StreamingResponse(
         body,
@@ -4388,6 +4508,13 @@ async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSessio
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:
+                pass
+            try:
+                await log_posting_event(db, "drive_error",
+                    f"Drive cache failed for {m.get('filename') or m.get('drive_file_id','?')}",
+                    level="warning", platform="system",
+                    detail=str(exc)[:500])
+            except Exception:
                 pass
 
 
@@ -5720,9 +5847,23 @@ async def api_publish_facebook(
 
     if r.status_code not in (200, 201):
         err = r.json().get("error", {}).get("message", "Failed to publish to Facebook")
+        _sess = get_session(request)
+        await log_posting_event(db, "publish_fail", f"Facebook post failed: {err}",
+            level="error", platform="facebook", page_id=req.page_id or "",
+            username=_sess.get("posting_username") or _sess.get("username") or "",
+            user_id=_sess.get("user_id"),
+            detail=f"HTTP {r.status_code}: {r.text[:500]}")
         raise HTTPException(502, err)
     data = r.json()
-    return {"success": True, "post_id": data.get("id") or data.get("post_id")}
+    _post_id = data.get("id") or data.get("post_id")
+    _sess2 = get_session(request)
+    _etype = "schedule_ok" if scheduled_ts else "publish_ok"
+    await log_posting_event(db, _etype, f"Facebook post {'scheduled' if scheduled_ts else 'published'} to page {req.page_id}",
+        level="info", platform="facebook", page_id=req.page_id or "",
+        username=_sess2.get("posting_username") or _sess2.get("username") or "",
+        user_id=_sess2.get("user_id"),
+        detail=f"post_id={_post_id}")
+    return {"success": True, "post_id": _post_id}
 
 
 @app.post("/api/posting/publish/instagram")
@@ -5763,6 +5904,12 @@ async def api_publish_instagram(
         cr = await client.post(f"{base}/{req.instagram_id}/media", data=container_data)
     if cr.status_code not in (200, 201):
         err = cr.json().get("error", {}).get("message", "Failed to create Instagram media container")
+        _sess_ig = get_session(request)
+        await log_posting_event(db, "publish_fail", f"Instagram container creation failed: {err}",
+            level="error", platform="instagram", page_id=req.instagram_id or "",
+            username=_sess_ig.get("posting_username") or _sess_ig.get("username") or "",
+            user_id=_sess_ig.get("user_id"),
+            detail=f"HTTP {cr.status_code}: {cr.text[:500]}")
         raise HTTPException(502, err)
     creation_id = cr.json().get("id")
     if not creation_id:
@@ -5776,8 +5923,21 @@ async def api_publish_instagram(
         )
     if pr.status_code not in (200, 201):
         err = pr.json().get("error", {}).get("message", "Failed to publish Instagram media")
+        _sess_ig2 = get_session(request)
+        await log_posting_event(db, "publish_fail", f"Instagram publish failed: {err}",
+            level="error", platform="instagram", page_id=req.instagram_id or "",
+            username=_sess_ig2.get("posting_username") or _sess_ig2.get("username") or "",
+            user_id=_sess_ig2.get("user_id"),
+            detail=f"HTTP {pr.status_code}: {pr.text[:500]}")
         raise HTTPException(502, err)
-    return {"success": True, "media_id": pr.json().get("id")}
+    _ig_media_id = pr.json().get("id")
+    _sess_ig3 = get_session(request)
+    await log_posting_event(db, "publish_ok", f"Instagram post published to {req.instagram_id}",
+        level="info", platform="instagram", page_id=req.instagram_id or "",
+        username=_sess_ig3.get("posting_username") or _sess_ig3.get("username") or "",
+        user_id=_sess_ig3.get("user_id"),
+        detail=f"media_id={_ig_media_id} type={req.media_type}")
+    return {"success": True, "media_id": _ig_media_id}
 
 
 @app.get("/api/posting/scheduled")
@@ -6372,6 +6532,12 @@ async def api_cancel_scheduled_post(post_id: int, request: Request, db: AsyncSes
             409,
             "This post is publishing right now (or already finished) and can no longer be cancelled.",
         )
+    _sess_c = get_session(request)
+    await log_posting_event(db, "cancel", f"Scheduled post #{post_id} cancelled",
+        level="info", platform=post.platform or "",
+        page_id=post.page_id or post.instagram_id or "",
+        username=_sess_c.get("posting_username") or _sess_c.get("username") or "",
+        user_id=_sess_c.get("user_id"), post_id=post_id)
     return {"success": True}
 
 
