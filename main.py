@@ -197,6 +197,10 @@ async def lifespan(app: FastAPI):
         await _recover_stale_jobs()
     except Exception as _exc:
         logger.error(f"stale job recovery error (non-fatal): {_exc}")
+    try:
+        await _restore_scheduled_from_checkpoint()
+    except Exception as _exc:
+        logger.error(f"checkpoint restore error (non-fatal): {_exc}")
     # Restore persisted API keys from the DB before serving requests, so the AI
     # agent works immediately after a redeploy (Render wipes the .env file).
     try:
@@ -215,13 +219,47 @@ async def lifespan(app: FastAPI):
         task.cancel()
     logger.info("Uplinx Meta Manager stopped")
 
+async def _protected_upload_ids() -> set:
+    """Local upload file ids still referenced by pending scheduled posts or
+    queued/running publish jobs — these must survive the periodic purge, or
+    posts scheduled more than AUTO_CLEAR_UPLOADS_HOURS out will fail when
+    their media file has been deleted from disk."""
+    ids: set = set()
+    try:
+        async for db in get_db():
+            result = await db.execute(
+                select(ScheduledPost.job_data).where(
+                    ScheduledPost.status.in_(("pending", "processing"))
+                )
+            )
+            for jd in result.scalars().all():
+                for m in (jd or {}).get("media", []):
+                    if m.get("local_file_id"):
+                        ids.add(m["local_file_id"])
+            result = await db.execute(
+                select(PublishJob.items).where(
+                    PublishJob.status.in_(("queued", "running"))
+                )
+            )
+            for items in result.scalars().all():
+                for it in (items or []):
+                    for m in (it or {}).get("media", []):
+                        if m.get("local_file_id"):
+                            ids.add(m["local_file_id"])
+            break
+    except Exception as exc:
+        logger.warning("Protected uploads scan error: %s", exc)
+    return ids
+
+
 async def _cleanup_uploads_loop() -> None:
     while True:
         await asyncio.sleep(3600)
         try:
-            count = await cleanup_old_uploads(settings.AUTO_CLEAR_UPLOADS_HOURS)
+            keep = await _protected_upload_ids()
+            count = await cleanup_old_uploads(settings.AUTO_CLEAR_UPLOADS_HOURS, keep_ids=keep)
             if count:
-                logger.info("Auto-cleaned %d upload(s)", count)
+                logger.info("Auto-cleaned %d upload(s), kept %d scheduled-post file(s)", count, len(keep))
         except Exception as exc:
             logger.warning("Upload cleanup error: %s", exc)
 
@@ -317,6 +355,23 @@ async def _scheduled_posts_loop() -> None:
                     post = await db.get(ScheduledPost, pid)
                     if post is not None:
                         await _execute_scheduled_job(post, db)
+                # Self-heal: requeue posts stuck in "processing" for >15 min
+                # (their worker died mid-publish). Startup recovery alone isn't
+                # enough — a long-lived server never re-runs it.
+                try:
+                    stale_cutoff = now - timedelta(minutes=15)
+                    healed = await db.execute(
+                        update(ScheduledPost)
+                        .where(ScheduledPost.status == "processing",
+                               or_(ScheduledPost.claimed_at.is_(None),
+                                   ScheduledPost.claimed_at < stale_cutoff))
+                        .values(status="pending", claimed_by=None, claimed_at=None)
+                    )
+                    await db.commit()
+                    if healed.rowcount:
+                        logger.warning("Requeued %d stuck scheduled post(s)", healed.rowcount)
+                except Exception:
+                    pass
                 # Housekeeping: drop expired media-proxy tokens.
                 try:
                     await media_bridge.purge_expired_tokens(db)
@@ -575,16 +630,21 @@ async def _scheduled_posts_checkpoint_loop() -> None:
                     ).order_by(ScheduledPost.scheduled_time)
                 )
                 pending = result.scalars().all()
+                # Full payload (including job_data) so posts can actually be
+                # RESTORED after a table reset — not just listed.
                 snapshot = [
                     {
                         "id": p.id,
+                        "sched_uid": (p.job_data or {}).get("sched_uid"),
                         "platform": p.platform,
                         "page_id": p.page_id,
                         "instagram_id": p.instagram_id,
-                        "caption": (p.caption or "")[:500],
+                        "caption": p.caption or "",
+                        "media_type": p.media_type,
+                        "timezone": p.timezone or "UTC",
                         "scheduled_time": p.scheduled_time.isoformat(),
                         "attempts": p.attempts,
-                        "job_data_keys": list((p.job_data or {}).keys()),
+                        "job_data": p.job_data,
                     }
                     for p in pending
                 ]
@@ -603,6 +663,67 @@ async def _scheduled_posts_checkpoint_loop() -> None:
                 break
         except Exception as exc:
             logger.debug("Checkpoint loop error: %s", exc)
+
+
+async def _restore_scheduled_from_checkpoint() -> None:
+    """On startup, re-insert pending scheduled posts that vanished from the table.
+
+    Protects against table truncation / bad migrations: any post in the last
+    checkpoint snapshot whose ``sched_uid`` is no longer present in
+    scheduled_posts (in ANY status) is re-created as pending. Posts whose due
+    time already passed are restored too — the worker publishes them late
+    rather than never.
+    """
+    from database import AppSetting
+    try:
+        async for db in get_db():
+            row = await db.get(AppSetting, _CHECKPOINT_KEY)
+            if row is None or not row.value:
+                break
+            try:
+                data = json.loads(row.value)
+            except Exception:
+                break
+            posts = data.get("posts") or []
+            if not posts:
+                break
+            result = await db.execute(select(ScheduledPost.job_data))
+            existing_uids = {
+                (jd or {}).get("sched_uid")
+                for jd in result.scalars().all()
+                if (jd or {}).get("sched_uid")
+            }
+            restored = 0
+            for s in posts:
+                jd = s.get("job_data")
+                uid = (jd or {}).get("sched_uid") or s.get("sched_uid")
+                # Legacy snapshots (no job_data / no uid) can't be restored safely.
+                if not jd or not uid or uid in existing_uids:
+                    continue
+                try:
+                    sched_dt = datetime.fromisoformat(s["scheduled_time"])
+                except Exception:
+                    continue
+                db.add(ScheduledPost(
+                    platform=s.get("platform") or "instagram",
+                    page_id=s.get("page_id"),
+                    instagram_id=s.get("instagram_id"),
+                    caption=s.get("caption") or "",
+                    media_type=s.get("media_type") or "IMAGE",
+                    scheduled_time=sched_dt,
+                    timezone=s.get("timezone") or "UTC",
+                    status="pending",
+                    job_data=jd,
+                ))
+                restored += 1
+            if restored:
+                await db.commit()
+                logger.warning(
+                    "Restored %d scheduled post(s) from checkpoint after table reset", restored
+                )
+            break
+    except Exception as exc:
+        logger.warning("Checkpoint restore error: %s", exc)
 
 
 async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
@@ -3846,11 +3967,25 @@ async def api_bulk_publish_drive(
     position = await _job_queue_position(job, db)
     # Each queued item turns into at least one Meta API publish call.
     await bump_user_usage(db, session.get("user_id"), meta_calls=len(req.items))
+    # Warn at schedule time if the DB can't outlive a redeploy.
+    has_future = any(
+        _parse_scheduled_ts(it.scheduled_time) and
+        _parse_scheduled_ts(it.scheduled_time) > int(datetime.now(timezone.utc).timestamp()) + 60
+        for it in req.items
+    )
+    warning = ""
+    if has_future and settings.DATABASE_URL.startswith("sqlite"):
+        warning = (
+            "⚠️ This server stores scheduled posts in a temporary SQLite database — "
+            "they will be LOST if the server redeploys before the scheduled time. "
+            "Set DATABASE_URL to PostgreSQL for durable scheduling."
+        )
     return {
         "job_id": job.id,
         "queued": True,
         "total": job.total,
         "position": position,
+        "warning": warning,
         "message": "Queued — publishing will start shortly." if position == 0
                    else f"Queued behind {position} other job(s).",
     }
@@ -3923,6 +4058,7 @@ async def _schedule_ig_job(
     if not google_uid:
         raise HTTPException(400, "Google Drive must be connected to schedule Drive media")
     job = {
+        "sched_uid": secrets.token_hex(16),   # stable identity for checkpoint restore
         "media": [m.dict() for m in item.media],
         "hashtags": item.hashtags,
         "media_type": item.media_type,
@@ -5951,6 +6087,30 @@ async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)
             elif days <= 7:
                 warning_tokens.append(acc.user_name or acc.facebook_user_id)
 
+    # Overdue: pending posts whose due time passed >15 min ago and that are not
+    # waiting on a retry back-off — these should have published already.
+    overdue_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.job_data.isnot(None),
+            ScheduledPost.scheduled_time < now - timedelta(minutes=15),
+            or_(
+                ScheduledPost.next_retry_at.is_(None),
+                ScheduledPost.next_retry_at < now - timedelta(minutes=15),
+            ),
+        )
+    )
+    overdue_count: int = overdue_result.scalar() or 0
+
+    # Stuck: claimed by a worker >15 min ago and never finished (worker died).
+    stuck_result = await db.execute(
+        select(func.count()).select_from(ScheduledPost).where(
+            ScheduledPost.status == "processing",
+            ScheduledPost.claimed_at < now - timedelta(minutes=15),
+        )
+    )
+    stuck_count: int = stuck_result.scalar() or 0
+
     issues = []
     if expired_tokens:
         issues.append(f"Expired tokens: {', '.join(expired_tokens)} — reconnect to publish scheduled posts")
@@ -5958,14 +6118,32 @@ async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)
         issues.append(f"Tokens expiring soon: {', '.join(warning_tokens)}")
     if failed_24h > 0:
         issues.append(f"{failed_24h} post(s) failed in the last 24 hours — check Notifications")
+    if overdue_count > 0:
+        issues.append(
+            f"{overdue_count} scheduled post(s) are overdue — the scheduler may have been "
+            "offline; they will publish on the next pass. If this persists, check the server."
+        )
+    if stuck_count > 0:
+        issues.append(
+            f"{stuck_count} post(s) stuck mid-publish — they will be retried automatically "
+            "after the server restarts."
+        )
+    if pending_count > 0 and settings.DATABASE_URL.startswith("sqlite"):
+        issues.append(
+            "Scheduled posts are stored in a temporary SQLite database — they WILL be lost "
+            "when the server redeploys. Set DATABASE_URL to a PostgreSQL database to make "
+            "scheduled posts durable."
+        )
 
     return {
         "pending_scheduled": pending_count,
         "processing_now": processing_count,
         "failed_last_24h": failed_24h,
+        "overdue": overdue_count,
+        "stuck_processing": stuck_count,
         "next_due_at": next_due.isoformat() if next_due else None,
         "issues": issues,
-        "status": "degraded" if (expired_tokens or failed_24h > 0) else "ok",
+        "status": "degraded" if (expired_tokens or failed_24h > 0 or overdue_count or stuck_count) else "ok",
     }
 
 

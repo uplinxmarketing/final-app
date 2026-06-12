@@ -5509,7 +5509,7 @@ async function bulkPublishAll() {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res || !res.job_id) { statusEl.textContent = 'Submit failed.'; btn.disabled = false; return; }
     _bulkJobId = res.job_id;
-    statusEl.textContent = res.message || 'Queued.';
+    statusEl.textContent = (res.message || 'Queued.') + (res.warning ? ' ' + res.warning : '');
     bulkPollJob();   // start polling for live progress
   } catch(e) {
     statusEl.textContent = 'Submit error: ' + (e.message || e);
@@ -8419,6 +8419,7 @@ async function uwPublish(btn) {
     const res = await api('POST', '/api/posting/bulk/drive', { items });
     if (!res || !res.job_id) { status.textContent='Submit failed — please try again.'; btn.disabled=false; return; }
     _uw.jobId = res.job_id; status.textContent = res.message || 'Queued!';
+    if (res.warning) _appendPostsCard(`<div style="font-size:12px;color:#d97706;line-height:1.6">${res.warning}</div>`);
     // Kill any poll chain left over from a previous publish so two timers
     // don't poll the same job in parallel.
     clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
