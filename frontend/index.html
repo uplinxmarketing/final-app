@@ -219,6 +219,23 @@ a{color:inherit;text-decoration:none}
 @media (min-width:601px){
   .sidebar-overlay{display:none!important}
 }
+
+/* ── Calendar chips: responsive degradation ──
+   When the feed preview panel opens, the calendar is squeezed into the left
+   column and day cells get narrow. Drop chip decorations progressively so the
+   platform icon, thumbnail and text never overlap each other. */
+.uw-cal-day, .cal-day { container-type: inline-size; }
+.cal-chip { min-height: 18px; }
+.cal-chip > * { min-width: 0; }
+@container (max-width: 150px) {
+  .cal-chip .chip-cap { display: none !important; }
+}
+@container (max-width: 110px) {
+  .cal-chip .chip-thumb, .cal-chip .chip-time { display: none !important; }
+}
+@container (max-width: 78px) {
+  .cal-chip .chip-badge, .cal-chip .chip-pnum { display: none !important; }
+}
 </style>
 </head>
 <body>
@@ -4887,18 +4904,18 @@ function renderCalendarGrid(days) {
     const timeRaw = isPub ? it.created_time : it.time;
     const timeStr = timeRaw ? new Date(timeRaw).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
     const thumb = it.image
-      ? `<img src="${escHtml(it.image)}" loading="lazy" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`
+      ? `<img class="chip-thumb" src="${escHtml(it.image)}" loading="lazy" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`
       : '';
     const idx = _calClickItems.length;
     _calClickItems.push(it);
-    return `<div onclick="showCalendarPostPreview(${idx})"
+    return `<div class="cal-chip" onclick="showCalendarPostPreview(${idx})"
       title="${isPub ? '✓ Published' : '⏱ Scheduled'}${timeStr ? ' · ' + timeStr : ''}${firstLine ? ' — ' + firstLine : ''}"
       style="display:flex;align-items:center;gap:3px;background:${accent}20;border-left:4px solid ${accent};border-radius:4px;padding:2px 4px;overflow:hidden;min-width:0;cursor:pointer"
       onmouseover="this.style.filter='brightness(1.09)'" onmouseout="this.style.filter=''">
-      <span style="background:${accent};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${badge}</span>
+      <span class="chip-badge" style="background:${accent};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${badge}</span>
       ${platformIcon(plat, 10)}${thumb}
-      <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine || (isPub ? 'Published' : 'Scheduled'))}</span>
-      ${timeStr ? `<span style="font-size:8px;color:var(--text-dim);flex-shrink:0;white-space:nowrap;margin-left:1px">🕒${timeStr}</span>` : ''}
+      <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine || (isPub ? 'Published' : 'Scheduled'))}</span>
+      ${timeStr ? `<span class="chip-time" style="font-size:8px;color:var(--text-dim);flex-shrink:0;white-space:nowrap;margin-left:1px">🕒${timeStr}</span>` : ''}
     </div>`;
   };
 
@@ -4921,7 +4938,7 @@ function renderCalendarGrid(days) {
           onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">+${allItems.length - MAX_VISIBLE} more</button>`
       : '';
     const baseBorder = isToday ? 'var(--accent)' : 'var(--border)';
-    cells += `<div
+    cells += `<div class="cal-day"
       style="min-height:90px;border-radius:6px;padding:4px 5px;background:${isToday ? 'rgba(220,38,38,0.08)' : 'var(--bg-primary)'};border:1px solid ${baseBorder};box-sizing:border-box;display:flex;flex-direction:column;gap:2px;overflow:hidden"
       ${hasPosts ? `onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${baseBorder}'"` : ''}>
       <div style="font-size:12px;font-weight:${isToday ? '700' : '500'};color:${isToday ? 'var(--accent)' : 'var(--text-primary)'};flex-shrink:0">${d}</div>
@@ -7467,18 +7484,18 @@ function _uwBuildCalendarHtml() {
     const tc = _uwTypeColor(p);
     const time = sched ? sched.slice(11, 16) : '';
     const thumb = img && !img.is_video
-      ? `<img src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0;pointer-events:none" onerror="this.style.display='none'">`
-      : `<span style="font-size:10px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
-    return `<div draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
+      ? `<img class="chip-thumb" src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:16px;height:16px;border-radius:3px;object-fit:cover;flex-shrink:0;pointer-events:none" onerror="this.style.display='none'">`
+      : `<span class="chip-thumb" style="font-size:10px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
+    return `<div class="cal-chip" draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — click to preview, drag to reschedule"
       style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
       onmouseover="this.style.filter='brightness(1.12)';this.querySelector('.cal-chip-del').style.opacity='1'" onmouseout="this.style.filter='';this.querySelector('.cal-chip-del').style.opacity='0'">
-      <span style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
+      <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
-      <span style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
-      <span style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
-      <button onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
+      <span class="chip-pnum" style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
+      <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
+      <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
         style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 2px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
       <button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
         style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s;flex-shrink:0">✕</button>

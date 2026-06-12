@@ -315,6 +315,33 @@ async def _token_refresh_loop() -> None:
                             acc.token_expiry = datetime.utcnow() + timedelta(days=expiry_days)
                             await db.commit()
                             logger.info("Refreshed token for %s", acc.facebook_user_id)
+                # Google: access tokens last 1h — refresh proactively when
+                # expiring within 10 min so Drive media never 401s mid-publish,
+                # and the refresh token stays in active use (Google revokes
+                # refresh tokens left unused for ~6 months).
+                g_threshold = datetime.utcnow() + timedelta(minutes=10)
+                result = await db.execute(
+                    select(ConnectedGoogleAccount).where(
+                        ConnectedGoogleAccount.is_active == True,
+                        ConnectedGoogleAccount.token_expiry <= g_threshold,
+                    )
+                )
+                for gacc in result.scalars().all():
+                    if not gacc.encrypted_refresh_token:
+                        continue
+                    refresh = await google_api.refresh_access_token(
+                        encryption.decrypt(gacc.encrypted_refresh_token),
+                        settings.GOOGLE_CLIENT_ID,
+                        settings.GOOGLE_CLIENT_SECRET,
+                    )
+                    if refresh.get("success"):
+                        gacc.encrypted_access_token = encryption.encrypt(refresh["access_token"])
+                        gacc.token_expiry = datetime.utcnow() + timedelta(seconds=refresh.get("expires_in", 3600))
+                        await db.commit()
+                        logger.info("Refreshed Google token for %s", gacc.user_email or gacc.google_user_id)
+                    else:
+                        logger.warning("Google token refresh failed for %s: %s",
+                                       gacc.user_email or gacc.google_user_id, refresh.get("error"))
         except Exception as exc:
             logger.warning("Token refresh loop error: %s", exc)
 
@@ -527,18 +554,30 @@ async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
 
 
 async def _google_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
-    """Fetch (refreshing if needed) a Google account's token by google_user_id."""
-    if not uid:
-        raise RuntimeError("no Google account on scheduled job")
-    result = await db.execute(
-        select(ConnectedGoogleAccount).where(
-            ConnectedGoogleAccount.google_user_id == uid,
-            ConnectedGoogleAccount.is_active == True,
+    """Fetch (refreshing if needed) a Google account's token by google_user_id.
+
+    Falls back to any active Google account when the recorded uid is missing
+    or its account was replaced — a scheduled post must not fail because
+    someone reconnected Drive with a different Google login in the meantime.
+    """
+    acc = None
+    if uid:
+        result = await db.execute(
+            select(ConnectedGoogleAccount).where(
+                ConnectedGoogleAccount.google_user_id == uid,
+                ConnectedGoogleAccount.is_active == True,
+            )
         )
-    )
-    acc = result.scalar_one_or_none()
+        acc = result.scalar_one_or_none()
     if not acc:
-        raise RuntimeError("Google account not found")
+        result = await db.execute(
+            select(ConnectedGoogleAccount)
+            .where(ConnectedGoogleAccount.is_active == True)
+            .order_by(ConnectedGoogleAccount.id.desc())
+        )
+        acc = result.scalars().first()
+    if not acc:
+        raise RuntimeError("No connected Google account — reconnect Drive to resume scheduled posts")
     exp = acc.token_expiry
     expired = False
     if exp is not None:
@@ -969,21 +1008,37 @@ async def get_meta_token(request: Request, db: AsyncSession) -> str:
 
 
 async def get_google_token(request: Request, db: AsyncSession) -> str:
-    """Decrypt and return Google access token, refreshing if expired."""
+    """Decrypt and return Google access token, refreshing if expired.
+
+    Prefers the account tied to the current session, but falls back to any
+    active connected Google account — the Drive connection is app-wide, not
+    per-login. Sessions expire after 8h / on network change; the stored
+    refresh token does not, so Drive must keep working for every user without
+    reconnecting.
+    """
     session = get_session(request)
     uid = session.get("google_user_id")
-    if not uid:
-        raise HTTPException(401, "Google account not connected")
     from database import ConnectedGoogleAccount
-    result = await db.execute(
-        select(ConnectedGoogleAccount).where(
-            ConnectedGoogleAccount.google_user_id == uid,
-            ConnectedGoogleAccount.is_active == True,
+    acc = None
+    if uid:
+        result = await db.execute(
+            select(ConnectedGoogleAccount).where(
+                ConnectedGoogleAccount.google_user_id == uid,
+                ConnectedGoogleAccount.is_active == True,
+            )
         )
-    )
-    acc = result.scalar_one_or_none()
+        acc = result.scalar_one_or_none()
     if not acc:
-        raise HTTPException(401, "Google account not found")
+        # Session has no Google uid (expired cookie, different user logged in)
+        # — use the most recently connected active account instead.
+        result = await db.execute(
+            select(ConnectedGoogleAccount)
+            .where(ConnectedGoogleAccount.is_active == True)
+            .order_by(ConnectedGoogleAccount.id.desc())
+        )
+        acc = result.scalars().first()
+    if not acc:
+        raise HTTPException(401, "Google account not connected")
     if _token_expired(acc.token_expiry):
         refresh = await google_api.refresh_access_token(
             encryption.decrypt(acc.encrypted_refresh_token),
@@ -4013,6 +4068,20 @@ async def api_bulk_publish_drive(
         if acc:
             posting_user_id = acc.facebook_user_id
 
+    # Same app-wide fallback for Google Drive: the session may have lost its
+    # google_user_id (expired cookie), but the connected account in the DB is
+    # what scheduled posts will actually use — record it on the job.
+    google_user_id = session.get("google_user_id")
+    if not google_user_id:
+        result = await db.execute(
+            select(ConnectedGoogleAccount)
+            .where(ConnectedGoogleAccount.is_active == True)
+            .order_by(ConnectedGoogleAccount.id.desc())
+        )
+        gacc = result.scalars().first()
+        if gacc:
+            google_user_id = gacc.google_user_id
+
     job = PublishJob(
         created_by=str(session.get("user_id") or ""),
         created_by_name=session.get("username") or "",
@@ -4022,7 +4091,7 @@ async def api_bulk_publish_drive(
         items=[it.dict() for it in req.items],
         results=[],
         posting_user_id=posting_user_id,
-        google_user_id=session.get("google_user_id"),
+        google_user_id=google_user_id,
         base_url=base_url,
     )
     db.add(job)
