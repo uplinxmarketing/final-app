@@ -417,14 +417,20 @@ async def save_upload_file(file_bytes: bytes, suffix: str) -> str:
     return str(dest)
 
 
-async def cleanup_old_uploads(max_age_hours: int = 24) -> int:
+async def cleanup_old_uploads(max_age_hours: int = 24, keep_ids: set | None = None) -> int:
     """
     Delete files in uploads/ older than max_age_hours.
+
+    Files whose name appears in *keep_ids* are never deleted — they are still
+    referenced by pending scheduled posts or queued publish jobs, and removing
+    them would make those posts fail at publish time.
+
     Returns the count of files deleted.
     """
     if not UPLOAD_DIR.exists():
         return 0
 
+    keep = keep_ids or set()
     cutoff = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
     deleted = 0
     errors = 0
@@ -432,6 +438,8 @@ async def cleanup_old_uploads(max_age_hours: int = 24) -> int:
     for entry in UPLOAD_DIR.iterdir():
         if not entry.is_file():
             continue
+        if entry.name in keep:
+            continue  # still needed by a scheduled/queued post
         try:
             mtime = entry.stat().st_mtime
             if mtime < cutoff:
