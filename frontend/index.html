@@ -2031,6 +2031,12 @@ async function doLogout() {
   await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   window._currentUser = null;
+  // Per-user UI state must not leak to the next account on this machine.
+  try {
+    localStorage.removeItem('_notifSeen');
+    localStorage.removeItem('uplinx_uw_session');
+    localStorage.removeItem('uplinx_uw_chats');
+  } catch(_) {}
   showLoginScreen();
 }
 
@@ -2042,6 +2048,11 @@ function showLoginScreen() {
   if (app) { app.style.display = 'none'; app.classList.add('hidden'); }
   const cs = document.getElementById('connect-screen');
   if (cs) cs.classList.remove('visible');
+  // The admin dashboard is position:fixed at z-index 200 — without this the
+  // previous admin's rendered dashboard (user list, stats, event log) stayed
+  // in the DOM and reappeared on top of the app for the next user to log in.
+  const dash = document.getElementById('admin-dashboard');
+  if (dash) dash.style.display = 'none';
 }
 
 function hideLoginScreen() {
@@ -2246,54 +2257,11 @@ async function saveNewDashboardUser() {
   }
 }
 
-async function saveDashboardAccount() {
-  const id = document.getElementById('d-acct-id').value;
-  const email = document.getElementById('d-acct-email').value.trim();
-  const password = document.getElementById('d-acct-password').value;
-  const statusEl = document.getElementById('d-acct-status');
-  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
-  try {
-    const body = { email: email || null };
-    if (password) body.password = password;
-    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Save failed');
-    document.getElementById('d-acct-password').value = '';
-    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
-    setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    loadDashboardUsers();
-  } catch(e) {
-    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
-  }
-}
-
-async function saveDashboardPermissions() {
-  const id = document.getElementById('d-role-id').value;
-  const role = document.getElementById('d-role-role').value;
-  const access = document.getElementById('d-role-access').value;
-  const statusEl = document.getElementById('d-role-status');
-  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
-  try {
-    const r = await fetch(`/api/users/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ role, interface_access: access }) });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Save failed');
-    statusEl.textContent = '✓ Saved'; statusEl.style.color = 'var(--success,#2ecc71)';
-    setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    loadDashboardUsers();
-  } catch(e) {
-    statusEl.textContent = '⚠ ' + e.message; statusEl.style.color = 'var(--error,#ef4444)';
-  }
-}
-
-function closeDashboardEditUser() {
-  const _editSec = document.getElementById('dashboard-edit-user-section');
-  if (_editSec) _editSec.style.display = 'none';
-}
-
 // saveDashboardUser kept for backward compat (dashboardSaveUser calls it)
 async function saveDashboardUser() { await saveNewDashboardUser(); }
+// (closeDashboardEditUser is defined once, near the dashboard user panel code.)
 
+let _statusInterval = null;
 async function loadInitialData() {
   _dashboardUnlocked = true;
   await Promise.allSettled([
@@ -2301,7 +2269,9 @@ async function loadInitialData() {
     refreshApiUsage(), refreshAiUsage(), updateStatusIndicators(),
     loadAccountDropdowns(), loadProviderStatus(),
   ]);
-  setInterval(updateStatusIndicators, 30000);
+  // Re-login without a page reload must not stack a second poller.
+  if (_statusInterval) clearInterval(_statusInterval);
+  _statusInterval = setInterval(updateStatusIndicators, 30000);
 }
 
 // ── Auth / screen (legacy) ─────────────────────────────────────────────────
@@ -3300,10 +3270,11 @@ async function pelFetch() {
   try {
     const url = '/api/admin/posting-events?limit=300' + (_pelFilter ? `&level=${_pelFilter}` : '');
     const data = await api('GET', url);
+    if (data === null) throw new Error('Session expired — please sign in again');
     _pelEvents = data.events || [];
     pelRender();
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="padding:16px 8px;color:#ef4444;text-align:center">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="padding:16px 8px;color:#ef4444;text-align:center">Failed to load: ${escHtml(String(e.message || e))}</td></tr>`;
     if (cnt) cnt.textContent = 'Error';
   }
 }
@@ -3393,11 +3364,12 @@ function pelCopy() {
 async function pelClear() {
   if (!confirm('Clear all posting event log entries from the database? This cannot be undone.')) return;
   try {
-    await api('DELETE', '/api/admin/posting-events');
+    const res = await api('DELETE', '/api/admin/posting-events');
+    if (res === null) throw new Error('Session expired — please sign in again');
     _pelEvents = [];
     pelRender();
     toast('Posting log cleared');
-  } catch(e) { toast('Failed to clear: ' + e); }
+  } catch(e) { toast('Failed to clear: ' + (e.message || e), 'error'); }
 }
 
 // ── Google Drive upload ────────────────────────────────────────────────────
@@ -4145,6 +4117,10 @@ function showInterfaceSelector() {
 function enterInterface(iface) {
   _activeInterface = iface;
   const isAds = iface === 'ads';
+  // Safety: the fixed-position admin dashboard must never sit on top of the
+  // working interface (e.g. after a cross-role re-login on the same tab).
+  const _dash = document.getElementById('admin-dashboard');
+  if (_dash && (!window._currentUser || window._currentUser.role !== 'admin')) _dash.style.display = 'none';
   const sel = document.getElementById('interface-selector');
   if (sel) sel.style.display = 'none';
   const label = document.getElementById('interface-mode-label');
@@ -5293,7 +5269,8 @@ async function calDeletePublished(idx) {
   const btn = document.querySelector('#cal-post-preview-modal .cal-del-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting…'; }
   try {
-    await api('DELETE', `/api/posting/published/${encodeURIComponent(post.id)}?platform=${post.platform || 'facebook'}`);
+    const res = await api('DELETE', `/api/posting/published/${encodeURIComponent(post.id)}?platform=${post.platform || 'facebook'}`);
+    if (res === null) throw new Error('Session expired — please sign in again');
     toast('Post deleted from Facebook');
     const modal = document.getElementById('cal-post-preview-modal');
     if (modal) modal.remove();
@@ -5320,7 +5297,8 @@ async function calCancelScheduled(idx) {
   const btn = document.querySelector('#cal-post-preview-modal .cal-del-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelling…'; }
   try {
-    await api('DELETE', `/api/scheduled-posts/${post.id}`);
+    const res = await api('DELETE', `/api/scheduled-posts/${post.id}`);
+    if (res === null) throw new Error('Session expired — please sign in again');
     toast('Scheduled post cancelled');
     const modal = document.getElementById('cal-post-preview-modal');
     if (modal) modal.remove();
@@ -9028,6 +9006,7 @@ async function connectPostingWithToken() {
   const input = document.getElementById('posting-token-input');
   const btn = document.getElementById('connect-posting-token-btn');
   const err = document.getElementById('posting-token-error');
+  if (!input || !btn || !err) return;  // token-paste UI not present in this build
   const token = input.value.trim();
   if (!token) { err.textContent = 'Please paste your access token.'; err.style.display='block'; return; }
   err.style.display = 'none';
@@ -9496,12 +9475,26 @@ async function toggleUserActive(id, active) {
   } catch(e) { toast('Failed to update user', 'error'); }
 }
 
+// The page-assignment ids exist BOTH in the admin dashboard section and the
+// Admin Panel modal. getElementById always resolved to the dashboard copy,
+// so the modal's tab showed permanently empty selects and "Assign" read
+// values the modal user never chose. Resolve against whichever container is
+// actually open: the modal when it has the .open class, else the dashboard.
+function _paEl(id) {
+  const modal = document.getElementById('admin-panel-modal');
+  if (modal && modal.classList.contains('open')) {
+    const el = modal.querySelector(`[id="${id}"]`);
+    if (el) return el;
+  }
+  return document.getElementById(id);
+}
+
 async function loadAdminPageAssignUsers() {
   try {
     const r = await fetch('/api/users');
     if (!r.ok) return;
     const users = await r.json();
-    const sel = document.getElementById('page-assign-user-select');
+    const sel = _paEl('page-assign-user-select');
     if (!sel) return;
     sel.innerHTML = users.filter(u => u.is_active).map(u => `<option value="${u.id}">${escHtml(u.username)}</option>`).join('');
     if (users.length) loadUserPageAssignments();
@@ -9513,20 +9506,20 @@ async function loadAdminMetaAppsForAssign() {
     const r = await fetch('/api/meta-apps');
     if (!r.ok) return;
     const apps = await r.json();
-    const sel = document.getElementById('page-assign-app-select');
+    const sel = _paEl('page-assign-app-select');
     if (!sel) return;
     sel.innerHTML = apps.map(a => `<option value="${a.id}" data-type="${a.app_type}">${escHtml(a.name)} (${a.app_type})</option>`).join('');
   } catch(e) {}
 }
 
 async function loadUserPageAssignments() {
-  const userId = document.getElementById('page-assign-user-select').value;
+  const userId = _paEl('page-assign-user-select').value;
   if (!userId) return;
   try {
     const r = await fetch(`/api/users/${userId}/pages`);
     if (!r.ok) return;
     const pages = await r.json();
-    const el = document.getElementById('user-pages-list');
+    const el = _paEl('user-pages-list');
     if (!el) return;
     if (!pages.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">No pages assigned yet.</div>'; return; }
     el.innerHTML = pages.map(p => `
@@ -9542,9 +9535,9 @@ async function loadUserPageAssignments() {
 }
 
 async function loadAppPages() {
-  const appId = document.getElementById('page-assign-app-select').value;
-  const platform = document.getElementById('page-assign-platform').value;
-  const sel = document.getElementById('page-assign-page-select');
+  const appId = _paEl('page-assign-app-select').value;
+  const platform = _paEl('page-assign-platform').value;
+  const sel = _paEl('page-assign-page-select');
   if (!sel || !appId) return;
   sel.innerHTML = '<option value="">Loading…</option>';
   try {
@@ -9563,11 +9556,11 @@ async function loadAppPages() {
 }
 
 async function assignPageToUser() {
-  const userId = document.getElementById('page-assign-user-select').value;
-  const appId = document.getElementById('page-assign-app-select').value;
-  const platform = document.getElementById('page-assign-platform').value;
-  const pageVal = document.getElementById('page-assign-page-select').value;
-  const statusEl = document.getElementById('page-assign-status');
+  const userId = _paEl('page-assign-user-select').value;
+  const appId = _paEl('page-assign-app-select').value;
+  const platform = _paEl('page-assign-platform').value;
+  const pageVal = _paEl('page-assign-page-select').value;
+  const statusEl = _paEl('page-assign-status');
   if (!userId || !pageVal) { statusEl.textContent = '⚠ Select user and page'; statusEl.style.color = 'var(--error,#ef4444)'; return; }
   const [pageId, encodedName] = pageVal.split('|');
   const pageName = encodedName ? decodeURIComponent(encodedName) : pageId;
