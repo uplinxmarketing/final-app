@@ -410,6 +410,57 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
 
+    <!-- Posting Event Log section -->
+    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:16px;font-weight:700;color:var(--text-primary)">📋 Posting &amp; Scheduling Log</div>
+          <span id="pel-error-badge" style="display:none;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px">0 errors</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <!-- Filter buttons -->
+          <button onclick="pelSetFilter('')" id="pel-filter-all"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:11px;font-weight:700;cursor:pointer">All</button>
+          <button onclick="pelSetFilter('error')" id="pel-filter-error"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">❌ Errors</button>
+          <button onclick="pelSetFilter('warning')" id="pel-filter-warning"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:#f59e0b;font-size:11px;font-weight:700;cursor:pointer">⚠ Warnings</button>
+          <button onclick="pelSetFilter('info')" id="pel-filter-info"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:#22c55e;font-size:11px;font-weight:700;cursor:pointer">✓ Info</button>
+          <div style="width:1px;height:20px;background:var(--border)"></div>
+          <button onclick="pelFetch()" title="Refresh from server"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳ Refresh</button>
+          <button onclick="pelCopy()" title="Copy log to clipboard"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">📋 Copy</button>
+          <button onclick="pelClear()" title="Clear all log entries"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">🗑 Clear</button>
+        </div>
+      </div>
+      <!-- Log table -->
+      <div id="pel-container" style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace">
+          <thead>
+            <tr style="background:var(--bg-deep);color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;font-size:10px">
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap">Time</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Level</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Type</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Platform</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">User</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Page</th>
+              <th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);min-width:220px">Message</th>
+            </tr>
+          </thead>
+          <tbody id="pel-tbody">
+            <tr><td colspan="7" style="padding:20px 8px;color:var(--text-dim);text-align:center;font-style:italic">Click ⟳ Refresh to load the posting log.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+        <div id="pel-count" style="font-size:11px;color:var(--text-dim)">—</div>
+        <div style="font-size:11px;color:var(--text-dim)">Showing last 300 events · persisted across restarts</div>
+      </div>
+    </div>
+
   </div><!-- end scrollable body -->
 </div><!-- end #admin-dashboard -->
 
@@ -3236,6 +3287,117 @@ async function copyDiagLog() {
     btn.textContent = '❌ Failed';
   }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+}
+
+// ── Posting Event Log (admin dashboard) ──────────────────────────────────────
+let _pelEvents = [];
+let _pelFilter = '';
+
+async function pelFetch() {
+  const tbody = document.getElementById('pel-tbody');
+  const cnt = document.getElementById('pel-count');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:16px 8px;color:var(--text-dim);text-align:center">Loading…</td></tr>';
+  try {
+    const url = '/api/admin/posting-events?limit=300' + (_pelFilter ? `&level=${_pelFilter}` : '');
+    const data = await api('GET', url);
+    _pelEvents = data.events || [];
+    pelRender();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="padding:16px 8px;color:#ef4444;text-align:center">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    if (cnt) cnt.textContent = 'Error';
+  }
+}
+
+function pelSetFilter(level) {
+  _pelFilter = level;
+  ['all','error','warning','info'].forEach(f => {
+    const btn = document.getElementById(`pel-filter-${f}`);
+    if (!btn) return;
+    const active = (f === 'all' && !level) || f === level;
+    btn.style.background = active ? 'var(--accent)' : 'var(--bg-deep)';
+    btn.style.border = `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`;
+    btn.style.color = active ? '#fff' : (f === 'error' ? '#ef4444' : f === 'warning' ? '#f59e0b' : f === 'info' ? '#22c55e' : 'var(--text-secondary)');
+  });
+  pelFetch();
+}
+
+function pelRender() {
+  const tbody = document.getElementById('pel-tbody');
+  const cnt = document.getElementById('pel-count');
+  const badge = document.getElementById('pel-error-badge');
+  if (!tbody) return;
+
+  const errCount = _pelEvents.filter(e => e.level === 'error').length;
+  if (badge) {
+    badge.style.display = errCount ? 'inline' : 'none';
+    badge.textContent = `${errCount} error${errCount !== 1 ? 's' : ''}`;
+  }
+
+  if (!_pelEvents.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:20px 8px;color:var(--text-dim);text-align:center;font-style:italic">No events found.</td></tr>';
+    if (cnt) cnt.textContent = '0 events';
+    return;
+  }
+
+  const colorFor = l => l === 'error' ? '#ef4444' : l === 'warning' ? '#f59e0b' : '#22c55e';
+  const iconFor = l => l === 'error' ? '❌' : l === 'warning' ? '⚠️' : '✓';
+  const typeLabel = t => ({
+    publish_ok:'Published', publish_fail:'Publish Fail', schedule_ok:'Scheduled',
+    schedule_fail:'Schedule Fail', cancel:'Cancelled', token_error:'Token Error',
+    drive_error:'Drive Error', media_error:'Media Error', job_ok:'Job Done',
+    job_fail:'Job Failed', system:'System'
+  }[t] || t);
+
+  tbody.innerHTML = _pelEvents.map(e => {
+    const ts = e.ts ? new Date(e.ts).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+    const detailCell = e.detail
+      ? `<span title="${escHtml(e.detail)}" style="cursor:help;border-bottom:1px dashed var(--border)">${escHtml(e.message)}</span>`
+      : escHtml(e.message);
+    return `<tr style="border-bottom:1px solid var(--border);background:${e.level==='error'?'rgba(239,68,68,.04)':e.level==='warning'?'rgba(245,158,11,.03)':''}">
+      <td style="padding:5px 8px;color:var(--text-dim);white-space:nowrap">${escHtml(ts)}</td>
+      <td style="padding:5px 8px;white-space:nowrap"><span style="color:${colorFor(e.level)};font-weight:700">${iconFor(e.level)} ${escHtml(e.level)}</span></td>
+      <td style="padding:5px 8px;white-space:nowrap;color:var(--text-secondary)">${escHtml(typeLabel(e.event_type))}</td>
+      <td style="padding:5px 8px;white-space:nowrap;color:var(--text-dim)">${escHtml(e.platform||'—')}</td>
+      <td style="padding:5px 8px;white-space:nowrap;color:var(--text-secondary)">${escHtml(e.username||'—')}</td>
+      <td style="padding:5px 8px;white-space:nowrap;color:var(--text-dim);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${escHtml(e.page_name||e.page_id||'')}">${escHtml(e.page_name||e.page_id||'—')}</td>
+      <td style="padding:5px 8px;color:var(--text-primary);line-height:1.4">${detailCell}${e.post_id?`<span style="color:var(--text-dim);margin-left:4px">post#${e.post_id}</span>`:''}${e.job_id?`<span style="color:var(--text-dim);margin-left:4px">job#${e.job_id}</span>`:''}</td>
+    </tr>`;
+  }).join('');
+  if (cnt) cnt.textContent = `${_pelEvents.length} event${_pelEvents.length !== 1 ? 's' : ''}`;
+}
+
+function pelCopy() {
+  if (!_pelEvents.length) { toast('No events to copy'); return; }
+  const lines = [
+    '=== Uplinx Posting Event Log ===',
+    `Exported: ${new Date().toISOString()}`,
+    `Entries: ${_pelEvents.length}`,
+    '─'.repeat(70),
+    ..._pelEvents.map(e => {
+      const ts = e.ts ? new Date(e.ts).toISOString() : '?';
+      const base = `[${ts}] [${(e.level||'').toUpperCase()}] [${e.event_type}] ${e.message}`;
+      const extras = [e.platform&&`platform=${e.platform}`, e.username&&`user=${e.username}`,
+        e.page_id&&`page=${e.page_id}`, e.post_id&&`post#=${e.post_id}`, e.job_id&&`job#=${e.job_id}`
+      ].filter(Boolean).join(' | ');
+      const detail = e.detail ? `\n  DETAIL: ${e.detail}` : '';
+      return base + (extras ? ` | ${extras}` : '') + detail;
+    }),
+  ].join('\n');
+  navigator.clipboard.writeText(lines).then(() => toast('Posting log copied')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = lines; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    toast('Posting log copied');
+  });
+}
+
+async function pelClear() {
+  if (!confirm('Clear all posting event log entries from the database? This cannot be undone.')) return;
+  try {
+    await api('DELETE', '/api/admin/posting-events');
+    _pelEvents = [];
+    pelRender();
+    toast('Posting log cleared');
+  } catch(e) { toast('Failed to clear: ' + e); }
 }
 
 // ── Google Drive upload ────────────────────────────────────────────────────
@@ -9455,6 +9617,7 @@ function hideAdminDashboard() {
 
 async function loadAdminDashboard() {
   await Promise.all([loadDashboardStats(), loadDashboardUsers()]);
+  pelFetch();
 }
 
 async function loadDashboardStats() {
