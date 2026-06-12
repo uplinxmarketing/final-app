@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Red
 from pydantic import BaseModel
 from sqlalchemy import select, delete, update, func, or_, and_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -221,6 +222,7 @@ async def lifespan(app: FastAPI):
     _bg_tasks.append(asyncio.create_task(_scheduled_posts_loop()))
     _bg_tasks.append(asyncio.create_task(_publish_jobs_loop()))
     _bg_tasks.append(asyncio.create_task(_scheduled_posts_checkpoint_loop()))
+    _bg_tasks.append(asyncio.create_task(_drive_precache_loop()))
     logger.info("Uplinx Meta Manager started")
     yield
     for task in _bg_tasks:
@@ -4210,6 +4212,11 @@ async def api_list_active_jobs(request: Request, db: AsyncSession = Depends(get_
 # persistent disk from being filled by one huge video.
 _DRIVE_CACHE_MAX_BYTES = 300 * 1024 * 1024
 
+# Global cap for all drivecache_* files combined. Keeps the 1 GB persistent
+# disk safe when hundreds of posts are scheduled far into the future — only
+# posts within a 24-hour window are cached, so this cap is rarely hit.
+_DRIVE_CACHE_TOTAL_MAX_BYTES = 600 * 1024 * 1024
+
 
 async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSession) -> None:
     """Download Drive media of a scheduled post to the uploads dir (best-effort).
@@ -4263,6 +4270,74 @@ def _purge_drive_cache(job: dict) -> None:
                 pass
 
 
+async def _precache_drive_posts(db: AsyncSession) -> None:
+    """Cache Drive media to disk for pending posts scheduled within the next 24 hours.
+
+    Called by ``_drive_precache_loop`` every 15 minutes. Only processes posts
+    that fire soon so that scheduling hundreds of future posts never fills the
+    persistent disk — at any moment only ~1 day of posts are cached.
+    """
+    # Abort if the global Drive-cache quota is already used up.
+    try:
+        total_cache = sum(
+            f.stat().st_size
+            for f in _UPLOAD_DIR.glob("drivecache_*")
+            if not f.name.endswith(".part")
+        )
+    except OSError:
+        total_cache = 0
+    if total_cache >= _DRIVE_CACHE_TOTAL_MAX_BYTES:
+        logger.warning(
+            "Drive cache total %.0f MB ≥ %.0f MB cap — skipping precache run",
+            total_cache / 1024 / 1024,
+            _DRIVE_CACHE_TOTAL_MAX_BYTES / 1024 / 1024,
+        )
+        return
+
+    window = datetime.utcnow() + timedelta(hours=24)
+    result = await db.execute(
+        select(ScheduledPost).where(
+            ScheduledPost.status == "pending",
+            ScheduledPost.scheduled_time <= window,
+        )
+    )
+    posts = result.scalars().all()
+    for post in posts:
+        jd = post.job_data
+        if not jd:
+            continue
+        media = jd.get("media", [])
+        needs_cache = any(
+            m.get("drive_file_id")
+            and not m.get("local_file_id")
+            and not (m.get("cache_file_id") and (_UPLOAD_DIR / m["cache_file_id"]).exists())
+            for m in media
+        )
+        if not needs_cache:
+            continue
+        google_uid = jd.get("google_user_id") or jd.get("posting_user_id")
+        if not google_uid:
+            continue
+        await _cache_drive_media_to_disk(jd, google_uid, db)
+        # Persist updated cache_file_ids back to the DB row.
+        post.job_data = dict(jd)
+        flag_modified(post, "job_data")
+        await db.commit()
+
+
+async def _drive_precache_loop() -> None:
+    """Background loop: pre-cache Drive media for posts firing within 24 hours."""
+    await asyncio.sleep(25)  # let startup settle
+    while True:
+        try:
+            async for db in get_db():
+                await _precache_drive_posts(db)
+                break
+        except Exception as exc:
+            logger.warning("Drive precache loop error: %s", exc)
+        await asyncio.sleep(900)  # 15 min
+
+
 async def _schedule_ig_job(
     item: BulkPostItem,
     scheduled_ts: int,
@@ -4285,9 +4360,6 @@ async def _schedule_ig_job(
         "google_user_id": google_uid,
         "base_url": base_url,
     }
-    # Back up Drive media to the persistent disk so the post survives a Drive
-    # disconnect between now and its publish time (mutates job["media"]).
-    await _cache_drive_media_to_disk(job, google_uid, db)
     row = ScheduledPost(
         platform="instagram",
         instagram_id=item.instagram_id,
@@ -6384,6 +6456,15 @@ async def api_system_health(request: Request, db: AsyncSession = Depends(get_db)
             "checkpoint_file": settings.CHECKPOINT_FILE or None,
             "uploads_dir": settings.UPLOADS_DIR,
             "persistent_uploads": has_custom_uploads,
+            "drive_cache_mb": round(
+                sum(
+                    f.stat().st_size
+                    for f in _UPLOAD_DIR.glob("drivecache_*")
+                    if not f.name.endswith(".part")
+                ) / 1024 / 1024,
+                1,
+            ),
+            "drive_cache_limit_mb": _DRIVE_CACHE_TOTAL_MAX_BYTES // (1024 * 1024),
         },
     }
 
