@@ -43,6 +43,7 @@ from database import (
     Skill, QuickCommand, ScheduledPost, ImageCache,
     User, UserPageAssignment, UserClientAssignment,
     PublishJob, BusinessPortfolio,
+    UserApiUsage, bump_user_usage,
 )
 from security import (
     FernetEncryption, setup_logging,
@@ -1299,8 +1300,17 @@ async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSes
         await db.commit()
     else:
         # Fallback: legacy Meta-only users that haven't been migrated yet.
-        result = await db.execute(select(User).where(User.username == ident, User.is_active == True))
-        user = result.scalar_one_or_none()
+        # Accept email OR username so nobody is locked out by which one they typed.
+        result = await db.execute(
+            select(User).where(
+                or_(
+                    User.username == ident,
+                    func.lower(User.email) == ident.lower(),
+                ),
+                User.is_active == True,
+            )
+        )
+        user = result.scalars().first()
         if not user or not _verify_password(req.password, user.hashed_password):
             raise HTTPException(401, "Invalid username or password")
 
@@ -1533,6 +1543,30 @@ async def api_remove_page_assignment(user_id: int, assignment_id: int, request: 
     await db.delete(row)
     await db.commit()
     return {"ok": True}
+
+
+@app.get("/api/users/usage")
+async def api_users_usage(request: Request, db: AsyncSession = Depends(get_db)):
+    """Per-user durable API usage (Meta calls + AI tokens) — admin only.
+
+    Returned as a map keyed by user_id so the dashboard can decorate user cards.
+    Also merges in the live in-memory AI session counters where available.
+    """
+    await require_admin(request, db)
+    result = await db.execute(select(UserApiUsage))
+    rows = result.scalars().all()
+    usage = {
+        str(r.user_id): {
+            "meta_calls": r.meta_calls or 0,
+            "ai_input_tokens": r.ai_input_tokens or 0,
+            "ai_output_tokens": r.ai_output_tokens or 0,
+            "ai_total_tokens": (r.ai_input_tokens or 0) + (r.ai_output_tokens or 0),
+            "ai_calls": r.ai_calls or 0,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    }
+    return {"usage": usage}
 
 
 # ── Client assignment endpoints ───────────────────────────────────────────────
@@ -2679,6 +2713,7 @@ async def api_ad_accounts(request: Request, db: AsyncSession = Depends(get_db)):
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
     await api_tracker.record_call(uid)
+    await bump_user_usage(db, get_session(request).get("user_id"), meta_calls=1)
     return result["data"]
 
 
@@ -2691,6 +2726,7 @@ async def api_pages(request: Request, db: AsyncSession = Depends(get_db)):
     if not result.get("success"):
         raise HTTPException(502, result.get("error", "Meta API error"))
     await api_tracker.record_call(uid)
+    await bump_user_usage(db, get_session(request).get("user_id"), meta_calls=1)
     return result["data"]
 
 
@@ -2703,6 +2739,7 @@ async def api_pixels(ad_account_id: str, request: Request, db: AsyncSession = De
         raise HTTPException(502, result.get("error", "Meta API error"))
     uid = get_session(request).get("meta_user_id", "anon")
     await api_tracker.record_call(uid)
+    await bump_user_usage(db, get_session(request).get("user_id"), meta_calls=1)
     return result["data"]
 
 
@@ -2716,6 +2753,7 @@ async def api_instagram(page_id: str, request: Request, db: AsyncSession = Depen
         raise HTTPException(502, result.get("error", "Meta API error"))
     uid = get_session(request).get("meta_user_id", "anon")
     await api_tracker.record_call(uid)
+    await bump_user_usage(db, get_session(request).get("user_id"), meta_calls=1)
     return result["data"]
 
 
@@ -3781,6 +3819,8 @@ async def api_bulk_publish_drive(
     db.add(job)
     await db.flush()
     position = await _job_queue_position(job, db)
+    # Each queued item turns into at least one Meta API publish call.
+    await bump_user_usage(db, session.get("user_id"), meta_calls=len(req.items))
     return {
         "job_id": job.id,
         "queued": True,

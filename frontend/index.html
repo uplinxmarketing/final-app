@@ -424,8 +424,8 @@ a{color:inherit;text-decoration:none}
 
       <!-- Remember me -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:22px">
-        <input type="checkbox" id="login-remember" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
-        <label for="login-remember" style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none">Remember me on this device</label>
+        <input type="checkbox" id="login-remember" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
+        <label for="login-remember" style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none">Keep me signed in (30 days)</label>
       </div>
 
       <button onclick="doLogin()" id="login-btn"
@@ -2097,6 +2097,15 @@ function applyUserAccess(user) {
   if (adminBtn) adminBtn.style.display = isAdmin ? '' : 'none';
   const manageAppsBtn = document.getElementById('manage-meta-apps-btn');
   if (manageAppsBtn) manageAppsBtn.style.display = isAdmin ? '' : 'none';
+  // The whole bottom-left tools menu (Connections / Skills / Settings / Updates)
+  // is admin-only. Regular users keep just their name + Sign out below it;
+  // account connection lives in the posts workspace "⚙️ Accounts" button.
+  const menuToggle = document.getElementById('sidebar-menu-toggle');
+  if (menuToggle) menuToggle.style.display = isAdmin ? '' : 'none';
+  if (!isAdmin) {
+    const navList = document.getElementById('sidebar-nav-list');
+    if (navList) navList.style.display = 'none';
+  }
   const usernameEl = document.getElementById('sidebar-username');
   if (usernameEl) usernameEl.textContent = user.username;
   const dashUserLabel = document.getElementById('dashboard-username-label');
@@ -9236,6 +9245,15 @@ async function removePageAssignment(userId, assignmentId) {
 // ── Admin Dashboard ─────────────────────────────────────────────────────────
 
 function showAdminDashboard() {
+  // Hard guard: only admins may ever see the dashboard. Non-admins are routed
+  // straight back to their assigned interface.
+  const u = window._currentUser;
+  if (!u || u.role !== 'admin') {
+    if (u && u.interface_access === 'ads') enterInterface('ads');
+    else if (u && u.interface_access === 'posting') enterInterface('posts');
+    else showInterfaceSelector();
+    return;
+  }
   document.getElementById('admin-dashboard').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   loadAdminDashboard();
@@ -9281,12 +9299,23 @@ async function loadDashboardUsers() {
   if (!el) return;
   el.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:20px 0 0 0">Loading…</div>';
   try {
-    const users = await fetch('/api/users').then(r => r.json());
+    const [users, usageRes] = await Promise.all([
+      fetch('/api/users').then(r => r.json()),
+      fetch('/api/users/usage').then(r => r.ok ? r.json() : {usage:{}}).catch(() => ({usage:{}})),
+    ]);
+    const usageMap = (usageRes && usageRes.usage) || {};
     if (!users.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:20px 0">No users yet.</div>'; return; }
     el.innerHTML = users.map(u => {
       const accessColor = u.interface_access === 'ads' ? '#3b82f6' : u.interface_access === 'posting' ? '#8b5cf6' : '#10b981';
       const accessLabel = u.interface_access === 'both' ? 'Ads + Posts' : u.interface_access === 'ads' ? 'Ads only' : 'Posts only';
       const statusColor = u.is_active ? '#22c55e' : '#6b7280';
+      const us = usageMap[String(u.id)] || null;
+      const usageLine = us
+        ? `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--text-dim)">
+            <span title="Meta Graph API calls made by this user">📡 Meta API: <b style="color:var(--text-secondary)">${(us.meta_calls||0).toLocaleString()}</b> calls</span>
+            <span title="AI tokens consumed by this user (input + output)">🤖 AI: <b style="color:var(--text-secondary)">${(us.ai_total_tokens||0).toLocaleString()}</b> tokens <span style="opacity:.75">(${(us.ai_input_tokens||0).toLocaleString()} in / ${(us.ai_output_tokens||0).toLocaleString()} out · ${(us.ai_calls||0).toLocaleString()} chats)</span></span>
+          </div>`
+        : `<div style="margin-top:5px;font-size:11px;color:var(--text-dim)">📡 Meta API: <b style="color:var(--text-secondary)">0</b> calls · 🤖 AI: <b style="color:var(--text-secondary)">0</b> tokens</div>`;
       return `
       <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:0">
         <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:13px 16px;background:var(--bg-secondary)">
@@ -9299,6 +9328,7 @@ async function loadDashboardUsers() {
               ${u.email ? `<span style="font-size:11px;color:var(--text-dim)">${escHtml(u.email)}</span>` : ''}
               <span style="font-size:11px;color:${statusColor}">${u.is_active ? 'Active' : 'Deactivated'}</span>
             </div>
+            ${usageLine}
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
             <button id="upanel-btn-${u.id}" onclick="toggleUserPanel(${u.id})"

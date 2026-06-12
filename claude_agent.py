@@ -1088,6 +1088,17 @@ class ClaudeAgent:
         _ai_session_tokens[uid]["provider"]  = self._provider
         _ai_session_tokens[uid]["model"]     = self.model
 
+        # Persist per-app-user usage so the admin dashboard can show lifetime
+        # totals per user (in-memory totals reset on every redeploy).
+        try:
+            from database import bump_user_usage
+            await bump_user_usage(
+                db, session_data.get("user_id"),
+                ai_input=total_input_tokens, ai_output=total_output_tokens, ai_calls=1,
+            )
+        except Exception:
+            pass
+
         # Write diagnostic log entry
         _write_log_entry({
             "ts":          datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
