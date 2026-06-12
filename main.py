@@ -509,7 +509,16 @@ def _classify_meta_error(err_body: dict) -> tuple[str, bool]:
     # Scheduled time invalid (caught earlier but just in case)
     if code == 100:
         return f"Meta rejected the post: {msg}", False
-    return msg, False
+    # Unrecognised error: keep the diagnostic identifiers — Meta's generic
+    # "An unknown error has occurred" is useless without code/subcode/trace.
+    extras = []
+    if code:
+        extras.append(f"code {code}" + (f"/{subcode}" if subcode else ""))
+    if err.get("error_user_msg"):
+        extras.append(err["error_user_msg"])
+    if err.get("fbtrace_id"):
+        extras.append(f"fbtrace {err['fbtrace_id']}")
+    return (f"{msg} ({'; '.join(extras)})" if extras else msg), False
 
 
 async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
@@ -4128,15 +4137,44 @@ def _effective_base_url() -> str:
 
 
 async def _get_page_token(user_token: str, page_id: str) -> str:
-    """Exchange the user posting token for a page-scoped token."""
+    """Exchange the user posting token for a page-scoped token.
+
+    Tries the direct page-node lookup first, then falls back to scanning
+    ``/me/accounts`` — the direct lookup fails for some page/permission
+    combinations where the page (with its token) is still present in the
+    accounts list. Surfaces Meta's real error so failures are diagnosable.
+    """
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
             f"{settings.meta_graph_base_url}/{page_id}",
             params={"fields": "access_token", "access_token": user_token},
         )
-    if r.status_code != 200:
-        raise HTTPException(502, "Could not retrieve page token — check page permissions")
-    return r.json().get("access_token", user_token)
+        if r.status_code == 200:
+            tok = r.json().get("access_token")
+            if tok:
+                return tok
+        # Capture the direct-lookup error before trying the fallback.
+        try:
+            err = r.json().get("error", {})
+            direct_err = f"{err.get('message', r.text[:200])} (code {err.get('code')}/{err.get('error_subcode', 0)})"
+        except Exception:
+            direct_err = f"HTTP {r.status_code}: {r.text[:200]}"
+        # Fallback: the page token is usually available via /me/accounts.
+        fr = await client.get(
+            f"{settings.meta_graph_base_url}/me/accounts",
+            params={"fields": "id,access_token", "limit": 100, "access_token": user_token},
+        )
+        if fr.status_code == 200:
+            for pg in fr.json().get("data", []):
+                if pg.get("id") == page_id and pg.get("access_token"):
+                    return pg["access_token"]
+    raise HTTPException(
+        502,
+        f"Could not retrieve page token for page {page_id}: {direct_err}. "
+        "Make sure this page was selected when connecting the posting account "
+        "and the account has pages_manage_posts permission — reconnecting the "
+        "posting account usually fixes this.",
+    )
 
 
 def _parse_scheduled_ts(scheduled_time: Optional[str]) -> Optional[int]:
@@ -4412,14 +4450,31 @@ async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: 
     if not creation_id:
         return {"success": False, "error": "no creation_id from container step"}
     # Poll container status — video/carousel need processing before publish.
+    # If the container lands in ERROR/EXPIRED, publishing it yields Meta's
+    # useless "An unknown error has occurred" — catch it here with the real
+    # status instead, which almost always means Meta couldn't fetch or
+    # process the media from our public URL.
+    last_status = ""
     async with httpx.AsyncClient(timeout=30) as client:
         for _ in range(30):
             sr = await client.get(
                 f"{base}/{creation_id}",
-                params={"fields": "status_code", "access_token": token},
+                params={"fields": "status_code,status", "access_token": token},
             )
-            if sr.status_code == 200 and sr.json().get("status_code") == "FINISHED":
-                break
+            if sr.status_code == 200:
+                body = sr.json()
+                last_status = body.get("status_code") or ""
+                if last_status == "FINISHED":
+                    break
+                if last_status in ("ERROR", "EXPIRED"):
+                    detail = body.get("status") or ""
+                    return {
+                        "success": False,
+                        "error": f"Instagram could not process the media (container status "
+                                 f"{last_status}{': ' + detail if detail else ''}) — usually Meta "
+                                 "failed to fetch the media URL; check the file and that the "
+                                 "server's BASE_URL is publicly reachable.",
+                    }
             await asyncio.sleep(3)
         pub = await client.post(
             f"{base}/{ig_id}/media_publish",
@@ -4428,6 +4483,8 @@ async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: 
     if pub.status_code not in (200, 201):
         _err_body = pub.json() if pub.content else {}
         _human_msg, _ = _classify_meta_error(_err_body)
+        if last_status and last_status != "FINISHED":
+            _human_msg = f"{_human_msg} (media container status was {last_status}, not FINISHED)"
         return {"success": False, "error": _human_msg}
     return {"success": True, "media_id": pub.json().get("id")}
 
@@ -5924,15 +5981,17 @@ async def api_publish_facebook(
     """Publish or schedule a Facebook Page post via the Posting app token."""
     token = await get_posting_token(request, db)
 
-    # Exchange user token for page-specific access token
-    async with httpx.AsyncClient(timeout=15) as client:
-        page_r = await client.get(
-            f"{settings.meta_graph_base_url}/{req.page_id}",
-            params={"fields": "access_token", "access_token": token},
-        )
-    if page_r.status_code != 200:
-        raise HTTPException(502, "Could not retrieve page token — check page permissions")
-    page_token = page_r.json().get("access_token", token)
+    # Exchange user token for page-specific access token (direct lookup with
+    # /me/accounts fallback and real Meta error reporting).
+    try:
+        page_token = await _get_page_token(token, req.page_id)
+    except HTTPException as exc:
+        _sess_pt = get_session(request)
+        await log_posting_event(db, "token_error", f"Facebook page token failed for page {req.page_id}",
+            level="error", platform="facebook", page_id=req.page_id or "",
+            username=_sess_pt.get("posting_username") or _sess_pt.get("username") or "",
+            user_id=_sess_pt.get("user_id"), detail=str(exc.detail)[:1000])
+        raise
 
     # Convert ISO datetime string → Unix timestamp for scheduled posts
     scheduled_ts: Optional[int] = None
