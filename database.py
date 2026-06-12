@@ -1009,8 +1009,12 @@ async def log_posting_event(
     """Record a posting/scheduling event to the persistent audit log.
 
     Never raises — errors are swallowed so audit logging never breaks the
-    calling code.  Uses a savepoint (nested transaction) so a log failure
-    doesn't roll back the surrounding operation.
+    calling code.  Writes through its OWN short-lived session (the ``db``
+    argument is accepted for call-site convenience but not used for the
+    write): many callers log right before raising an HTTPException, which
+    makes ``get_db`` roll back the request session — the event must survive
+    that rollback.  An independent session also works when the caller's
+    session is already in a failed/pending-rollback state.
     """
     try:
         row = PostingEventLog(
@@ -1027,8 +1031,9 @@ async def log_posting_event(
             detail=str(detail)[:3000] if detail else None,
             created_at=_utcnow(),
         )
-        async with db.begin_nested():
-            db.add(row)
+        async with AsyncSessionLocal() as log_session:
+            log_session.add(row)
+            await log_session.commit()
     except Exception:
         pass
 
@@ -1040,6 +1045,11 @@ async def log_posting_event(
 
 async def init_db() -> None:
     """Create all database tables, run schema migrations, and enable WAL mode on startup."""
+    # SQLite has no "ADD COLUMN IF NOT EXISTS" — the IF NOT EXISTS form is
+    # Postgres-only. On SQLite we issue a plain ADD COLUMN and rely on the
+    # duplicate-column error being swallowed; otherwise upgraded SQLite DBs
+    # silently never gained the scheduler columns and scheduled posts broke.
+    _is_sqlite = DATABASE_URL.startswith("sqlite")
     async with async_engine.begin() as conn:
         await _enable_wal(conn)
         await conn.run_sync(Base.metadata.create_all)
@@ -1054,6 +1064,11 @@ async def init_db() -> None:
             "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE",
         ]:
+            if _is_sqlite:
+                _stmt = _stmt.replace("ADD COLUMN IF NOT EXISTS", "ADD COLUMN")
+                # SQLite also rejects REFERENCES clauses with ON DELETE in
+                # ALTER TABLE ADD COLUMN on old versions — keep just the column.
+                _stmt = _stmt.split(" REFERENCES ")[0]
             try:
                 await conn.execute(_text(_stmt))
             except Exception:

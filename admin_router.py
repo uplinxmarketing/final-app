@@ -201,9 +201,20 @@ async def _set_meta_session(staff: StaffMember, response: Response, db: AsyncSes
     derived_username = staff.username or (staff.email.split("@")[0] if staff.email else f"user{staff.id}")
     role = "admin" if staff.is_admin else "user"
     if user:
-        user.hashed_password = staff.hashed_password
-        user.is_active = True
-        user.role = role
+        # Sync credentials only when the rows are linked by email — a Meta
+        # user who merely shares a username must not have their password,
+        # role, or active flag silently replaced by a CRM staff login. Also
+        # never re-activate a user an admin deactivated, and never change an
+        # existing user's role (admin edits used to be reverted on next SSO).
+        email_match = bool(
+            staff.email and user.email and staff.email.lower() == user.email.lower()
+        )
+        if email_match:
+            user.hashed_password = staff.hashed_password
+        if not user.is_active:
+            # Don't issue a Meta session for (or re-activate) a deactivated
+            # user — CRM login itself still succeeds.
+            return
         if staff.email and not user.email:
             user.email = staff.email
     else:
@@ -217,6 +228,7 @@ async def _set_meta_session(staff: StaffMember, response: Response, db: AsyncSes
     token = create_session_token({
         "user_id": user.id, "user_role": user.role,
         "user_access": user.interface_access, "username": user.username,
+        **({"_remember": True} if remember_me else {}),
     })
     response.set_cookie(
         META_SESSION_COOKIE, token, httponly=True, samesite="lax",
@@ -583,9 +595,37 @@ class ChangePasswordReq(BaseModel):
     new_password: str
 
 
+class SeedAdminReq(BaseModel):
+    secret_key: str
+    password: str
+
+
 @router.post("/api/auth/seed-admin")
-async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
-    """Recovery: creates default admin account if no staff exist."""
+async def seed_admin_recovery(req: SeedAdminReq, db: AsyncSession = Depends(get_db)):
+    """Recovery: creates the admin account if no staff exist.
+
+    Requires the server's SECRET_KEY as proof of server access and a
+    caller-supplied password — a hardcoded password in a public repo meant
+    anyone could claim a fresh deploy's CRM.
+    """
+    import secrets as _secrets
+    from config import settings as _settings
+    if not _settings.SECRET_KEY or not _secrets.compare_digest(
+        req.secret_key, _settings.SECRET_KEY
+    ):
+        raise HTTPException(403, "Invalid secret key")
+    if len(req.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    # If an admin already exists, reset its password instead (the startup
+    # seed may have used a random password) — SECRET_KEY proof was verified.
+    existing_admin_r = await db.execute(
+        select(StaffMember).where(StaffMember.is_admin == True).limit(1)  # noqa: E712
+    )
+    existing_admin = existing_admin_r.scalar_one_or_none()
+    if existing_admin:
+        existing_admin.hashed_password = _hash_pw(req.password)
+        await db.commit()
+        return {"ok": True, "detail": f"Admin password reset. Email: {existing_admin.email}"}
     staff_exist = await db.execute(select(func.count()).select_from(StaffMember))
     if (staff_exist.scalar() or 0) > 0:
         return {"ok": False, "detail": "Staff already exist — use normal login."}
@@ -597,7 +637,7 @@ async def seed_admin_recovery(db: AsyncSession = Depends(get_db)):
         await db.flush()
     admin = StaffMember(
         first_name="Uplinx", last_name="Admin", email="uplinxmarketing@gmail.com",
-        hashed_password=_hash_pw("@UPlinx2026!!"),
+        hashed_password=_hash_pw(req.password),
         role_id=role.id, is_admin=True,
     )
     db.add(admin)
@@ -6948,9 +6988,20 @@ async def init_admin_db(engine) -> None:
         if (staff_exist.scalar() or 0) == 0:
             admin_role_r = await db.execute(select(CRMRole).where(CRMRole.name == "Administrator"))
             admin_role = admin_role_r.scalar_one_or_none()
+            # Never seed with a hardcoded password (this repo is public).
+            # Use ADMIN_PASSWORD from the environment; if unset, generate a
+            # random one — recover via the seed-admin endpoint with SECRET_KEY.
+            from config import settings as _settings
+            import secrets as _secrets
+            _seed_pw = _settings.ADMIN_PASSWORD or _secrets.token_urlsafe(16)
+            if not _settings.ADMIN_PASSWORD:
+                logger.warning(
+                    "CRM admin seeded with a random password — set ADMIN_PASSWORD "
+                    "or use POST /admin/api/auth/seed-admin with the SECRET_KEY to set one."
+                )
             admin = StaffMember(
                 first_name="Uplinx", last_name="Admin", email="uplinxmarketing@gmail.com",
-                hashed_password=_hash_pw("@UPlinx2026!!"),
+                hashed_password=_hash_pw(_seed_pw),
                 role_id=admin_role.id if admin_role else None,
                 is_admin=True,
             )

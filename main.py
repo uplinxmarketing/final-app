@@ -580,7 +580,31 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
                 level="warning", platform=post.platform or "instagram",
                 page_id=job.get("page_id",""), post_id=post.id, detail=err_str[:2000])
         logger.warning("Scheduled post %s attempt %d failed: %s", post.id, post.attempts, exc)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # The publish failure may itself have been a DB error that left the
+        # session pending-rollback; without this the status/attempts update
+        # was lost and the row stayed "processing" with a free retry budget.
+        await db.rollback()
+        try:
+            await db.execute(
+                update(ScheduledPost)
+                .where(ScheduledPost.id == post.id)
+                .values(
+                    status=post.status,
+                    attempts=post.attempts,
+                    error_message=post.error_message,
+                    claimed_by=post.claimed_by,
+                    claimed_at=post.claimed_at,
+                    next_retry_at=post.next_retry_at,
+                    meta_post_id=post.meta_post_id,
+                    published_at=post.published_at,
+                )
+            )
+            await db.commit()
+        except Exception as exc2:
+            logger.error("Could not persist scheduled post %s status: %s", post.id, exc2)
 
 
 async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
@@ -686,6 +710,25 @@ async def _publish_jobs_loop() -> None:
         await asyncio.sleep(3)
         try:
             async for db in get_db():
+                # Runtime self-heal: requeue jobs stuck "running" for >30 min
+                # (their worker died mid-run, or item processing raised before
+                # any progress commit). Startup-only recovery isn't enough on
+                # a long-lived server — without this a wedged job stays
+                # "running" forever and its remaining posts never publish.
+                try:
+                    stale = datetime.now(timezone.utc) - timedelta(minutes=30)
+                    healed = await db.execute(
+                        update(PublishJob)
+                        .where(PublishJob.status == "running",
+                               or_(PublishJob.started_at.is_(None),
+                                   PublishJob.started_at < stale))
+                        .values(status="queued", claimed_by=None)
+                    )
+                    await db.commit()
+                    if healed.rowcount:
+                        logger.warning("Requeued %d stuck publish job(s)", healed.rowcount)
+                except Exception:
+                    await db.rollback()
                 result = await db.execute(
                     select(PublishJob.id)
                     .where(PublishJob.status == "queued")
@@ -897,7 +940,19 @@ async def _restore_scheduled_from_checkpoint() -> None:
 
 async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
     """Publish every item in a job, one at a time, committing progress as it goes."""
-    items = [BulkPostItem(**it) for it in (job.items or [])]
+    try:
+        items = [BulkPostItem(**it) for it in (job.items or [])]
+    except Exception as exc:
+        # A malformed item definition must fail the job cleanly — raising here
+        # left it claimed as "running" forever (recovery only ran at startup).
+        job.status = "failed"
+        job.error = f"Invalid job item: {exc}"[:500]
+        job.finished_at = datetime.now(timezone.utc)
+        await log_posting_event(db, "job_fail", f"Bulk job #{job.id} failed: invalid item definition",
+            level="error", job_id=job.id, detail=str(exc)[:2000],
+            username=job.created_by_name or job.created_by or "")
+        await db.commit()
+        return
     results = list(job.results or [])
     # Only require a Google account when some media must stream from Drive —
     # jobs made entirely of device uploads (or disk-cached media) publish fine
@@ -1020,6 +1075,15 @@ def _login_token() -> str:
     return hashlib.sha256(
         f"{settings.LOGIN_PASSWORD}:{settings.SECRET_KEY}".encode()
     ).hexdigest()
+
+
+def _session_cookie_max_age(session_data: dict) -> int:
+    """Cookie lifetime matching the session's remember-me flag.
+
+    OAuth callbacks re-issue the session cookie; without this a remember-me
+    user who connected an account had their 30-day cookie clobbered down to 8h.
+    """
+    return 86400 * 30 if session_data.get("_remember") else 28800
 
 @app.middleware("http")
 async def session_middleware(request: Request, call_next):
@@ -1311,14 +1375,28 @@ async def setup_page():
         return HTMLResponse(setup_path.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>Setup page not found</h1>", status_code=500)
 
+def _require_admin_cookie(request: Request) -> dict:
+    """Admin gate for /api/setup paths, which bypass the session middleware.
+
+    Those endpoints write API secrets into .env/DB — without this check any
+    visitor could overwrite META_APP_SECRET, ANTHROPIC_API_KEY, etc.
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    session = verify_session_token(token) if token else None
+    if not session or session.get("user_role") != "admin":
+        raise HTTPException(403, "Admin access required")
+    return session
+
+
 @app.post("/api/setup/save")
-async def setup_save(req: SetupSaveRequest, db: AsyncSession = Depends(get_db)):
+async def setup_save(req: SetupSaveRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Write provided keys into the .env file, persist them to the DB, and reload settings.
 
     The DB copy is the durable source of truth: on platforms with an ephemeral
     filesystem (Render), the .env file is wiped on every redeploy, so keys are
     reloaded from the DB on startup.
     """
+    _require_admin_cookie(request)
     env_path = Path(".env")
     if not env_path.exists():
         env_path.write_text("", encoding="utf-8")
@@ -1398,8 +1476,9 @@ async def setup_save(req: SetupSaveRequest, db: AsyncSession = Depends(get_db)):
 
 
 @app.delete("/api/setup/key/{provider}")
-async def clear_api_key(provider: str, db: AsyncSession = Depends(get_db)):
+async def clear_api_key(provider: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Remove a single AI provider key from .env, the DB, and live settings."""
+    _require_admin_cookie(request)
     env_key_map = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "groq": "GROQ_API_KEY"}
     env_key = env_key_map.get(provider)
     if not env_key:
@@ -1453,6 +1532,7 @@ async def get_user_settings():
 
 @app.post("/api/setup/user-settings")
 async def save_user_settings(request: Request):
+    _require_admin_cookie(request)
     body = await request.json()
     _save_user_settings(body)
     # Custom instructions are part of the system prompt — bust cache
@@ -1597,10 +1677,19 @@ async def _provision_meta_user_from_staff(staff, db: AsyncSession) -> User:
     role = "admin" if staff.is_admin else "user"
 
     if user:
-        # Keep the linked Meta user in sync with the CRM record.
-        user.hashed_password = staff.hashed_password
-        user.is_active = True
-        user.role = role
+        # Keep the linked Meta user in sync with the CRM record — but only
+        # sync the password when the rows are linked by matching email, so a
+        # Meta user who merely shares a username doesn't get their password
+        # replaced. Never re-activate a deactivated user or change an
+        # existing user's role: admin edits used to be reverted at the staff
+        # member's next login.
+        email_match = bool(
+            staff.email and user.email and staff.email.lower() == user.email.lower()
+        )
+        if email_match:
+            user.hashed_password = staff.hashed_password
+        if not user.is_active:
+            raise HTTPException(401, "This account has been deactivated")
         if staff.email and not user.email:
             user.email = staff.email
     else:
@@ -1660,6 +1749,10 @@ async def api_auth_login(req: UserLoginRequest, response: Response, db: AsyncSes
         "user_access": user.interface_access,
         "username": user.username,
     }
+    if req.remember_me:
+        # Flag inside the signed token so verify_session_token extends the
+        # server-side validity window to match the 30-day cookie.
+        session_data["_remember"] = True
     token = create_session_token(session_data)
     # remember_me=True → 30-day persistent cookie; False → session cookie (clears on browser close)
     cookie_max_age = 86400 * 30 if req.remember_me else None
@@ -1744,6 +1837,13 @@ async def require_admin(request: Request, db: AsyncSession = Depends(get_db)):
     session = get_session(request)
     if session.get("user_role") != "admin":
         raise HTTPException(403, "Admin access required")
+    # The signed cookie can outlive a demotion/deactivation by up to 30 days —
+    # re-verify against the DB so revoked admins lose access immediately.
+    uid = session.get("user_id")
+    if uid:
+        user = await db.get(User, uid)
+        if not user or not user.is_active or user.role != "admin":
+            raise HTTPException(403, "Admin access required")
 
 
 # ── User management endpoints (admin only) ────────────────────────────────────
@@ -1779,18 +1879,32 @@ async def api_list_users(request: Request, db: AsyncSession = Depends(get_db)):
 @app.post("/api/users", status_code=201)
 async def api_create_user(req: UserCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
     await require_admin(request, db)
-    existing = await db.execute(select(User).where(User.username == req.username))
+    # Trim — login strips the identifier, so a username saved with stray
+    # whitespace could never log in.
+    username = (req.username or "").strip()
+    email = (req.email or "").strip() or None
+    if not username:
+        raise HTTPException(400, "Username is required")
+    if len(req.password or "") < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Username already exists")
     user = User(
-        username=req.username,
-        email=req.email,
+        username=username,
+        email=email,
         hashed_password=_hash_password(req.password),
         role=req.role,
         interface_access=req.interface_access,
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # Concurrent create with the same username — surface a clean 400
+        # instead of a raw IntegrityError 500.
+        await db.rollback()
+        raise HTTPException(400, "Username already exists")
     await db.refresh(user)
     return {"id": user.id, "username": user.username, "role": user.role, "interface_access": user.interface_access}
 
@@ -2026,11 +2140,12 @@ async def api_remove_client_assignment(user_id: int, assignment_id: int, request
 @app.get("/api/meta-apps/{meta_app_id}/pages")
 async def api_get_app_pages(
     meta_app_id: int,
+    request: Request,
     platform: str = "facebook",
-    request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return FB pages or IG accounts connected via a specific Meta app."""
+    """Return FB pages or IG accounts connected via a specific Meta app (admin only)."""
+    await require_admin(request, db)
     result = await db.execute(
         select(ConnectedMetaAccount).where(
             ConnectedMetaAccount.meta_app_db_id == meta_app_id,
@@ -2308,13 +2423,13 @@ async def auth_meta_callback(
 
     # Merge meta_user_id into existing session so user auth cookie is preserved
     existing_token = request.cookies.get(SESSION_COOKIE)
-    existing_session = verify_session_token(existing_token) if existing_token else {}
+    existing_session = (verify_session_token(existing_token) if existing_token else None) or {}
     session_data = {**existing_session, "meta_user_id": uid}
     session_token = create_session_token(session_data)
     redirect = RedirectResponse("/auth/done?type=meta")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
-        max_age=28800, httponly=True, samesite="lax"
+        max_age=_session_cookie_max_age(session_data), httponly=True, samesite="lax"
     )
     redirect.delete_cookie("oauth_state")
     redirect.delete_cookie("oauth_meta_app_id")
@@ -2419,11 +2534,11 @@ async def auth_google_callback(
 
     # Merge google_user_id into existing session or create new one
     existing_token = request.cookies.get(SESSION_COOKIE)
-    existing_session = verify_session_token(existing_token) if existing_token else {}
+    existing_session = (verify_session_token(existing_token) if existing_token else None) or {}
     existing_session["google_user_id"] = uid
     session_token = create_session_token(existing_session)
     redirect = RedirectResponse("/auth/done?type=google")
-    redirect.set_cookie(SESSION_COOKIE, session_token, max_age=28800, httponly=True, samesite="lax")
+    redirect.set_cookie(SESSION_COOKIE, session_token, max_age=_session_cookie_max_age(existing_session), httponly=True, samesite="lax")
     redirect.delete_cookie("oauth_state_google")
     return redirect
 
@@ -2921,7 +3036,7 @@ async def auth_meta_posting_callback(
     now = datetime.utcnow()
     # Resolve the app-user performing this OAuth so we can link the account.
     existing_token = request.cookies.get(SESSION_COOKIE)
-    existing_session = verify_session_token(existing_token) if existing_token else {}
+    existing_session = (verify_session_token(existing_token) if existing_token else None) or {}
     connecting_user_id: Optional[int] = existing_session.get("user_id")
     try:
         _posting_app_db_id = int(_papp_db_id_cookie) if _papp_db_id_cookie else None
@@ -2962,7 +3077,7 @@ async def auth_meta_posting_callback(
     redirect = RedirectResponse("/auth/done?type=posting")
     redirect.set_cookie(
         SESSION_COOKIE, session_token,
-        max_age=28800, httponly=True, samesite="lax"
+        max_age=_session_cookie_max_age(session_data), httponly=True, samesite="lax"
     )
     redirect.delete_cookie("oauth_state_posting")
     redirect.delete_cookie("oauth_posting_app_id")
@@ -4084,6 +4199,17 @@ async def _resolve_media_bytes(m: DriveMediaItem, google_token: str) -> dict:
             return {"success": True, "bytes": data}
         except OSError as exc:
             return {"success": False, "error": str(exc)}
+    # Disk-cached Drive media: read locally — callers pass an empty
+    # google_token when every item is cached, so going to Drive here failed.
+    if m.cache_file_id:
+        cpath = _UPLOAD_DIR / m.cache_file_id
+        if cpath.exists():
+            try:
+                async with aiofiles.open(cpath, "rb") as fh:
+                    data = await fh.read()
+                return {"success": True, "bytes": data}
+            except OSError:
+                pass  # fall through to Drive
     return await google_api.download_drive_file(m.drive_file_id, google_token)
 
 
@@ -6234,6 +6360,7 @@ async def api_posting_calendar(
     scheduled = sched_result.scalars().all()
 
     published: list = []
+    page_token = ""  # set inside the try; checked again before the FB scheduled-posts fetch
     try:
         token = await get_posting_token(request, db)
         if is_instagram:
@@ -6346,7 +6473,7 @@ async def api_posting_calendar(
 
     # For Facebook pages, also fetch Meta-native scheduled posts (they don't
     # appear in /feed until they publish, so they'd otherwise be invisible).
-    if not is_instagram:
+    if not is_instagram and page_token:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 sched_fb_r = await client.get(

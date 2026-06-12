@@ -315,13 +315,19 @@ def create_session_token(data: dict[str, Any]) -> str:
 def verify_session_token(
     token: str,
     max_age: int = 28_800,
+    remember_max_age: int = 86_400 * 30,
 ) -> Optional[dict[str, Any]]:
     """Verify and decode a session token produced by :func:`create_session_token`.
 
+    Tokens carrying ``"_remember": True`` (set by "remember me" logins) are
+    accepted up to *remember_max_age* (30 days); all others expire after
+    *max_age* (8 hours).  Without this, a remember-me cookie outlived its own
+    token and every session silently died at the 8-hour mark.
+
     Args:
         token: The signed token string to verify.
-        max_age: Maximum acceptable token age in seconds.  Defaults to
-            ``28_800`` (8 hours).
+        max_age: Maximum acceptable token age in seconds for normal sessions.
+        remember_max_age: Maximum acceptable age for remember-me sessions.
 
     Returns:
         The decoded data dictionary if the token is valid and not expired,
@@ -330,6 +336,14 @@ def verify_session_token(
     try:
         return _get_serializer().loads(token, max_age=max_age)
     except SignatureExpired:
+        # Older than the normal window — accept only if the payload was
+        # issued with remember-me and is still inside the extended window.
+        try:
+            data = _get_serializer().loads(token, max_age=remember_max_age)
+            if isinstance(data, dict) and data.get("_remember"):
+                return data
+        except Exception:  # noqa: BLE001
+            pass
         _logger.warning("Session token has expired.")
         return None
     except BadSignature:

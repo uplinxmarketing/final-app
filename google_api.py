@@ -493,7 +493,11 @@ async def download_drive_file(file_id: str, access_token: str) -> dict[str, Any]
             {"success": False, "bytes": b"", "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # Generous read timeout: Facebook video publishing downloads the whole
+        # file through this path, and a large Drive video easily exceeds 30 s —
+        # which made every big FB video item fail. Connect stays snappy.
+        _timeout = httpx.Timeout(connect=15.0, read=600.0, write=60.0, pool=15.0)
+        async with httpx.AsyncClient(timeout=_timeout) as client:
             response = await client.get(
                 f"{GOOGLE_DRIVE_BASE}/files/{file_id}",
                 headers=_bearer(access_token),
