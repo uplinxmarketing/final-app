@@ -12,7 +12,11 @@ logger = logging.getLogger("uplinx")
 BASE_URL = "https://graph.facebook.com/v21.0"
 
 # Meta API error codes that indicate rate limiting
-_RATE_LIMIT_CODES = {17, 32, 80000, 80001, 80002, 80003}
+_RATE_LIMIT_CODES = {4, 17, 32, 341, 80000, 80001, 80002, 80003}
+
+# Transient service errors — retry with short backoff (code 1 = unknown error,
+# code 2 = "Please retry your request later")
+_TRANSIENT_CODES = {1, 2}
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +26,7 @@ _RATE_LIMIT_CODES = {17, 32, 80000, 80001, 80002, 80003}
 async def _api_request(
     method: str,
     url: str,
-    retries: int = 3,
+    retries: int = 4,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Make an HTTP request with retry logic.
@@ -71,7 +75,15 @@ async def _api_request(
                     last_error = f"Rate limit (code {code}): {message}"
                     continue  # retry
 
-                # Non-rate-limit API error – no point retrying
+                if code in _TRANSIENT_CODES:
+                    logger.warning(
+                        "Meta transient error (code %s) on %s – waiting 8s …", code, url
+                    )
+                    await asyncio.sleep(8)
+                    last_error = f"Transient error (code {code}): {message}"
+                    continue  # retry
+
+                # Non-retriable API error
                 return {"success": False, "error": f"Meta API error {code}: {message}"}
 
             if response.is_success:
