@@ -42,7 +42,17 @@ logger = logging.getLogger("uplinx")
 # ---------------------------------------------------------------------------
 
 import os as _os
-DATABASE_URL = _os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./uplinx.db")
+# Read from the process env first, then .env via pydantic settings — without
+# the settings fallback a DATABASE_URL configured in .env was silently ignored
+# and the app stayed on SQLite while reporting Postgres in the health panel.
+_db_url = _os.environ.get("DATABASE_URL", "")
+if not _db_url:
+    try:
+        from config import settings as _settings
+        _db_url = _settings.DATABASE_URL
+    except Exception:
+        _db_url = ""
+DATABASE_URL = _db_url or "sqlite+aiosqlite:///./uplinx.db"
 # Render/Railway inject postgres:// URLs; translate to async variant
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -128,6 +138,10 @@ class ConnectedMetaAccount(Base):
         DateTime(timezone=True), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # MetaApp (DB row) this account was connected through. NULL = env-var app.
+    # The column already existed via init_db ALTER but was never mapped, so
+    # queries filtering on it raised AttributeError.
+    meta_app_db_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     def __repr__(self) -> str:
         return (
@@ -165,6 +179,8 @@ class ConnectedPostingAccount(Base):
     owner_user_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # MetaApp (DB row) this account was connected through. NULL = env-var app.
+    meta_app_db_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     def __repr__(self) -> str:
         return (

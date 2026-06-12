@@ -2787,7 +2787,7 @@ function renderUploads() {
   const icons = { image:'🖼', video:'🎬', pdf:'📄', markdown:'📝' };
   el.innerHTML = state.uploads.map((u,i)=>`<div class="upload-item">
     <span class="upload-icon">${icons[u.type]||'📎'}</span>
-    <span class="upload-name" title="${u.name}">${u.name}</span>
+    <span class="upload-name" title="${escHtml(u.name)}">${escHtml(u.name)}</span>
     <button class="upload-remove" onclick="removeUpload(${i})">×</button>
   </div>`).join('');
 }
@@ -4883,6 +4883,9 @@ function renderCalendarGrid(days) {
   // Hide the old day-detail panel (replaced by chip-click preview modal).
   const dd = document.getElementById('calendar-day-detail');
   if (dd) dd.style.display = 'none';
+  // Close any open day popup — its chips hold indexes into _calClickItems,
+  // which is about to reset; a stale index would cancel/delete the wrong post.
+  document.querySelectorAll('.cal-day-pop').forEach(el => el.remove());
   _calClickItems = [];
 
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -4909,7 +4912,7 @@ function renderCalendarGrid(days) {
     const idx = _calClickItems.length;
     _calClickItems.push(it);
     return `<div class="cal-chip" onclick="showCalendarPostPreview(${idx})"
-      title="${isPub ? '✓ Published' : '⏱ Scheduled'}${timeStr ? ' · ' + timeStr : ''}${firstLine ? ' — ' + firstLine : ''}"
+      title="${isPub ? '✓ Published' : '⏱ Scheduled'}${timeStr ? ' · ' + timeStr : ''}${firstLine ? ' — ' + escHtml(firstLine) : ''}"
       style="display:flex;align-items:center;gap:3px;background:${accent}20;border-left:4px solid ${accent};border-radius:4px;padding:2px 4px;overflow:hidden;min-width:0;cursor:pointer"
       onmouseover="this.style.filter='brightness(1.09)'" onmouseout="this.style.filter=''">
       <span class="chip-badge" style="background:${accent};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${badge}</span>
@@ -5371,10 +5374,15 @@ async function submitPost() {
   // One request per selected platform — both run from the same form, exactly
   // like cross-posting in Meta Business Suite.
   const jobs = [];
+  // datetime-local is the user's wall-clock time — convert to UTC ISO before
+  // sending, or the backend interprets it in the SERVER's timezone and the
+  // post fires offset by the user's UTC offset (the bulk composer and the
+  // upload wizard already do this).
+  const schedIso = scheduleTime ? new Date(scheduleTime).toISOString() : null;
   if (fbId) jobs.push({ label:'Facebook', endpoint:'/api/posting/publish/facebook',
-    body:{page_id: fbId, caption, media_url: mediaUrl, scheduled_time: scheduleTime || null} });
+    body:{page_id: fbId, caption, media_url: mediaUrl, scheduled_time: schedIso} });
   if (igId) jobs.push({ label:'Instagram', endpoint:'/api/posting/publish/instagram',
-    body:{instagram_id: igId, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: scheduleTime || null} });
+    body:{instagram_id: igId, caption, media_url: mediaUrl, media_type: _postType, scheduled_time: schedIso} });
   const ok = [], failed = [];
   for (const j of jobs) {
     try {
@@ -7509,7 +7517,7 @@ function _uwBuildCalendarHtml() {
       : `<span class="chip-thumb" style="font-size:10px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
     return `<div class="cal-chip" draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
-      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + firstLine : ''} — click to preview, drag to reschedule"
+      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, drag to reschedule"
       style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
       onmouseover="this.style.filter='brightness(1.12)';this.querySelector('.cal-chip-del').style.opacity='1'" onmouseout="this.style.filter='';this.querySelector('.cal-chip-del').style.opacity='0'">
       <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
@@ -8440,6 +8448,9 @@ function uwSetPostTime(i, val) {
   const p = _uw.posts[i]; if (!p) return;
   p._schedLocal = val || null;
   p._sched = val ? new Date(val).toISOString() : null;
+  // Editing the card's time replaces any per-platform overrides — otherwise
+  // a stale drag-reschedule silently won over what the input now shows.
+  delete p._platSched;
   _uwSnap();
   const el = _uw.previewCard && _uw.previewCard.querySelector('.uw-date-'+i);
   if (el) el.textContent = val ? '🕒' : '⚡ now';
@@ -8633,7 +8644,7 @@ async function loadPostsScheduled() {
           <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.platform==='instagram'?'📷':'📘'} ${p.page_id||p.platform||'Post'}</span>
           <span style="font-size:11px;color:var(--text-dim)">${p.scheduled_time ? new Date(p.scheduled_time).toLocaleString() : 'Immediate'}</span>
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${(p.content||'').substring(0,120)}${(p.content||'').length>120?'…':''}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${escHtml((p.content||'').substring(0,120))}${(p.content||'').length>120?'…':''}</div>
       </div>`).join('');
   } catch(e) { /* silent */ }
 }
@@ -8778,7 +8789,7 @@ function updatePostingConnectBtn(accounts) {
           <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(ac.user_name||ac.facebook_user_id)}</span>
           ${isCur
             ? '<span style="font-size:10px;font-weight:700;color:#22c55e;background:rgba(34,197,94,.12);padding:1px 7px;border-radius:10px;flex-shrink:0">● Active</span>'
-            : `<button onclick="switchPostingAccount('${escHtml(ac.facebook_user_id)}');_postingSwDropClose()" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">Switch</button>`}
+            : `<button onclick="switchPostingAccount('${escJs(ac.facebook_user_id)}');_postingSwDropClose()" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">Switch</button>`}
         </div>`;
       }).join('') +
       `<div style="border-top:1px solid var(--border);margin-top:5px;padding-top:5px">
@@ -8845,7 +8856,7 @@ async function loadPostingAccountsList() {
             <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_email||''}</div>
           </div>
         </div>
-        <button onclick="disconnectPostingAccount(${a.id},'${escHtml(a.user_name||a.facebook_user_id)}',false)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
+        <button onclick="disconnectPostingAccount(${a.id},'${escJs(a.user_name||a.facebook_user_id)}',false)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
       </div>`;
     }).join('');
   } catch(e) { /* silent */ }
@@ -8922,7 +8933,7 @@ function _showDisconnectWarning(id, name, count, msg) {
     </div>` : ''}
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button onclick="this.closest('.disconnect-warn-modal').remove()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer">Cancel</button>
-      <button onclick="disconnectPostingAccount(${id},'${escHtml(name)}',true)" style="padding:8px 18px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Disconnect anyway</button>
+      <button onclick="disconnectPostingAccount(${id},'${escJs(name)}',true)" style="padding:8px 18px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Disconnect anyway</button>
     </div>
   </div>`;
   document.body.appendChild(wrap);
@@ -9023,7 +9034,7 @@ function renderAppsSection(containerId, apps, type) {
           style="padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">
           🔗 Connect
         </button>
-        <button onclick="openMetaAppEditForm(${a.id},'${escHtml(a.name)}','${escHtml(a.app_id)}','${a.app_type}')"
+        <button onclick="openMetaAppEditForm(${a.id},'${escJs(a.name)}','${escJs(a.app_id)}','${a.app_type}')"
           style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">✏️</button>
         <button onclick="deleteMetaApp(${a.id})"
           style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">🗑️</button>
@@ -9031,8 +9042,27 @@ function renderAppsSection(containerId, apps, type) {
     </div>`).join('');
 }
 
+// Escape for HTML text and attribute contexts. The old version replaced
+// only quotes (and corrupted apostrophes to \'), leaving captions, page
+// names and filenames injectable via < > & — a real XSS hole.
 function escHtml(s) {
-  return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Escape for single-quoted JS string literals inside on* attributes:
+// JS-escape first, then entity-escape for the surrounding HTML attribute
+// (the parser decodes entities before the JS engine sees the handler).
+function escJs(s) {
+  return escHtml(String(s ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n'));
 }
 
 function openMetaAppForm(type) {
@@ -9222,7 +9252,7 @@ async function loadAdminUsers() {
           <div style="font-size:11px;color:var(--text-dim)">${u.interface_access} access${u.email ? ' · ' + escHtml(u.email) : ''}</div>
         </div>
         <div style="display:flex;gap:6px">
-          <button onclick="openUserEditForm(${u.id},'${escHtml(u.username)}','${escHtml(u.email||'')}','${u.role}','${u.interface_access}')"
+          <button onclick="openUserEditForm(${u.id},'${escJs(u.username)}','${escJs(u.email||'')}','${u.role}','${u.interface_access}')"
             style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">Edit</button>
           <button onclick="toggleUserActive(${u.id},${!u.is_active})"
             style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
@@ -9494,7 +9524,7 @@ async function loadDashboardUsers() {
               style="padding:6px 13px;border-radius:7px;border:1px solid var(--accent);background:var(--accent-soft,rgba(99,102,241,.08));color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Edit ▾</button>
             <button id="uperms-btn-${u.id}" onclick="togglePermsPanel(${u.id})"
               style="padding:6px 13px;border-radius:7px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);color:#d97706;font-size:12px;font-weight:600;cursor:pointer">Permissions ▾</button>
-            <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escHtml(u.username)}')"
+            <button onclick="dashboardToggleActive(${u.id},${!u.is_active},'${escJs(u.username)}')"
               style="padding:6px 13px;border-radius:7px;border:1px solid ${u.is_active ? 'rgba(239,68,68,.4)' : 'rgba(34,197,94,.4)'};background:${u.is_active ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)'};color:${u.is_active ? 'var(--error,#ef4444)' : 'var(--success,#22c55e)'};font-size:12px;font-weight:600;cursor:pointer">${u.is_active ? 'Deactivate' : 'Activate'}</button>
           </div>
         </div>

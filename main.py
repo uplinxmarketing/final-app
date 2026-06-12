@@ -302,6 +302,14 @@ async def _token_refresh_loop() -> None:
             async for db in get_db():
                 threshold = datetime.utcnow() + timedelta(days=7)
                 for model in (ConnectedMetaAccount, ConnectedPostingAccount):
+                    # Posting-account tokens were issued by the Posting app —
+                    # fb_exchange_token rejects a token from a different app,
+                    # so refreshing them with the Ads app credentials silently
+                    # failed every hour and the tokens eventually expired.
+                    if model is ConnectedPostingAccount and settings.META_POSTING_APP_ID:
+                        app_id, app_secret = settings.META_POSTING_APP_ID, settings.META_POSTING_APP_SECRET
+                    else:
+                        app_id, app_secret = settings.META_APP_ID, settings.META_APP_SECRET
                     result = await db.execute(
                         select(model).where(
                             model.is_active == True,
@@ -310,44 +318,61 @@ async def _token_refresh_loop() -> None:
                     )
                     accounts = result.scalars().all()
                     for acc in accounts:
-                        token = encryption.decrypt(acc.encrypted_long_token)
-                        refresh = await meta_api.exchange_for_long_lived_token(
-                            token, settings.META_APP_ID, settings.META_APP_SECRET
-                        )
-                        if refresh.get("success") and refresh.get("data", {}).get("access_token"):
-                            new_token = refresh["data"]["access_token"]
-                            acc.encrypted_long_token = encryption.encrypt(new_token)
-                            expiry_days = refresh["data"].get("expires_in", 5184000) // 86400
-                            acc.token_expiry = datetime.utcnow() + timedelta(days=expiry_days)
-                            await db.commit()
-                            logger.info("Refreshed token for %s", acc.facebook_user_id)
+                        # Per-account isolation: one corrupted row (e.g. a
+                        # re-keyed encryption value) must not abort the rest
+                        # of the accounts or the Google block below.
+                        try:
+                            token = encryption.decrypt(acc.encrypted_long_token)
+                            refresh = await meta_api.exchange_for_long_lived_token(
+                                token, app_id, app_secret
+                            )
+                            if refresh.get("success") and refresh.get("data", {}).get("access_token"):
+                                new_token = refresh["data"]["access_token"]
+                                acc.encrypted_long_token = encryption.encrypt(new_token)
+                                expiry_days = refresh["data"].get("expires_in", 5184000) // 86400
+                                acc.token_expiry = datetime.utcnow() + timedelta(days=expiry_days)
+                                await db.commit()
+                                logger.info("Refreshed token for %s", acc.facebook_user_id)
+                            else:
+                                logger.warning("Meta token refresh failed for %s: %s",
+                                               acc.facebook_user_id, refresh.get("error"))
+                        except Exception as acc_exc:
+                            logger.warning("Meta token refresh error for %s: %s",
+                                           getattr(acc, "facebook_user_id", "?"), acc_exc)
                 # Google: access tokens last 1h — refresh proactively when
                 # expiring within 10 min so Drive media never 401s mid-publish,
                 # and the refresh token stays in active use (Google revokes
                 # refresh tokens left unused for ~6 months).
-                g_threshold = datetime.utcnow() + timedelta(minutes=10)
-                result = await db.execute(
-                    select(ConnectedGoogleAccount).where(
-                        ConnectedGoogleAccount.is_active == True,
-                        ConnectedGoogleAccount.token_expiry <= g_threshold,
+                try:
+                    g_threshold = datetime.utcnow() + timedelta(minutes=10)
+                    result = await db.execute(
+                        select(ConnectedGoogleAccount).where(
+                            ConnectedGoogleAccount.is_active == True,
+                            ConnectedGoogleAccount.token_expiry <= g_threshold,
+                        )
                     )
-                )
-                for gacc in result.scalars().all():
-                    if not gacc.encrypted_refresh_token:
-                        continue
-                    refresh = await google_api.refresh_access_token(
-                        encryption.decrypt(gacc.encrypted_refresh_token),
-                        settings.GOOGLE_CLIENT_ID,
-                        settings.GOOGLE_CLIENT_SECRET,
-                    )
-                    if refresh.get("success"):
-                        gacc.encrypted_access_token = encryption.encrypt(refresh["access_token"])
-                        gacc.token_expiry = datetime.utcnow() + timedelta(seconds=refresh.get("expires_in", 3600))
-                        await db.commit()
-                        logger.info("Refreshed Google token for %s", gacc.user_email or gacc.google_user_id)
-                    else:
-                        logger.warning("Google token refresh failed for %s: %s",
-                                       gacc.user_email or gacc.google_user_id, refresh.get("error"))
+                    for gacc in result.scalars().all():
+                        if not gacc.encrypted_refresh_token:
+                            continue
+                        try:
+                            refresh = await google_api.refresh_access_token(
+                                encryption.decrypt(gacc.encrypted_refresh_token),
+                                settings.GOOGLE_CLIENT_ID,
+                                settings.GOOGLE_CLIENT_SECRET,
+                            )
+                            if refresh.get("success"):
+                                gacc.encrypted_access_token = encryption.encrypt(refresh["access_token"])
+                                gacc.token_expiry = datetime.utcnow() + timedelta(seconds=refresh.get("expires_in", 3600))
+                                await db.commit()
+                                logger.info("Refreshed Google token for %s", gacc.user_email or gacc.google_user_id)
+                            else:
+                                logger.warning("Google token refresh failed for %s: %s",
+                                               gacc.user_email or gacc.google_user_id, refresh.get("error"))
+                        except Exception as g_exc:
+                            logger.warning("Google token refresh error for %s: %s",
+                                           gacc.user_email or gacc.google_user_id, g_exc)
+                except Exception as gblock_exc:
+                    logger.warning("Google token refresh block error: %s", gblock_exc)
         except Exception as exc:
             logger.warning("Token refresh loop error: %s", exc)
 
@@ -843,9 +868,17 @@ async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
     """Publish every item in a job, one at a time, committing progress as it goes."""
     items = [BulkPostItem(**it) for it in (job.items or [])]
     results = list(job.results or [])
+    # Only require a Google account when some media must stream from Drive —
+    # jobs made entirely of device uploads (or disk-cached media) publish fine
+    # without one, and must not hard-fail just because Drive is disconnected.
+    needs_drive = any(
+        m.drive_file_id and not m.local_file_id
+        and not (m.cache_file_id and (_UPLOAD_DIR / m.cache_file_id).exists())
+        for it in items for m in it.media
+    )
     try:
         posting_token = await _posting_token_for_uid(job.posting_user_id, db)
-        google_token = await _google_token_for_uid(job.google_user_id, db)
+        google_token = await _google_token_for_uid(job.google_user_id, db) if needs_drive else ""
     except Exception as exc:
         job.status = "failed"
         job.error = str(exc)[:500]
@@ -2132,6 +2165,12 @@ async def auth_meta_callback(
     )
     acc = result.scalar_one_or_none()
     now = datetime.utcnow()
+    # Record which DB MetaApp this account was connected through (None = env app)
+    # so /api/meta-apps/{id}/pages can filter accounts by app.
+    try:
+        _meta_app_db_id = int(_app_db_id_cookie) if _app_db_id_cookie else None
+    except (TypeError, ValueError):
+        _meta_app_db_id = None
     if acc:
         acc.encrypted_short_token = encryption.encrypt(short_token)
         acc.encrypted_long_token = encryption.encrypt(long_token)
@@ -2140,6 +2179,7 @@ async def auth_meta_callback(
         acc.user_email = email
         acc.is_active = True
         acc.last_used_at = now
+        acc.meta_app_db_id = _meta_app_db_id
     else:
         acc = ConnectedMetaAccount(
             facebook_user_id=uid,
@@ -2151,6 +2191,7 @@ async def auth_meta_callback(
             created_at=now,
             last_used_at=now,
             is_active=True,
+            meta_app_db_id=_meta_app_db_id,
         )
         db.add(acc)
     await db.commit()
@@ -2772,6 +2813,10 @@ async def auth_meta_posting_callback(
     existing_token = request.cookies.get(SESSION_COOKIE)
     existing_session = verify_session_token(existing_token) if existing_token else {}
     connecting_user_id: Optional[int] = existing_session.get("user_id")
+    try:
+        _posting_app_db_id = int(_papp_db_id_cookie) if _papp_db_id_cookie else None
+    except (TypeError, ValueError):
+        _posting_app_db_id = None
     if acc:
         acc.encrypted_short_token = encryption.encrypt(short_token)
         acc.encrypted_long_token = encryption.encrypt(long_token)
@@ -2780,6 +2825,7 @@ async def auth_meta_posting_callback(
         acc.user_email = email
         acc.is_active = True
         acc.last_used_at = now
+        acc.meta_app_db_id = _posting_app_db_id
         # Update owner only if not set yet, or if an admin re-connects on behalf.
         if acc.owner_user_id is None and connecting_user_id:
             acc.owner_user_id = connecting_user_id
@@ -2795,6 +2841,7 @@ async def auth_meta_posting_callback(
             last_used_at=now,
             is_active=True,
             owner_user_id=connecting_user_id,
+            meta_app_db_id=_posting_app_db_id,
         )
         db.add(acc)
     await db.commit()
@@ -3311,11 +3358,22 @@ async def api_chat(conv_id: int, request: Request, db: AsyncSession = Depends(ge
 
 _session_uploads: dict[str, list[dict]] = {}
 
+
+def _upload_session_key(session: dict) -> str:
+    """Per-user key for the upload tray.
+
+    Keyed by the app login user id first — meta_user_id is only present when
+    the Ads OAuth ran in this browser session, so keying by it alone dumped
+    every posting-only user into one shared "anon" bucket (cross-user leak).
+    """
+    return str(session.get("user_id") or session.get("meta_user_id") or "anon")
+
+
 @app.post("/api/upload")
 @limiter.limit("30/minute")
 async def api_upload(request: Request, file: UploadFile = File(...)):
     session = get_session(request)
-    session_key = session.get("meta_user_id", "anon")
+    session_key = _upload_session_key(session)
 
     if not validate_file_extension(file.filename or ""):
         raise HTTPException(400, "File type not allowed")
@@ -3346,14 +3404,63 @@ async def api_upload(request: Request, file: UploadFile = File(...)):
 @app.get("/api/uploads")
 async def api_list_uploads(request: Request):
     session = get_session(request)
-    session_key = session.get("meta_user_id", "anon")
+    session_key = _upload_session_key(session)
     return _session_uploads.get(session_key, [])
+
+
+_UPLOAD_MIME_BY_SUFFIX = {
+    ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".mp4": "video/mp4", ".mov": "video/quicktime",
+}
+
+
+@app.get("/api/uploads/{file_id}")
+async def api_get_upload(file_id: str, request: Request):
+    """Serve an uploaded or Drive-cached media file from the uploads dir.
+
+    Used by the calendar to show scheduled-post thumbnails (chips + preview
+    modal reference /api/uploads/<local_file_id|cache_file_id>). Serves
+    straight from disk so it works for drivecache_* files and survives
+    server restarts (unlike the in-memory _session_uploads tray).
+    Auth comes from the session cookie, which browsers send with <img> requests.
+    """
+    if "/" in file_id or "\\" in file_id or file_id in (".", "..") or file_id.startswith("."):
+        raise HTTPException(404, "File not found")
+    path = _UPLOAD_DIR / file_id
+    if not path.is_file():
+        raise HTTPException(404, "File not found")
+    mime = _UPLOAD_MIME_BY_SUFFIX.get(path.suffix.lower())
+    if not mime:
+        # drivecache_* files are stored without an extension — sniff the magic
+        # bytes (the global nosniff header stops the browser doing it for us).
+        async with aiofiles.open(path, "rb") as fh:
+            head = await fh.read(16)
+        if head.startswith(b"\xff\xd8\xff"):
+            mime = "image/jpeg"
+        elif head.startswith(b"\x89PNG"):
+            mime = "image/png"
+        elif head.startswith(b"GIF8"):
+            mime = "image/gif"
+        elif head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+            mime = "image/webp"
+        elif head[4:8] == b"ftyp":
+            mime = "video/mp4"
+        else:
+            mime = "application/octet-stream"
+
+    async def _iter():
+        async with aiofiles.open(path, "rb") as fh:
+            while chunk := await fh.read(65536):
+                yield chunk
+
+    return StreamingResponse(_iter(), media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.delete("/api/uploads/{file_id}")
 async def api_delete_upload(file_id: str, request: Request):
     session = get_session(request)
-    session_key = session.get("meta_user_id", "anon")
+    session_key = _upload_session_key(session)
     uploads = _session_uploads.get(session_key, [])
     path = None
     for u in uploads:
@@ -3740,8 +3847,18 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
     except Exception as exc:
         logger.warning("media_proxy could not resolve Google token: %s", exc)
         raise HTTPException(502, "Could not access source media")
+    # Verify Drive answered 200 before we start the response — otherwise Meta
+    # receives a 200 with a broken body and reports an opaque fetch error.
+    try:
+        status_code, body = await media_bridge.open_drive_stream(mapping.drive_file_id, google_token)
+    except Exception as exc:
+        logger.warning("media_proxy Drive connect failed for %s: %s", mapping.drive_file_id, exc)
+        raise HTTPException(502, "Could not reach source media")
+    if body is None:
+        logger.warning("media_proxy: Drive returned %s for %s", status_code, mapping.drive_file_id)
+        raise HTTPException(502, f"Source media unavailable (Drive HTTP {status_code})")
     return StreamingResponse(
-        media_bridge.stream_drive_file(mapping.drive_file_id, google_token),
+        body,
         media_type=mapping.mime_type,
         headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
     )
@@ -3980,12 +4097,19 @@ async def _publish_instagram_drive(
             container: dict = {"access_token": user_token}
             if caption:
                 container["caption"] = caption
+            is_video = (m.mime_type or "").startswith("video")
             if item.media_type == "REELS":
                 container["media_type"] = "REELS"
                 container["video_url"] = public_url
             elif item.media_type == "STORIES":
+                # Meta rejects image_url pointing at a video — pick by mime.
                 container["media_type"] = "STORIES"
-                container["image_url"] = public_url
+                container["video_url" if is_video else "image_url"] = public_url
+            elif is_video or item.media_type == "VIDEO":
+                # Single feed video must go through the REELS container type
+                # (Meta deprecated plain VIDEO media); image_url would 4xx.
+                container["media_type"] = "REELS"
+                container["video_url"] = public_url
             else:
                 container["image_url"] = public_url
             async with httpx.AsyncClient(timeout=60) as client:
@@ -4080,7 +4204,10 @@ async def api_bulk_publish_drive(
     # Also resolves the active posting account — needed for scheduled posts
     # where the session may not carry posting_user_id (e.g. portfolio users).
     await get_posting_token(request, db)
-    await get_google_token(request, db)
+    # Google is only needed when some item streams from Drive — device-upload
+    # jobs must work even when no Google account is connected.
+    if any(m.drive_file_id and not m.local_file_id for it in req.items for m in it.media):
+        await get_google_token(request, db)
     base_url = _public_base_url(request)
     session = get_session(request)
 
@@ -4227,6 +4354,11 @@ async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSessio
     the fallback path.
     """
     sched_uid = job.get("sched_uid", "")
+    if not sched_uid:
+        # Legacy rows (pre-checkpoint) have no sched_uid; without it every
+        # such post would share the same drivecache__N filenames and one
+        # post's media would overwrite another's. Skip — they stream live.
+        return
     media = job.get("media") or []
     try:
         token = await _google_token_for_uid(google_uid, db)
@@ -4295,10 +4427,14 @@ async def _precache_drive_posts(db: AsyncSession) -> None:
         return
 
     window = datetime.utcnow() + timedelta(hours=24)
+    # Skip posts due in the next 2 minutes — the publish worker may claim them
+    # while we're still downloading, wasting the download and stranding the file.
+    near_cutoff = datetime.utcnow() + timedelta(minutes=2)
     result = await db.execute(
         select(ScheduledPost).where(
             ScheduledPost.status == "pending",
             ScheduledPost.scheduled_time <= window,
+            ScheduledPost.scheduled_time > near_cutoff,
         )
     )
     posts = result.scalars().all()
@@ -4319,7 +4455,12 @@ async def _precache_drive_posts(db: AsyncSession) -> None:
         if not google_uid:
             continue
         await _cache_drive_media_to_disk(jd, google_uid, db)
-        # Persist updated cache_file_ids back to the DB row.
+        # Re-check the row is still pending before persisting cache ids — the
+        # publish worker may have claimed it during a long download. The cached
+        # file itself stays either way; age-based cleanup removes orphans.
+        await db.refresh(post)
+        if post.status != "pending":
+            continue
         post.job_data = dict(jd)
         flag_modified(post, "job_data")
         await db.commit()
@@ -4347,7 +4488,7 @@ async def _schedule_ig_job(
     db: AsyncSession,
 ) -> int:
     """Queue an Instagram post for self-scheduled publishing. Returns row id."""
-    if not google_uid:
+    if not google_uid and any(m.drive_file_id and not m.local_file_id for m in item.media):
         raise HTTPException(400, "Google Drive must be connected to schedule Drive media")
     job = {
         "sched_uid": secrets.token_hex(16),   # stable identity for checkpoint restore
@@ -5258,7 +5399,7 @@ async def api_posting_upload_local(
     frontend can feed them straight into _uwRenderPreview().
     """
     session = get_session(request)
-    session_key = session.get("meta_user_id", "anon")
+    session_key = _upload_session_key(session)
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     media = []
     skipped = []
@@ -5483,7 +5624,7 @@ async def api_posting_upload_captions(
 async def api_posting_local_preview(file_id: str, request: Request):
     """Serve a locally-uploaded file as an inline preview image."""
     session = get_session(request)
-    session_key = session.get("meta_user_id", "anon")
+    session_key = _upload_session_key(session)
     uploads = _session_uploads.get(session_key, [])
     entry = next((u for u in uploads if u["file_id"] == file_id), None)
     if not entry:
@@ -5599,12 +5740,19 @@ async def api_publish_instagram(
     if req.caption:
         container_data["caption"] = req.caption
 
+    # No mime info on this endpoint — sniff video from the URL extension so
+    # video stories / videos aren't sent as image_url (Meta rejects that).
+    _url_path = (req.media_url or "").split("?")[0].lower()
+    _looks_video = _url_path.endswith((".mp4", ".mov", ".m4v", ".webm"))
     if req.media_type == "REELS":
         container_data["media_type"] = "REELS"
         container_data["video_url"] = req.media_url
     elif req.media_type == "STORIES":
         container_data["media_type"] = "STORIES"
-        container_data["image_url"] = req.media_url
+        container_data["video_url" if _looks_video else "image_url"] = req.media_url
+    elif req.media_url and (req.media_type == "VIDEO" or _looks_video):
+        container_data["media_type"] = "REELS"
+        container_data["video_url"] = req.media_url
     else:
         # Standard image post
         if req.media_url:
@@ -6207,11 +6355,23 @@ async def api_cancel_scheduled_post(post_id: int, request: Request, db: AsyncSes
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(404, "Scheduled post not found")
-    if post.meta_post_id:
+    if post.meta_post_id and post.status != "published":
         token = await get_meta_token(request, db)
         await meta_api.delete_scheduled_post(token, post.meta_post_id)
-    post.status = "cancelled"
+    # Atomic guard: only cancel posts the worker hasn't claimed. Without the
+    # status filter a cancel during a multi-minute video publish was silently
+    # overwritten by the worker's final commit — the "cancelled" post published.
+    res = await db.execute(
+        update(ScheduledPost)
+        .where(ScheduledPost.id == post_id, ScheduledPost.status.in_(("pending", "failed")))
+        .values(status="cancelled", next_retry_at=None)
+    )
     await db.commit()
+    if res.rowcount != 1:
+        raise HTTPException(
+            409,
+            "This post is publishing right now (or already finished) and can no longer be cancelled.",
+        )
     return {"success": True}
 
 
