@@ -4476,6 +4476,18 @@ async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: 
                                  "server's BASE_URL is publicly reachable.",
                     }
             await asyncio.sleep(3)
+        # Guard: don't attempt media_publish if the container never reached FINISHED.
+        # Publishing an IN_PROGRESS container causes Meta to return the cryptic
+        # "An unexpected error has occurred" (code 2) with no useful diagnosis.
+        if last_status and last_status != "FINISHED":
+            return {
+                "success": False,
+                "error": (
+                    f"Instagram media container timed out in '{last_status}' state after 90s — "
+                    "the media may be too large, in an unsupported format, or the server's "
+                    "BASE_URL is not publicly reachable by Meta."
+                ),
+            }
         pub = await client.post(
             f"{base}/{ig_id}/media_publish",
             data={"creation_id": creation_id, "access_token": token},
