@@ -4139,85 +4139,6 @@ async def api_posting_media_selftest(request: Request, db: AsyncSession = Depend
     return out
 
 
-# 1x1 white JPEG — used by the media self-test below.
-_TEST_JPEG = bytes.fromhex(
-    "ffd8ffe000104a46494600010100000100010000ffdb0043000a07070807060a"
-    "0808080b0a0a0b0e18100e0d0d0e1d15161118231f2524221f2221262b372f26"
-    "293429212230413134393b3e3e3e252e4449433c48373d3e3bffdb0043010a0b"
-    "0b0e0d0e1c10101c3b2822283b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b"
-    "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3bffc0"
-    "0011080001000103012200021101031101ffc4001f0000010501010101010100"
-    "000000000000000102030405060708090a0bffc400b510000201030302040305"
-    "0504040000017d01020300041105122131410613516107227114328191a10823"
-    "42b1c11552d1f02433627282090a161718191a25262728292a3435363738393a"
-    "434445464748494a535455565758595a636465666768696a737475767778797a"
-    "838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7"
-    "b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1"
-    "f2f3f4f5f6f7f8f9faffc4001f01000301010101010101010100000000000001"
-    "02030405060708090a0bffc400b5110002010204040304070504040001027700"
-    "0102031104052131061241510761711322328108144291a1b1c109233352f015"
-    "6272d10a162434e125f11718191a262728292a35363738393a43444546474849"
-    "4a535455565758595a636465666768696a737475767778797a82838485868788"
-    "898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4"
-    "c5c6c7c8c9cad2d3d4d5d6d7d8d9dae2e3e4e5e6e7e8e9eaf2f3f4f5f6f7f8f9"
-    "faffda000c03010002110311003f00f66a28a2803fffd9"
-)
-
-
-@app.get("/api/posting/debug/media-test")
-async def api_posting_media_selftest(request: Request, db: AsyncSession = Depends(get_db)):
-    """Fetch our own public /media URL the way Meta would and report what we get.
-
-    Writes a 1x1 JPEG to the upload dir, mints a media token for it, then
-    requests {public_base_url}/media/{token} over the real internet path.
-    Shows status, Content-Length, Content-Type — i.e. exactly what Meta's
-    fetcher sees when it tries to download IG media from this server.
-    """
-    get_session(request)  # require a logged-in session
-    out: dict = {"base_url": _public_base_url(request)}
-    test_id = f"selftest_{secrets.token_hex(8)}.jpg"
-    path = _UPLOAD_DIR / test_id
-    tok = ""
-    try:
-        async with aiofiles.open(path, "wb") as fh:
-            await fh.write(_TEST_JPEG)
-        tok = await media_bridge.mint_media_token(
-            db, f"local:{test_id}", "", "image/jpeg", "selftest.jpg", ttl_seconds=120)
-        await db.commit()
-        url = f"{out['base_url']}/media/{tok}"
-        out["test_url"] = url
-        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            r = await client.get(url, headers={"User-Agent": "facebookexternalhit/1.1"})
-        out["fetch"] = {
-            "status": r.status_code,
-            "content_type": r.headers.get("content-type", "(missing)"),
-            "content_length_header": r.headers.get("content-length", "(MISSING — Meta may reject this)"),
-            "transfer_encoding": r.headers.get("transfer-encoding", "(none)"),
-            "body_bytes": len(r.content),
-            "body_matches": r.content == _TEST_JPEG or r.content[:3] == b"\xff\xd8\xff",
-        }
-        ok = (r.status_code == 200 and r.headers.get("content-length")
-              and r.content[:3] == b"\xff\xd8\xff")
-        out["verdict"] = ("✓ Media URL is publicly fetchable with Content-Length — Meta should accept it"
-                          if ok else "⚠️ PROBLEM — see fetch details; this is what breaks Instagram publishing")
-    except Exception as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-        out["verdict"] = ("⚠️ The server could NOT fetch its own public URL — Meta can't either. "
-                          "Check that BASE_URL matches the real public domain.")
-    finally:
-        try:
-            if tok:
-                await media_bridge.revoke_media_token(db, tok)
-                await db.commit()
-        except Exception:
-            pass
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-    return out
-
-
 @app.get("/api/posting/pages")
 async def api_posting_pages(request: Request, db: AsyncSession = Depends(get_db)):
     """Get FB pages accessible via the Posting app token."""
@@ -4311,21 +4232,29 @@ async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(
 # ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
 
 def _ensure_jpeg_sync(data: bytes, mime: str, filename: str) -> tuple[bytes, str, str]:
-    """Convert an image to JPEG if it isn't one — IG only accepts JPEG.
+    """Normalize an image for Instagram ingestion.
 
-    Returns (bytes, mime, filename) unchanged on any failure so an unexpected
-    format degrades to the old behaviour instead of breaking the fetch.
+    IG's media fetcher is strict: it accepts only JPEG, mishandles CMYK and
+    progressive encodings, and rejects very large dimensions. Re-encode every
+    image as a baseline RGB JPEG capped at 1920px on the longest side, with
+    EXIF orientation applied. Returns input unchanged on any decode failure so
+    unexpected formats degrade to the old passthrough behaviour.
     """
-    if mime in ("image/jpeg", "image/jpg"):
-        return data, mime, filename
     try:
         import io
-        from PIL import Image
+        from PIL import Image, ImageOps
         img = Image.open(io.BytesIO(data))
+        img.load()
+        img = ImageOps.exif_transpose(img)
         if img.mode != "RGB":
             img = img.convert("RGB")
+        w, h = img.size
+        max_dim = 1920
+        if max(w, h) > max_dim:
+            scale = max_dim / max(w, h)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=92)
+        img.save(buf, format="JPEG", quality=90, progressive=False, optimize=True)
         new_name = (filename.rsplit(".", 1)[0] if "." in filename else filename) + ".jpg"
         return buf.getvalue(), "image/jpeg", new_name
     except Exception:
@@ -4683,18 +4612,42 @@ async def _publish_instagram_drive(
     caption = _compose_caption(item.caption, item.hashtags)
     base = settings.meta_graph_base_url
     minted: list[str] = []
+    prefetched_paths: list[Path] = []
 
     async def _mint(m: DriveMediaItem) -> str:
         # For local uploads, store as "local:<file_id>" so the proxy reads from disk.
         # A disk backup made at schedule time is preferred over live Drive
         # streaming — the post then publishes even if Drive is disconnected.
+        mime = m.mime_type or ""
         if m.local_file_id:
             file_ref = f"local:{m.local_file_id}"
         elif m.cache_file_id and (_UPLOAD_DIR / m.cache_file_id).exists():
             file_ref = f"local:{m.cache_file_id}"
         else:
             file_ref = m.drive_file_id
-        tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", m.mime_type, m.filename)
+            # Pre-download Drive images to disk so Meta's fetch is served
+            # instantly from local storage. Streaming from Drive during Meta's
+            # fetch added seconds of latency; when Meta's fetcher timed out it
+            # surfaced as an opaque code-2 publish error — carousels (two
+            # fetches) failed almost every time. Images also get normalized
+            # (RGB baseline JPEG) once here instead of on every fetch.
+            if mime.startswith("image/"):
+                try:
+                    gtok = await _google_token_for_uid(google_uid, db)
+                    dl = await google_api.download_drive_file(m.drive_file_id, gtok)
+                    if dl.get("success"):
+                        data, mime, _name = await asyncio.to_thread(
+                            _ensure_jpeg_sync, dl["bytes"], mime, m.filename)
+                        cache_id = f"igprefetch_{secrets.token_hex(8)}.jpg"
+                        ppath = _UPLOAD_DIR / cache_id
+                        async with aiofiles.open(ppath, "wb") as fh:
+                            await fh.write(data)
+                        prefetched_paths.append(ppath)
+                        file_ref = f"local:{cache_id}"
+                except Exception as exc:
+                    logger.warning("IG prefetch failed for %s, falling back to live Drive stream: %s",
+                                   m.drive_file_id, exc)
+        tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", mime, m.filename)
         # Commit immediately so the public /media endpoint (a separate request,
         # possibly on another worker) can resolve the token when Meta fetches it.
         await db.commit()
@@ -4795,6 +4748,11 @@ async def _publish_instagram_drive(
                 await db.commit()
             except Exception:
                 pass  # TTL purge will clean these up anyway
+        for ppath in prefetched_paths:
+            try:
+                ppath.unlink(missing_ok=True)
+            except Exception:
+                pass  # the hourly upload purge will get it
 
 
 async def _ig_publish_container(ig_id: str, creation_id: str, token: str, base: str) -> dict:
