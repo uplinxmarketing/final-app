@@ -3947,6 +3947,19 @@ async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)
     # Step 5: which OAuth flow is configured + app id (no secrets)
     out["oauth_flow"] = "business_login (config_id)" if settings.META_POSTING_CONFIG_ID.strip() else "classic_scope"
     out["app_id"] = settings.META_POSTING_APP_ID or "(none)"
+    # Step 5b: base URL used for Instagram media proxy (MUST be publicly reachable)
+    out["base_url"] = {
+        "from_request": _public_base_url(request),
+        "from_settings": (settings.BASE_URL or "").strip().rstrip("/") or "(not set)",
+        "effective_for_scheduled_posts": _effective_base_url() or "(empty — scheduled IG posts will use job's base_url)",
+        "warning": (
+            "⚠️ BASE_URL appears to be localhost — Instagram publishing will FAIL because Meta cannot reach localhost."
+            if (_effective_base_url() or _public_base_url(request)).startswith("http://localhost") or
+               (_effective_base_url() or _public_base_url(request)).startswith("http://127.")
+            else "✓ URL looks deployable" if (_effective_base_url() or _public_base_url(request)).startswith("https://")
+            else "⚠️ URL is HTTP (not HTTPS) — Meta may reject it for Instagram media"
+        ),
+    }
     # Step 6: business portfolios the token owner belongs to
     try:
         async with httpx.AsyncClient(timeout=20) as client:
@@ -4406,6 +4419,26 @@ async def _publish_instagram_drive(
         minted.append(tok)
         return f"{base_url}/media/{tok}"
 
+    if not base_url:
+        return {
+            "success": False,
+            "error": (
+                "Instagram publishing requires a publicly reachable server URL — "
+                "BASE_URL is not set. Go to Admin → Settings and set BASE_URL to "
+                "the public HTTPS URL of this server (e.g. https://myapp.onrender.com) "
+                "so Meta can fetch the media files."
+            ),
+        }
+    if base_url.startswith("http://localhost") or base_url.startswith("http://127."):
+        return {
+            "success": False,
+            "error": (
+                f"Instagram publishing cannot work from a local URL ({base_url}). "
+                "Meta's servers cannot reach localhost. Use a tunnel (ngrok, Cloudflare Tunnel) "
+                "or deploy to a cloud host and set BASE_URL to the public HTTPS address."
+            ),
+        }
+
     try:
         # Single image / reel / story
         if len(item.media) == 1:
@@ -4434,7 +4467,9 @@ async def _publish_instagram_drive(
             if cr.status_code not in (200, 201):
                 _err_body = cr.json() if cr.content else {}
                 _human_msg, _ = _classify_meta_error(_err_body)
-                return {"success": False, "error": _human_msg}
+                _media_url = container.get("image_url") or container.get("video_url") or ""
+                _detail_suffix = f" | media_url={_media_url}" if _media_url else ""
+                return {"success": False, "error": f"{_human_msg}{_detail_suffix}"}
             creation_id = cr.json().get("id")
             return await _ig_publish_container(item.instagram_id, creation_id, user_token, base)
 
@@ -4453,7 +4488,8 @@ async def _publish_instagram_drive(
                 if cr.status_code not in (200, 201):
                     _err_body = cr.json() if cr.content else {}
                     _human_msg, _ = _classify_meta_error(_err_body)
-                    return {"success": False, "error": _human_msg}
+                    _cu = child_payload.get("image_url") or child_payload.get("video_url") or ""
+                    return {"success": False, "error": f"{_human_msg}" + (f" | media_url={_cu}" if _cu else "")}
                 child_ids.append(cr.json().get("id"))
             parent_payload = {
                 "access_token": user_token,
@@ -6130,17 +6166,37 @@ async def api_publish_instagram(
         if req.media_url:
             container_data["image_url"] = req.media_url
 
+    # Pre-flight: Instagram requires Meta to fetch the media from a public URL.
+    _media_in_req = container_data.get("image_url") or container_data.get("video_url") or ""
+    if _media_in_req:
+        _pu = _public_base_url(request)
+        if not _pu or _pu.startswith("http://localhost") or _pu.startswith("http://127."):
+            _sess_pre = get_session(request)
+            _msg = (
+                f"Instagram publishing requires a publicly reachable server URL — "
+                f"this server appears to be running at {_pu or '(no URL)'}, "
+                "which Meta cannot reach. Set BASE_URL to the public HTTPS URL of this server."
+            )
+            await log_posting_event(db, "publish_fail", _msg,
+                level="error", platform="instagram", page_id=req.instagram_id or "",
+                username=_sess_pre.get("posting_username") or _sess_pre.get("username") or "",
+                user_id=_sess_pre.get("user_id"), detail=f"base_url={_pu}")
+            raise HTTPException(502, _msg)
+
     # Step 1 — create media container
     async with httpx.AsyncClient(timeout=30) as client:
         cr = await _meta_post_retry(client, f"{base}/{req.instagram_id}/media", container_data)
     if cr.status_code not in (200, 201):
-        err = cr.json().get("error", {}).get("message", "Failed to create Instagram media container")
+        _err_body_ig = cr.json() if cr.content else {}
+        err = _err_body_ig.get("error", {}).get("message", "Failed to create Instagram media container")
+        _full_err_ig, _ = _classify_meta_error(_err_body_ig)
         _sess_ig = get_session(request)
-        await log_posting_event(db, "publish_fail", f"Instagram container creation failed: {err}",
+        _media_url_used = container_data.get("image_url") or container_data.get("video_url") or ""
+        await log_posting_event(db, "publish_fail", f"Instagram container creation failed: {_full_err_ig}",
             level="error", platform="instagram", page_id=req.instagram_id or "",
             username=_sess_ig.get("posting_username") or _sess_ig.get("username") or "",
             user_id=_sess_ig.get("user_id"),
-            detail=f"HTTP {cr.status_code}: {cr.text[:500]}")
+            detail=f"HTTP {cr.status_code}: {cr.text[:300]} | media_url={_media_url_used}")
         raise HTTPException(502, err)
     creation_id = cr.json().get("id")
     if not creation_id:
