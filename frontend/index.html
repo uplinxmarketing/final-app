@@ -5986,15 +5986,9 @@ function _appendPostsCard(html) {
 
 // Wipe the chat clean and restart the upload wizard from step 1.
 function uwStartOverChat() {
-  _uwClearSession();
-  _uw._chatId = null; _uw._chatName = null;
-  const msgs = document.getElementById('posts-chat-messages');
-  if (msgs) msgs.innerHTML = '';
-  _uw.posts = []; _uw.previewCard = null;
-  if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
-  const fp = document.getElementById('uw-feed-panel');
-  if (fp) fp.style.display = 'none';
-  startUploadWizard();
+  // Land on the same clean welcome screen as the AI Chat button — don't
+  // auto-launch the wizard; the welcome screen has the Upload button.
+  uwNewChat();
 }
 
 async function startUploadWizard() {
@@ -7235,7 +7229,7 @@ function uwCancel(btn) {
   const fp = document.getElementById('uw-feed-panel');
   if (fp) fp.style.display = 'none';
   _appendPostsCard(`<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Okay, cancelled — nothing was published.</div>
-    <button onclick="uwStartOverChat()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
+    <button onclick="uwNewChat();startUploadWizard()" style="padding:10px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">📤 Start a new upload</button>`);
 }
 
 function _uwRenderCards() {
