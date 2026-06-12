@@ -3992,6 +3992,71 @@ async def api_posting_debug(request: Request, db: AsyncSession = Depends(get_db)
             out["steps"]["token_debug"] = f"status {rd.status_code}"
     except Exception as e:
         out["steps"]["token_debug"] = f"Exception: {_tb.format_exc()}"
+    # Step 8: probe every connected Instagram account directly with this token.
+    # A code-2 (or permission error) here means the token cannot post to that
+    # account, regardless of media URLs or Content-Length.
+    try:
+        result = await db.execute(
+            select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+        )
+        posting_accs = result.scalars().all()
+        ig_probes: list[dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for acc in posting_accs:
+                acc_token = encryption.decrypt(acc.encrypted_long_token)
+                # List Instagram accounts linked to each FB page this token can see.
+                accs_r = await client.get(
+                    f"{settings.meta_graph_base_url}/me/accounts",
+                    params={"fields": "id,name,instagram_business_account", "limit": 100,
+                            "access_token": acc_token},
+                )
+                if accs_r.status_code != 200:
+                    ig_probes.append({"posting_account": acc.facebook_user_id,
+                                      "error": f"HTTP {accs_r.status_code}: {accs_r.text[:200]}"})
+                    continue
+                pages = (accs_r.json() or {}).get("data", [])
+                for pg in pages:
+                    ig_biz = pg.get("instagram_business_account", {})
+                    ig_id = ig_biz.get("id") if isinstance(ig_biz, dict) else None
+                    if not ig_id:
+                        continue
+                    # Try a direct read of the IG account — verifies the token has
+                    # the right to call /{ig_id}/media (publish will fail if this does).
+                    pr = await client.get(
+                        f"{settings.meta_graph_base_url}/{ig_id}",
+                        params={"fields": "id,name,username,followers_count", "access_token": acc_token},
+                    )
+                    pr_data = pr.json() if pr.content else {}
+                    # Also check granular scopes for instagram_content_publish on this account
+                    gs_r = await client.get(
+                        f"{settings.meta_graph_base_url}/debug_token",
+                        params={"input_token": acc_token, "access_token": acc_token},
+                    )
+                    gs_data = {}
+                    if gs_r.status_code == 200:
+                        gs_data = gs_r.json().get("data", {})
+                    ig_probes.append({
+                        "posting_user": acc.facebook_user_id,
+                        "fb_page": pg.get("id"),
+                        "fb_page_name": pg.get("name"),
+                        "ig_id": ig_id,
+                        "read_status": pr.status_code,
+                        "read_result": pr_data,
+                        "has_instagram_content_publish": "instagram_content_publish" in (gs_data.get("scopes") or []),
+                        "granular_ig_scopes": [
+                            s for s in (gs_data.get("granular_scopes") or [])
+                            if "instagram" in s.get("scope", "").lower()
+                        ],
+                        "verdict": (
+                            "✓ Token can read this IG account"
+                            if pr.status_code == 200
+                            else f"⚠️ Token CANNOT read this IG account (HTTP {pr.status_code}) — publishing will fail"
+                        ),
+                    })
+        out["ig_account_access"] = ig_probes if ig_probes else "(no connected posting accounts found)"
+        out["steps"]["ig_account_access"] = f"{len(ig_probes)} IG accounts probed"
+    except Exception as e:
+        out["steps"]["ig_account_access"] = f"Exception: {_tb.format_exc()}"
     return out
 
 
