@@ -251,6 +251,8 @@ async def _protected_upload_ids() -> set | None:
                 for m in (jd or {}).get("media", []):
                     if m.get("local_file_id"):
                         ids.add(m["local_file_id"])
+                    if m.get("cache_file_id"):
+                        ids.add(m["cache_file_id"])
             recent = datetime.now(timezone.utc) - timedelta(days=7)
             result = await db.execute(
                 select(PublishJob.items).where(
@@ -265,6 +267,8 @@ async def _protected_upload_ids() -> set | None:
                     for m in (it or {}).get("media", []):
                         if m.get("local_file_id"):
                             ids.add(m["local_file_id"])
+                        if m.get("cache_file_id"):
+                            ids.add(m["cache_file_id"])
             break
     except Exception as exc:
         logger.warning("Protected uploads scan error — purge will be skipped: %s", exc)
@@ -467,8 +471,16 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
         posting_token = await _posting_token_for_uid(job.get("posting_user_id"), db)
         google_uid = job.get("google_user_id")
         # Validate (and refresh) the Google token now so the media proxy can
-        # resolve it when Meta fetches; raises if the account can't be used.
-        await _google_token_for_uid(google_uid, db)
+        # resolve it when Meta fetches — but only when some media item must
+        # stream live from Drive. Items with a local upload or a schedule-time
+        # disk backup publish fine without any Google account.
+        needs_drive = any(
+            m.get("drive_file_id") and not m.get("local_file_id")
+            and not (m.get("cache_file_id") and (_UPLOAD_DIR / m["cache_file_id"]).exists())
+            for m in job.get("media", [])
+        )
+        if needs_drive:
+            await _google_token_for_uid(google_uid, db)
         item = BulkPostItem(
             platform="instagram",
             instagram_id=job.get("instagram_id", ""),
@@ -488,6 +500,9 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             post.published_at = datetime.now(timezone.utc)
             post.error_message = None
             post.next_retry_at = None
+            # Publish confirmed by Meta — the disk backups of this post's
+            # Drive media are no longer needed.
+            _purge_drive_cache(job)
         else:
             raise RuntimeError(r.get("error", "publish failed"))
     except Exception as exc:
@@ -3783,6 +3798,7 @@ def _parse_scheduled_ts(scheduled_time: Optional[str]) -> Optional[int]:
 class DriveMediaItem(BaseModel):
     drive_file_id: str = ""
     local_file_id: str = ""   # alternative: locally-uploaded file
+    cache_file_id: str = ""   # disk backup of Drive media, made at schedule time
     mime_type: str = "application/octet-stream"
     filename: str = "media"
 
@@ -3924,8 +3940,13 @@ async def _publish_instagram_drive(
         return {"success": False, "error": "instagram_id required for instagram"}
     if not item.media:
         return {"success": False, "error": "no media provided"}
-    # google_uid only required if any media item comes from Drive (not local)
-    has_drive = any(m.drive_file_id and not m.local_file_id for m in item.media)
+    # google_uid only required if any media item must stream live from Drive —
+    # items with a local upload or a schedule-time disk backup don't need Drive.
+    has_drive = any(
+        m.drive_file_id and not m.local_file_id
+        and not (m.cache_file_id and (_UPLOAD_DIR / m.cache_file_id).exists())
+        for m in item.media
+    )
     if has_drive and not google_uid:
         return {"success": False, "error": "Google Drive must be connected"}
     caption = _compose_caption(item.caption, item.hashtags)
@@ -3934,7 +3955,14 @@ async def _publish_instagram_drive(
 
     async def _mint(m: DriveMediaItem) -> str:
         # For local uploads, store as "local:<file_id>" so the proxy reads from disk.
-        file_ref = f"local:{m.local_file_id}" if m.local_file_id else m.drive_file_id
+        # A disk backup made at schedule time is preferred over live Drive
+        # streaming — the post then publishes even if Drive is disconnected.
+        if m.local_file_id:
+            file_ref = f"local:{m.local_file_id}"
+        elif m.cache_file_id and (_UPLOAD_DIR / m.cache_file_id).exists():
+            file_ref = f"local:{m.cache_file_id}"
+        else:
+            file_ref = m.drive_file_id
         tok = await media_bridge.mint_media_token(db, file_ref, google_uid or "", m.mime_type, m.filename)
         # Commit immediately so the public /media endpoint (a separate request,
         # possibly on another worker) can resolve the token when Meta fetches it.
@@ -4178,6 +4206,63 @@ async def api_list_active_jobs(request: Request, db: AsyncSession = Depends(get_
     }
 
 
+# Per-file cap for disk backups of scheduled Drive media — protects the
+# persistent disk from being filled by one huge video.
+_DRIVE_CACHE_MAX_BYTES = 300 * 1024 * 1024
+
+
+async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSession) -> None:
+    """Download Drive media of a scheduled post to the uploads dir (best-effort).
+
+    Once cached, the post can publish even if Google Drive is disconnected,
+    rate-limited or unreachable at publish time — the media proxy serves the
+    disk copy instead. Failures here are non-fatal: Drive streaming remains
+    the fallback path.
+    """
+    sched_uid = job.get("sched_uid", "")
+    media = job.get("media") or []
+    try:
+        token = await _google_token_for_uid(google_uid, db)
+    except Exception as exc:
+        logger.warning("Drive cache skipped (no token): %s", exc)
+        return
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    for j, m in enumerate(media):
+        if m.get("local_file_id") or m.get("cache_file_id") or not m.get("drive_file_id"):
+            continue
+        cache_id = f"drivecache_{sched_uid}_{j}"
+        tmp = _UPLOAD_DIR / (cache_id + ".part")
+        dest = _UPLOAD_DIR / cache_id
+        try:
+            written = 0
+            async with aiofiles.open(tmp, "wb") as fh:
+                async for chunk in media_bridge.stream_drive_file(m["drive_file_id"], token):
+                    written += len(chunk)
+                    if written > _DRIVE_CACHE_MAX_BYTES:
+                        raise RuntimeError(f"file exceeds {_DRIVE_CACHE_MAX_BYTES // (1024*1024)}MB cache cap")
+                    await fh.write(chunk)
+            tmp.rename(dest)
+            m["cache_file_id"] = cache_id
+            logger.info("Cached Drive media %s → %s (%d bytes)", m["drive_file_id"], cache_id, written)
+        except Exception as exc:
+            logger.warning("Drive cache failed for %s: %s", m.get("filename") or m.get("drive_file_id"), exc)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _purge_drive_cache(job: dict) -> None:
+    """Delete disk backups of a scheduled post's Drive media after publish."""
+    for m in (job or {}).get("media", []):
+        cid = m.get("cache_file_id")
+        if cid and cid.startswith("drivecache_"):
+            try:
+                (_UPLOAD_DIR / cid).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 async def _schedule_ig_job(
     item: BulkPostItem,
     scheduled_ts: int,
@@ -4200,6 +4285,9 @@ async def _schedule_ig_job(
         "google_user_id": google_uid,
         "base_url": base_url,
     }
+    # Back up Drive media to the persistent disk so the post survives a Drive
+    # disconnect between now and its publish time (mutates job["media"]).
+    await _cache_drive_media_to_disk(job, google_uid, db)
     row = ScheduledPost(
         platform="instagram",
         instagram_id=item.instagram_id,
