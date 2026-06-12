@@ -2582,6 +2582,7 @@ let _postsStreamAbort = null;
 
 function _appendPostsMsg(role, content) {
   const msgs = document.getElementById('posts-chat-messages');
+  if (!msgs) return null;
   // Remove welcome placeholder on first real message
   const welcome = msgs.querySelector('.welcome');
   if (welcome) welcome.remove();
@@ -2635,7 +2636,7 @@ async function sendPostsMessage() {
       body: JSON.stringify({ message: text, attachments: [] }),
       signal: _postsStreamAbort.signal,
     });
-    if (resp.status === 401) { if (!_dashboardUnlocked) showConnectScreen(); return; }
+    if (resp.status === 401) { typingDiv.remove(); if (!_dashboardUnlocked) showConnectScreen(); return; }
     typingDiv.remove();
 
     aiDiv = document.createElement('div');
@@ -5824,6 +5825,7 @@ function uwNewChat() {
   _uwClearSession();
   _uw._chatId = null; _uw._chatName = null;
   _uw.posts = []; _uw.previewCard = null;
+  _postsConvId = null;
   if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
   const fp = document.getElementById('uw-feed-panel');
   if (fp) fp.style.display = 'none';
@@ -5974,6 +5976,7 @@ function _buildPostingTargets() {
 // Append a custom-HTML assistant bubble (no markdown/copy chrome) to posts chat.
 function _appendPostsCard(html) {
   const msgs = document.getElementById('posts-chat-messages');
+  if (!msgs) return null;
   const welcome = msgs.querySelector('.welcome'); if (welcome) welcome.remove();
   const div = document.createElement('div');
   div.className = 'msg assistant';
@@ -8679,7 +8682,7 @@ async function loadPostingAccountsList() {
             <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_email||''}</div>
           </div>
         </div>
-        <button onclick="disconnectPostingAccount(${a.id},${JSON.stringify(a.user_name||a.facebook_user_id)},false)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
+        <button onclick="disconnectPostingAccount(${a.id},'${escHtml(a.user_name||a.facebook_user_id)}',false)" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;flex-shrink:0;transition:var(--transition)" onmouseover="this.style.color='var(--error,#ef4444)';this.style.borderColor='var(--error,#ef4444)'" onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)'">Disconnect</button>
       </div>`;
     }).join('');
   } catch(e) { /* silent */ }
@@ -8717,9 +8720,8 @@ async function disconnectPostingAccount(id, name, confirm) {
     const r = await fetch(`/api/accounts/posting/${id}`, {method:'DELETE'});
     if (r.status === 409) {
       const d = await r.json().catch(() => ({}));
-      const detail = d.detail || {};
-      const count = detail.pending_count || 0;
-      const msg = detail.message || `Disconnecting will affect ${count} pending post(s).`;
+      const count = d.pending_count || 0;
+      const msg = d.message || `Disconnecting will affect ${count} pending post(s).`;
       _showDisconnectWarning(id, name || 'this account', count, msg);
       return;
     }
