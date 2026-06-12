@@ -2682,6 +2682,23 @@ async function sendPostsMessage() {
   msgs.appendChild(typingDiv);
   msgs.scrollTop = msgs.scrollHeight;
 
+  // Mid-wizard messages are first offered to the wizard assist, which can act
+  // on the open step directly (reschedule posts, fill sources, build preview).
+  const bypassAssist = window._uwAssistBypass;
+  window._uwAssistBypass = false;
+  if (!bypassAssist && _uwAssistActive()) {
+    let handled = false;
+    try { handled = await _uwAssistTry(text); } catch (e) { console.warn('wizard assist:', e); }
+    if (handled) {
+      typingDiv.remove();
+      sendBtn.textContent = 'Send →';
+      sendBtn.style.background = 'var(--accent)';
+      sendBtn.onclick = sendPostsMessage;
+      sendBtn.disabled = !input.value.trim();
+      return;
+    }
+  }
+
   let aiDiv = null, bubble = null, accText = '', renderTimer = null;
   _postsStreamAbort = new AbortController();
 
@@ -2769,6 +2786,152 @@ async function uwLoadPendingPreview() {
     await _uwAiMatch(_uw.posts, data.captions || []);
     _uwRenderPreview();
   } catch (e) { /* silent — the agent's text reply still stands */ }
+}
+
+// ── Wizard chat assist ───────────────────────────────────────────────────────
+// While the upload wizard is mid-flight, plain chat messages are first offered
+// to a lightweight assist endpoint that converts them into wizard actions
+// (reschedule posts, edit captions, fill step-2 sources, build the preview).
+// Unrelated messages fall through to the normal tool-using agent.
+
+function _uwAssistActive() {
+  return !!(_uw && ((_uw.posts && _uw.posts.length) || (_uw.targets && _uw.targets.length) || _uw.target));
+}
+
+function _uwAssistStepEl() {
+  const els = document.querySelectorAll('#posts-chat-messages .uw-step');
+  return els.length ? els[els.length - 1] : null;
+}
+
+function _uwAssistContext() {
+  const pad = n => String(n).padStart(2, '0');
+  const d = new Date();
+  const targets = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => ({ platform: t.platform, name: t.name }));
+  const ctx = {
+    step: (_uw.posts && _uw.posts.length) ? 3 : 2,
+    targets,
+    now: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    weekday: d.toLocaleDateString('en-US', { weekday: 'long' }),
+  };
+  if (ctx.step === 3) {
+    ctx.posts = _uw.posts.map((p, i) => ({
+      index: i + 1,
+      type: _uwTypeColor(p).label.toLowerCase(),
+      files: p.mediaList.slice(0, 3).map(m => m.name || '').filter(Boolean),
+      caption: (p.caption || '').slice(0, 90),
+      schedule_facebook: _uwPlatSched(p, 'facebook') || null,
+      schedule_instagram: _uwPlatSched(p, 'instagram') || null,
+    }));
+  } else {
+    const step = _uwAssistStepEl();
+    ctx.folder_link = step ? (step.querySelector('.uw-folder')?.value || '').trim() : '';
+    ctx.captions_link = step ? (step.querySelector('.uw-text')?.value || '').trim() : '';
+    ctx.instructions = step ? (step.querySelector('.uw-instructions')?.value || '').trim() : '';
+    ctx.picked_files = (_uw.driveSelected || []).length;
+    ctx.picked_folders = (_uw.driveFolders || []).length;
+  }
+  return ctx;
+}
+
+// Returns true when the message was handled as a wizard command.
+async function _uwAssistTry(text) {
+  const res = await api('POST', '/api/posting/wizard/assist', { message: text, context: _uwAssistContext() });
+  if (!res || !res.success || !res.handled) return false;
+  try { _uwAssistApply(res.actions || []); } catch (e) { console.warn('wizard assist apply:', e); }
+  _appendPostsMsg('assistant', res.reply || 'Done.');
+  _uwSave();
+  return true;
+}
+
+function _uwAssistApply(actions) {
+  let dirty = false;
+  const pad = n => String(n).padStart(2, '0');
+  const today = new Date();
+  const todayLocal = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+  const platsAvail = (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => t.platform);
+  const resolvePlats = a => {
+    const want = (!a.platform || a.platform === 'both') ? ['facebook', 'instagram'] : [a.platform];
+    const avail = platsAvail.length ? want.filter(x => platsAvail.includes(x)) : want;
+    return avail.length ? avail : want;
+  };
+  const resolvePosts = sel => {
+    if (sel === 'all' || sel == null) return (_uw.posts || []).map((_, i) => i);
+    return (Array.isArray(sel) ? sel : [sel]).map(n => Number(n) - 1)
+      .filter(i => Number.isInteger(i) && i >= 0 && i < (_uw.posts || []).length);
+  };
+  const fmtLocal = dt => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  const step = _uwAssistStepEl();
+
+  for (const a of (actions || [])) {
+    if (!a || typeof a !== 'object') continue;
+    if (a.type === 'set_time') {
+      for (const i of resolvePosts(a.posts)) {
+        const p = _uw.posts[i];
+        for (const plat of resolvePlats(a)) {
+          const cur = _uwPlatSched(p, plat);
+          if (a.now) {
+            if (cur) { _uwSetPlatSched(p, plat, null); dirty = true; }
+            continue;
+          }
+          const date = a.date || (cur ? cur.slice(0, 10) : todayLocal);
+          const time = a.time || (cur ? cur.slice(11, 16) : '12:00');
+          const val = `${date}T${time}`;
+          if (val !== cur) { _uwSetPlatSched(p, plat, val); dirty = true; }
+        }
+      }
+    } else if (a.type === 'spread_times' && a.start) {
+      let t = new Date(a.start);
+      if (!isNaN(t)) {
+        const iv = Math.max(1, Number(a.interval_minutes) || 60);
+        for (const i of resolvePosts(a.posts)) {
+          const val = fmtLocal(t);
+          for (const plat of resolvePlats(a)) _uwSetPlatSched(_uw.posts[i], plat, val);
+          dirty = true;
+          t = new Date(t.getTime() + iv * 60000);
+        }
+      }
+    } else if (a.type === 'delete_post') {
+      const idxs = resolvePosts(a.posts).sort((x, y) => y - x);
+      for (const i of idxs) {
+        _uw.posts.splice(i, 1);
+        if (_uwFeed.open) {
+          if (_uwFeed.i === i) uwFeedClose();
+          else if (_uwFeed.i > i) _uwFeed.i--;
+        }
+        dirty = true;
+      }
+    } else if (a.type === 'set_caption' && a.caption != null) {
+      const i = Number(a.post) - 1;
+      if (Number.isInteger(i) && i >= 0 && i < (_uw.posts || []).length) {
+        const st = _uwSplitTags(String(a.caption));
+        _uw.posts[i].caption = st.text;
+        _uw.posts[i].hashtags = st.tags;
+        dirty = true;
+      }
+    } else if (a.type === 'set_folder' && a.link && step) {
+      const inp = step.querySelector('.uw-folder');
+      if (inp) inp.value = inp.value.trim() ? inp.value.trim() + ', ' + a.link : a.link;
+    } else if (a.type === 'set_captions_doc' && a.link && step) {
+      const inp = step.querySelector('.uw-text');
+      if (inp) inp.value = a.link;
+    } else if (a.type === 'set_instructions' && a.text != null && step) {
+      const inp = step.querySelector('.uw-instructions');
+      if (inp) inp.value = String(a.text);
+      _uw.instructions = String(a.text);
+    } else if (a.type === 'build_preview' && step) {
+      const btn = step.querySelector('button[onclick^="uwBuildPreview"]');
+      if (btn) setTimeout(() => uwBuildPreview(btn), 0);
+    } else if (a.type === 'ai_handle' && step) {
+      const btn = step.querySelector('.uw-ai-btn');
+      if (btn) setTimeout(() => uwAiHandle(btn), 0);
+    }
+  }
+
+  if (dirty) {
+    _uwSnap();
+    if (_uw.previewCard) _uwRenderCards();
+    else if ((_uw.posts || []).length) _uwRenderPreview();
+  }
 }
 
 // ── Input helpers ──────────────────────────────────────────────────────────
@@ -6596,6 +6759,7 @@ function uwPickTargets(targets) {
         <button onclick="uwBuildPreview(this)" style="padding:11px 20px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">🔍 Preview &amp; schedule</button>
         <button class="uw-ai-btn" onclick="uwAiHandle(this)" style="padding:11px 18px;background:transparent;border:1px solid var(--accent);border-radius:9px;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer">🤖 Let AI handle it</button>
         <span class="uw-scan-status" style="font-size:12px;color:var(--text-dim);flex-basis:100%"></span>
+        <span style="font-size:11px;color:var(--text-dim);flex-basis:100%">💬 You can also just type below — e.g. “use this folder: &lt;link&gt;, captions are in &lt;doc link&gt;, build the preview”.</span>
       </div>
 
     </div>`);
@@ -7108,6 +7272,9 @@ function uwAiHandle(btn) {
     + ` Show me a summary of what you'll post (including any scheduled times), and ask me to confirm before publishing.`;
   const input = document.getElementById('posts-chat-input');
   if (input) { input.value = msg; document.getElementById('posts-send-btn').disabled = false; }
+  // The composed handoff message must reach the full tool-using agent — it is
+  // exactly the kind of message the wizard assist would route back here.
+  window._uwAssistBypass = true;
   sendPostsMessage();
 }
 
@@ -7657,15 +7824,16 @@ function _uwBuildCalendarHtml() {
       : `<span class="chip-thumb" style="font-size:10px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
     return `<div class="cal-chip" draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
-      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, drag to reschedule"
+      ondblclick="uwCalTimeOpen(${idx},'${plat}',event)"
+      title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, double-click to set time, drag to reschedule"
       style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
       onmouseover="this.style.filter='brightness(1.12)';this.querySelector('.cal-chip-del').style.opacity='1'" onmouseout="this.style.filter='';this.querySelector('.cal-chip-del').style.opacity='0'">
       <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
       <span class="chip-pnum" style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
       <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
-      <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
-        style="background:transparent;border:none;color:${time ? 'var(--text-dim)' : 'var(--accent)'};font-size:8px;font-weight:700;cursor:pointer;padding:0 2px;flex-shrink:0;white-space:nowrap">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
+      <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time (or double-click the card)"
+        style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:1px 5px;flex-shrink:0;white-space:nowrap;min-height:16px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
       <button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
         style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s;flex-shrink:0">✕</button>
     </div>`;
@@ -7736,7 +7904,7 @@ function _uwBuildCalendarHtml() {
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(84px,auto);gap:4px;width:100%;box-sizing:border-box">${cells}</div>
-    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center">Drag cards between days to reschedule · ⚡ = posts immediately when you hit Publish</div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center">Drag cards between days to reschedule · double-click a card to set its time · ⚡ = posts immediately when you hit Publish<br>💬 Or just type below — e.g. “move post 2 to Friday 6 PM” or “schedule all Instagram posts 1 hour apart from tomorrow 9 AM”</div>
   </div>`;
 }
 
@@ -7816,57 +7984,63 @@ function uwCalDrop(e, day) {
   _uwRenderCards();
 }
 
-// Small floating time picker next to the clicked 🕒 icon. Clearing the field
-// (or picking "now") makes that platform's copy post immediately.
+// Schedule editor for one (post, platform) — opens as a centered modal so it
+// always appears in the same place, with date + time fields you can type into
+// directly. "⚡ Post now" clears the schedule for that platform's copy.
 function uwCalTimeOpen(idx, plat, e) {
-  e.stopPropagation();
+  if (e) { e.stopPropagation && e.stopPropagation(); e.preventDefault && e.preventDefault(); }
   document.querySelectorAll('.uw-cal-pop').forEach(el => el.remove());
   const p = _uw.posts[idx]; if (!p) return;
   const curSched = _uwPlatSched(p, plat);
-  const cur = curSched ? curSched.slice(11, 16) : new Date().toTimeString().slice(0, 5);
-  const [h24, mi] = cur.split(':').map(Number);
-  const isPM = h24 >= 12, h12 = ((h24 + 11) % 12) + 1;
+  const today = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const defDate = curSched ? curSched.slice(0, 10)
+    : `${_uw.calYear ?? today.getFullYear()}-${pad((_uw.calMonth ?? today.getMonth()) + 1)}-${pad(today.getDate())}`;
+  const defTime = curSched ? curSched.slice(11, 16) : today.toTimeString().slice(0, 5);
   const platLabel = plat === 'instagram' ? 'Instagram' : 'Facebook';
-  const selStyle = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 5px;color:var(--text-primary);font-size:12px;cursor:pointer';
-  const hourOpts = Array.from({length:12},(_,k)=>k+1).map(h=>`<option value="${h}" ${h===h12?'selected':''}>${h}</option>`).join('');
-  const minOpts = Array.from({length:60},(_,k)=>k).map(m=>`<option value="${m}" ${m===mi?'selected':''}>${String(m).padStart(2,'0')}</option>`).join('');
-  const pop = document.createElement('div');
-  pop.className = 'uw-cal-pop';
-  pop.style.cssText = 'position:fixed;z-index:2000;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:9px 10px;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;gap:6px;align-items:center';
-  pop.innerHTML = `<span style="font-size:11px;font-weight:700;color:var(--text-secondary)">Post ${idx+1} · ${platLabel}:</span>
-    <select class="uw-tp-h" style="${selStyle}">${hourOpts}</select>
-    <span style="font-weight:700;color:var(--text-dim)">:</span>
-    <select class="uw-tp-m" style="${selStyle}">${minOpts}</select>
-    <select class="uw-tp-ap" style="${selStyle}"><option value="AM" ${!isPM?'selected':''}>AM</option><option value="PM" ${isPM?'selected':''}>PM</option></select>
-    <button class="uw-tp-ok" style="padding:4px 11px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">✓</button>
-    <button class="uw-tp-now" title="Post immediately instead of scheduling" style="padding:4px 9px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⚡ now</button>`;
-  document.body.appendChild(pop);
-  const r = pop.getBoundingClientRect();
-  pop.style.left = Math.min(e.clientX, window.innerWidth - r.width - 12) + 'px';
-  pop.style.top = Math.min(e.clientY + 8, window.innerHeight - r.height - 12) + 'px';
+  const inp = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--text-primary);font-size:15px;outline:none;box-sizing:border-box;font-family:inherit';
+  const overlay = document.createElement('div');
+  overlay.className = 'uw-cal-pop';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:14px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.45);min-width:280px;max-width:92vw;box-sizing:border-box">
+    <div style="font-size:14px;font-weight:800;color:var(--text-primary);margin-bottom:2px">🕒 Post ${idx+1} · ${platLabel}</div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:12px">Type the date and time directly, then press Enter or ✓ Apply.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <input type="date" class="uw-tp-date" value="${defDate}" style="${inp};flex:1;min-width:140px">
+      <input type="time" class="uw-tp-time" value="${defTime}" style="${inp};width:110px">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="uw-tp-now" title="Post immediately when you hit Publish" style="padding:9px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer">⚡ Post now</button>
+      <button class="uw-tp-cancel" style="padding:9px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer">Cancel</button>
+      <button class="uw-tp-ok" style="padding:9px 18px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:800;cursor:pointer">✓ Apply</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const dateEl = overlay.querySelector('.uw-tp-date');
+  const timeEl = overlay.querySelector('.uw-tp-time');
+  const closePop = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
   const apply = () => {
-    const h = parseInt(pop.querySelector('.uw-tp-h').value, 10) % 12;
-    const m = parseInt(pop.querySelector('.uw-tp-m').value, 10);
-    const pm = pop.querySelector('.uw-tp-ap').value === 'PM';
-    const t = `${String(h + (pm ? 12 : 0)).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-    const datePart = curSched
-      ? curSched.slice(0, 10)
-      : `${_uw.calYear}-${String(_uw.calMonth+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
-    const val = `${datePart}T${t}`;
+    const d = dateEl.value, t = timeEl.value;
+    if (!d || !t) { (d ? timeEl : dateEl).style.borderColor = 'var(--accent)'; return; }
+    const val = `${d}T${t}`;
     if (val !== curSched) { _uwSetPlatSched(p, plat, val); _uwSnap(); }
-    pop.remove();
+    closePop();
     _uwRenderCards();
   };
-  pop.querySelector('.uw-tp-ok').onclick = apply;
-  pop.querySelector('.uw-tp-now').onclick = () => {
+  overlay.querySelector('.uw-tp-ok').onclick = apply;
+  overlay.querySelector('.uw-tp-cancel').onclick = closePop;
+  overlay.querySelector('.uw-tp-now').onclick = () => {
     if (curSched) { _uwSetPlatSched(p, plat, null); _uwSnap(); }
-    pop.remove();
+    closePop();
     _uwRenderCards();
   };
-  setTimeout(() => {
-    const close = ev => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', close); } };
-    document.addEventListener('mousedown', close);
-  }, 0);
+  overlay.addEventListener('mousedown', ev => { if (ev.target === overlay) closePop(); });
+  const onKey = ev => {
+    if (ev.key === 'Escape') { ev.stopPropagation(); closePop(); }
+    else if (ev.key === 'Enter') { ev.stopPropagation(); ev.preventDefault(); apply(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  setTimeout(() => { timeEl.focus(); try { timeEl.select(); } catch(_) {} }, 30);
 }
 
 // Delete a post from the calendar (undo restores it).
@@ -7930,7 +8104,7 @@ function uwCalDayExpand(day, yr, mo, e) {
           <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${time ? '🕒 ' + _uw12h(time) : '🕒 now ⚡'}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-          <button onclick="uwCalTimeOpen(${idx},'${plat}',event);event.stopPropagation()" title="Edit time" style="background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:10px;cursor:pointer;padding:2px 5px">🕒</button>
+          <button onclick="uwCalTimeOpen(${idx},'${plat}',event);event.stopPropagation()" title="Edit time" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-secondary);font-size:12px;cursor:pointer;padding:4px 9px">🕒 Time</button>
           <button onclick="uwCalDeletePost(${idx});document.getElementById('uw-cal-expand-pop')&&document.getElementById('uw-cal-expand-pop').remove();event.stopPropagation()" title="Delete" style="background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:10px;cursor:pointer;padding:2px 5px">✕</button>
         </div>
       </div>`;

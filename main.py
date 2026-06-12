@@ -5911,6 +5911,101 @@ async def api_posting_ai_match(
     return {"success": True, "assignments": assignments}
 
 
+class WizardAssistRequest(BaseModel):
+    message: str
+    context: dict = {}
+
+
+_WIZARD_ASSIST_SYSTEM = """\
+You are the inline assistant of a social-media post upload wizard. The user is \
+partway through the wizard and typed a chat message. You receive the wizard state \
+as JSON:
+- step 2 = content sources: the user provides Google Drive folder link(s) for \
+images, optionally a captions doc link and extra instructions, then builds a preview.
+- step 3 = preview & schedule: prepared posts (index, type, files, caption, \
+per-platform schedule) that can be rescheduled, re-captioned or removed before \
+publishing. A null schedule means "post immediately on publish".
+Dates/times are the user's local wall-clock: dates are YYYY-MM-DD, times HH:MM \
+(24h). "now" in the state is the current local datetime and "weekday" its day name.
+
+Decide whether the message is a wizard command expressible with the actions below.
+If yes, reply ONLY with JSON (no prose, no markdown fences):
+{"handled": true, "reply": "<short confirmation in the user's language>", "actions": [...]}
+If the message is NOT something these actions can do (a general question, asking \
+the AI to choose files by looking at their content, etc.), reply ONLY:
+{"handled": false}
+
+Actions (use exactly these shapes):
+- {"type":"set_time","posts":[1,2]|"all","platform":"facebook"|"instagram"|"both",\
+"date":"YYYY-MM-DD","time":"HH:MM","now":true}
+  posts is 1-based ("P1","P2"... as shown to the user). Omit "date" to keep each \
+post's current date; omit "time" to keep its current time; "now":true clears the \
+schedule so the post publishes immediately (then omit date/time).
+- {"type":"spread_times","posts":[..]|"all","platform":"...","start":"YYYY-MM-DDTHH:MM","interval_minutes":60}
+  First selected post at start, each following post interval_minutes later.
+- {"type":"delete_post","posts":[3]}
+- {"type":"set_caption","post":2,"caption":"new caption text"}
+Step-2-only actions:
+- {"type":"set_folder","link":"https://drive.google.com/..."}  (images folder link)
+- {"type":"set_captions_doc","link":"https://docs.google.com/..."}
+- {"type":"set_instructions","text":"..."}
+- {"type":"build_preview"}  (scan the given sources and build the posts preview)
+- {"type":"ai_handle"}  (hand the whole job to the full AI agent — use when the \
+user asks the AI to pick/scan the Drive files itself AND a folder link or picked \
+files already exist in the state or their message)
+
+Rules:
+- Resolve relative dates ("tomorrow", "next friday") using "now"/"weekday".
+- If the user names a platform, apply only to it; otherwise use "both".
+- Never invent Drive links. If the user wants the AI to pick files but no folder \
+link exists anywhere, reply handled:true asking for the folder link, with no actions.
+- If the user asks to publish, reply handled:true telling them to press the \
+Publish button on the preview card when ready — publishing is manual by design.
+- Multiple actions are allowed and run in order."""
+
+
+@app.post("/api/posting/wizard/assist")
+@limiter.limit("30/minute")
+async def api_posting_wizard_assist(req: WizardAssistRequest, request: Request):
+    """Interpret a chat message typed mid-wizard into structured wizard actions.
+
+    Returns ``{"handled": false}`` when the message should fall through to the
+    normal tool-using chat agent instead. The frontend applies the returned
+    actions locally (reschedule, edit captions, fill sources…) — nothing here
+    touches the publishing pipeline.
+    """
+    msg = (req.message or "").strip()
+    if not msg or len(msg) > 4000:
+        return {"success": False, "handled": False}
+    try:
+        ctx = json.dumps(req.context or {}, ensure_ascii=False)[:8000]
+    except Exception:
+        ctx = "{}"
+    user = f"WIZARD STATE:\n{ctx}\n\nUSER MESSAGE:\n{msg}"
+    try:
+        text = await agent.complete_text(_WIZARD_ASSIST_SYSTEM, user, max_tokens=1200)
+    except Exception as exc:
+        logger.warning("wizard/assist completion failed: %s", exc)
+        return {"success": False, "handled": False}
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    m = re.search(r"\{.*\}", cleaned, re.S)
+    if not m:
+        return {"success": False, "handled": False}
+    try:
+        data = json.loads(m.group(0))
+    except Exception:
+        return {"success": False, "handled": False}
+    actions = data.get("actions") or []
+    if not isinstance(actions, list):
+        actions = []
+    return {
+        "success": True,
+        "handled": bool(data.get("handled", False)),
+        "reply": str(data.get("reply") or "")[:2000],
+        "actions": actions[:40],
+    }
+
+
 @app.get("/api/posting/preview/pending")
 async def api_posting_preview_pending(request: Request):
     """Hand the frontend a preview payload prepared by the chat agent's
