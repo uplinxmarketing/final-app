@@ -23,7 +23,7 @@ from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select, delete, update, func, or_
+from sqlalchemy import select, delete, update, func, or_, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -227,26 +227,37 @@ async def lifespan(app: FastAPI):
         task.cancel()
     logger.info("Uplinx Meta Manager stopped")
 
-async def _protected_upload_ids() -> set:
-    """Local upload file ids still referenced by pending scheduled posts or
-    queued/running publish jobs — these must survive the periodic purge, or
-    posts scheduled more than AUTO_CLEAR_UPLOADS_HOURS out will fail when
-    their media file has been deleted from disk."""
+async def _protected_upload_ids() -> set | None:
+    """Local upload file ids still referenced by posts that have NOT been
+    confirmed published — these must survive the periodic purge.
+
+    Protected statuses:
+      - ScheduledPost: pending / processing (waiting or mid-publish), and
+        failed (the user can re-queue from the UI — media must still exist).
+      - PublishJob: queued / running, and recently failed (retryable).
+
+    Returns ``None`` if the scan itself failed — callers must treat that as
+    "unknown" and SKIP the purge entirely rather than delete blindly.
+    """
     ids: set = set()
     try:
         async for db in get_db():
             result = await db.execute(
                 select(ScheduledPost.job_data).where(
-                    ScheduledPost.status.in_(("pending", "processing"))
+                    ScheduledPost.status.in_(("pending", "processing", "failed"))
                 )
             )
             for jd in result.scalars().all():
                 for m in (jd or {}).get("media", []):
                     if m.get("local_file_id"):
                         ids.add(m["local_file_id"])
+            recent = datetime.now(timezone.utc) - timedelta(days=7)
             result = await db.execute(
                 select(PublishJob.items).where(
-                    PublishJob.status.in_(("queued", "running"))
+                    or_(
+                        PublishJob.status.in_(("queued", "running")),
+                        and_(PublishJob.status == "failed", PublishJob.created_at >= recent),
+                    )
                 )
             )
             for items in result.scalars().all():
@@ -256,7 +267,8 @@ async def _protected_upload_ids() -> set:
                             ids.add(m["local_file_id"])
             break
     except Exception as exc:
-        logger.warning("Protected uploads scan error: %s", exc)
+        logger.warning("Protected uploads scan error — purge will be skipped: %s", exc)
+        return None
     return ids
 
 
@@ -265,6 +277,11 @@ async def _cleanup_uploads_loop() -> None:
         await asyncio.sleep(3600)
         try:
             keep = await _protected_upload_ids()
+            if keep is None:
+                # Could not determine which files are still needed — deleting
+                # anything now could destroy media for unpublished posts.
+                logger.warning("Skipping upload purge: protected-file scan failed")
+                continue
             count = await cleanup_old_uploads(settings.AUTO_CLEAR_UPLOADS_HOURS, keep_ids=keep)
             if count:
                 logger.info("Auto-cleaned %d upload(s), kept %d scheduled-post file(s)", count, len(keep))
