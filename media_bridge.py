@@ -93,7 +93,7 @@ async def purge_expired_tokens(db: AsyncSession) -> int:
 
 async def open_drive_stream(
     drive_file_id: str, google_token: str, chunk_size: int = 256 * 1024
-) -> tuple[int, Optional[AsyncIterator[bytes]]]:
+) -> tuple[int, Optional[AsyncIterator[bytes]], Optional[int]]:
     """Open a Drive download and verify the status BEFORE any bytes flow.
 
     ``stream_drive_file`` raises inside the generator — by then Starlette has
@@ -101,8 +101,11 @@ async def open_drive_stream(
     with a broken body and an opaque "media fetch" error. This variant lets
     the ``/media/{token}`` endpoint return a real 502 instead.
 
-    Returns ``(status_code, body_iterator)``; the iterator is ``None`` when
-    Drive answered with an error (connection already closed in that case).
+    Returns ``(status_code, body_iterator, content_length)``; the iterator is
+    ``None`` when Drive answered with an error (connection already closed in
+    that case). ``content_length`` is taken from Drive's response headers so
+    the proxy can forward it — Meta's media fetcher rejects chunked responses
+    without a Content-Length.
     """
     url = f"{GOOGLE_DRIVE_BASE}/files/{drive_file_id}"
     headers = {"Authorization": f"Bearer {google_token}"}
@@ -116,7 +119,15 @@ async def open_drive_stream(
     if response.status_code != 200:
         await response.aclose()
         await client.aclose()
-        return response.status_code, None
+        return response.status_code, None, None
+
+    content_length: Optional[int] = None
+    try:
+        cl = response.headers.get("content-length")
+        if cl:
+            content_length = int(cl)
+    except Exception:
+        pass
 
     async def _body() -> AsyncIterator[bytes]:
         try:
@@ -126,7 +137,7 @@ async def open_drive_stream(
             await response.aclose()
             await client.aclose()
 
-    return response.status_code, _body()
+    return response.status_code, _body(), content_length
 
 
 async def stream_drive_file(

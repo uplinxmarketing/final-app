@@ -21,7 +21,7 @@ import httpx
 
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, delete, update, func, or_, and_
 from sqlalchemy.orm import selectinload
@@ -4087,19 +4087,51 @@ async def api_posting_pages_and_ig(request: Request, db: AsyncSession = Depends(
 
 # ── Public media proxy — lets Meta fetch Drive media without disk storage ──────
 
+def _ensure_jpeg_sync(data: bytes, mime: str, filename: str) -> tuple[bytes, str, str]:
+    """Convert an image to JPEG if it isn't one — IG only accepts JPEG.
+
+    Returns (bytes, mime, filename) unchanged on any failure so an unexpected
+    format degrades to the old behaviour instead of breaking the fetch.
+    """
+    if mime in ("image/jpeg", "image/jpg"):
+        return data, mime, filename
+    try:
+        import io
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+        new_name = (filename.rsplit(".", 1)[0] if "." in filename else filename) + ".jpg"
+        return buf.getvalue(), "image/jpeg", new_name
+    except Exception:
+        return data, mime, filename
+
+
 @app.get("/media/{token}")
-async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
+async def media_proxy(token: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Stream a Google Drive file through to whoever fetches this URL (e.g. Meta).
 
     Public + tokenised. The token maps (in the DB, so it works across workers) to
     a Drive file id and the Google account that can read it. We resolve a fresh
-    Google token at fetch time and stream the bytes in chunks, so large videos
-    never sit fully in memory and nothing is written to disk. Used for Instagram
+    Google token at fetch time and stream the bytes through. Used for Instagram
     publishing, where Meta requires a public URL it can fetch itself.
+
+    Meta-compat requirements handled here:
+      - Content-Length must be present (Meta's fetcher rejects chunked
+        responses without it — the source of opaque code-2 publish errors).
+      - Images are converted to JPEG (IG's API officially supports only JPEG).
+    Every fetch is recorded in the posting event log so failed publishes can
+    be correlated with whether Meta ever fetched the media at all.
     """
+    _ua = request.headers.get("user-agent", "")[:200]
     mapping = await media_bridge.resolve_media_token(db, token)
     if mapping is None:
+        await log_posting_event(db, "media_fetch", "Media proxy: token expired or unknown (404)",
+            level="warning", platform="system", detail=f"ua={_ua}")
         raise HTTPException(404, "Media link expired or not found")
+    _is_image = (mapping.mime_type or "").startswith("image/")
     # Local-file path: drive_file_id is stored as "local:<file_id>"
     if mapping.drive_file_id.startswith("local:"):
         local_id = mapping.drive_file_id[6:]
@@ -4112,16 +4144,25 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
         if path is None:
             path = _UPLOAD_DIR / local_id
         if not path.exists():
+            await log_posting_event(db, "media_fetch", f"Media proxy: local file {local_id} not found (404)",
+                level="error", platform="system", detail=f"ua={_ua}")
             raise HTTPException(404, "Local media file not found")
-        async def _local_iter(p: Path):
-            async with aiofiles.open(p, "rb") as fh:
-                while chunk := await fh.read(65536):
-                    yield chunk
-        return StreamingResponse(
-            _local_iter(path),
-            media_type=mapping.mime_type,
-            headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
-        )
+        if _is_image:
+            async with aiofiles.open(path, "rb") as fh:
+                data = await fh.read()
+            data, out_mime, out_name = await asyncio.to_thread(
+                _ensure_jpeg_sync, data, mapping.mime_type, mapping.filename)
+            await log_posting_event(db, "media_fetch",
+                f"Media proxy: served local image {out_name} ({len(data)} bytes)",
+                level="info", platform="system", detail=f"ua={_ua} mime={out_mime}")
+            return Response(content=data, media_type=out_mime,
+                headers={"Content-Disposition": f'inline; filename="{out_name}"'})
+        # Video / other: FileResponse sets Content-Length from the file size.
+        await log_posting_event(db, "media_fetch",
+            f"Media proxy: serving local file {mapping.filename}",
+            level="info", platform="system", detail=f"ua={_ua} mime={mapping.mime_type}")
+        return FileResponse(path, media_type=mapping.mime_type,
+            headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'})
     try:
         google_token = await _google_token_for_uid(mapping.google_user_id, db)
     except Exception as exc:
@@ -4130,10 +4171,26 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
             f"Media proxy: could not resolve Google token for user {mapping.google_user_id}",
             level="error", platform="google", detail=str(exc)[:500])
         raise HTTPException(502, "Could not access source media")
+    # Images: buffer fully so we can convert to JPEG and send Content-Length.
+    if _is_image:
+        dl = await google_api.download_drive_file(mapping.drive_file_id, google_token)
+        if not dl.get("success"):
+            await log_posting_event(db, "drive_error",
+                f"Media proxy: Drive image download failed for {mapping.drive_file_id}",
+                level="error", platform="system", detail=f"ua={_ua} err={dl.get('error','')[:300]}")
+            raise HTTPException(502, "Source media unavailable")
+        data, out_mime, out_name = await asyncio.to_thread(
+            _ensure_jpeg_sync, dl["bytes"], mapping.mime_type, mapping.filename)
+        await log_posting_event(db, "media_fetch",
+            f"Media proxy: served Drive image {out_name} ({len(data)} bytes)",
+            level="info", platform="system", detail=f"ua={_ua} mime={out_mime}")
+        return Response(content=data, media_type=out_mime,
+            headers={"Content-Disposition": f'inline; filename="{out_name}"'})
     # Verify Drive answered 200 before we start the response — otherwise Meta
     # receives a 200 with a broken body and reports an opaque fetch error.
     try:
-        status_code, body = await media_bridge.open_drive_stream(mapping.drive_file_id, google_token)
+        status_code, body, content_length = await media_bridge.open_drive_stream(
+            mapping.drive_file_id, google_token)
     except Exception as exc:
         logger.warning("media_proxy Drive connect failed for %s: %s", mapping.drive_file_id, exc)
         await log_posting_event(db, "drive_error",
@@ -4147,11 +4204,13 @@ async def media_proxy(token: str, db: AsyncSession = Depends(get_db)):
             level="error", platform="system",
             detail=f"google_user_id={mapping.google_user_id}")
         raise HTTPException(502, f"Source media unavailable (Drive HTTP {status_code})")
-    return StreamingResponse(
-        body,
-        media_type=mapping.mime_type,
-        headers={"Content-Disposition": f'inline; filename="{mapping.filename}"'},
-    )
+    _hdrs = {"Content-Disposition": f'inline; filename="{mapping.filename}"'}
+    if content_length:
+        _hdrs["Content-Length"] = str(content_length)
+    await log_posting_event(db, "media_fetch",
+        f"Media proxy: streaming Drive video {mapping.filename} ({content_length or 'unknown'} bytes)",
+        level="info", platform="system", detail=f"ua={_ua} mime={mapping.mime_type}")
+    return StreamingResponse(body, media_type=mapping.mime_type, headers=_hdrs)
 
 
 # ── Bulk Drive → Meta posting ──────────────────────────────────────────────────
