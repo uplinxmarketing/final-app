@@ -6841,15 +6841,34 @@ async def api_my_queue(
     sess = get_session(request)
     posting_user_id = sess.get("posting_user_id")
     if not posting_user_id:
+        # The session may have lost its posting_user_id (Meta connected in a
+        # popup/other tab, portfolio user, expired cookie). Scheduled posts are
+        # stored with the SAME fallback the bulk endpoint uses — the most recent
+        # active posting account — so mirror it here, otherwise a correctly
+        # scheduled post would never appear in My Queue.
+        res = await db.execute(
+            select(ConnectedPostingAccount.facebook_user_id)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        posting_user_id = res.scalars().first()
+    if not posting_user_id and not ig_account_id:
         return {"posts": [], "total": 0}
     status_list = [s.strip() for s in statuses.split(",") if s.strip()]
     q = select(ScheduledPost).where(
         ScheduledPost.platform == "instagram",
         ScheduledPost.status.in_(status_list),
-        ScheduledPost.job_data["posting_user_id"].astext == posting_user_id,
     )
+    owner_clause = ScheduledPost.job_data["posting_user_id"].astext == posting_user_id
     if ig_account_id:
+        # The account selector only offers IG accounts the current token can
+        # reach, so instagram_id is itself user-scoped. Surface this user's rows
+        # plus any legacy rows whose posting_user_id was never recorded.
         q = q.where(ScheduledPost.instagram_id == ig_account_id)
+        if posting_user_id:
+            q = q.where(or_(owner_clause, ScheduledPost.job_data["posting_user_id"].astext.is_(None)))
+    else:
+        q = q.where(owner_clause)
     if search:
         q = q.where(ScheduledPost.caption.ilike(f"%{search}%"))
     if date_from:

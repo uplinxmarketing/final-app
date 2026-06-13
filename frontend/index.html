@@ -3522,6 +3522,11 @@ async function mqInit() {
       </div>
     </div>`;
   mqRenderSidebar();
+  // Auto-select an account so the queue loads immediately. Prefer the one kept
+  // from a prior visit, else the first connected IG account.
+  const startId = (_mq.igId && _postingIgAccounts.some(a => a.id === _mq.igId))
+    ? _mq.igId : (_postingIgAccounts[0] && _postingIgAccounts[0].id);
+  if (startId) mqSelectAccount(startId);
 }
 
 function mqRenderSidebar() {
