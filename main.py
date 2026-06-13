@@ -6827,6 +6827,120 @@ async def api_delete_portfolio(
     return {"success": True}
 
 
+@app.get("/api/posting/my-queue")
+async def api_my_queue(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ig_account_id: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    statuses: str = "pending,failed",
+):
+    """Scheduled Instagram posts owned by the current posting account, with filters."""
+    sess = get_session(request)
+    posting_user_id = sess.get("posting_user_id")
+    if not posting_user_id:
+        return {"posts": [], "total": 0}
+    status_list = [s.strip() for s in statuses.split(",") if s.strip()]
+    q = select(ScheduledPost).where(
+        ScheduledPost.platform == "instagram",
+        ScheduledPost.status.in_(status_list),
+        ScheduledPost.job_data["posting_user_id"].astext == posting_user_id,
+    )
+    if ig_account_id:
+        q = q.where(ScheduledPost.instagram_id == ig_account_id)
+    if search:
+        q = q.where(ScheduledPost.caption.ilike(f"%{search}%"))
+    if date_from:
+        try:
+            dt = datetime.fromisoformat(date_from)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            q = q.where(ScheduledPost.scheduled_time >= dt)
+        except Exception:
+            pass
+    if date_to:
+        try:
+            dt = datetime.fromisoformat(date_to)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            q = q.where(ScheduledPost.scheduled_time <= dt)
+        except Exception:
+            pass
+    q = q.order_by(ScheduledPost.scheduled_time)
+    result = await db.execute(q)
+    posts = result.scalars().all()
+    out = []
+    for p in posts:
+        jd = p.job_data or {}
+        media = jd.get("media", [])
+        thumb = None
+        if media:
+            m0 = media[0]
+            fid = m0.get("local_file_id") or m0.get("cache_file_id")
+            if fid:
+                thumb = f"/api/uploads/{fid}"
+        out.append({
+            "id": p.id,
+            "status": p.status,
+            "instagram_id": p.instagram_id,
+            "caption": p.caption or "",
+            "hashtags": jd.get("hashtags", []),
+            "media_type": p.media_type or "IMAGE",
+            "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
+            "thumbnail": thumb,
+            "media_count": len(media),
+            "error_message": p.error_message,
+            "attempts": p.attempts or 0,
+        })
+    return {"posts": out, "total": len(out)}
+
+
+@app.patch("/api/posting/my-queue/{post_id}")
+async def api_my_queue_update(
+    post_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit caption, hashtags, or scheduled_time of a user-owned pending IG post."""
+    sess = get_session(request)
+    posting_user_id = sess.get("posting_user_id")
+    if not posting_user_id:
+        raise HTTPException(403, "No posting account selected")
+    body = await request.json()
+    post = await db.get(ScheduledPost, post_id)
+    if not post:
+        raise HTTPException(404, "Post not found")
+    jd = post.job_data or {}
+    if jd.get("posting_user_id") != posting_user_id:
+        raise HTTPException(403, "You don't own this post")
+    if post.status not in ("pending", "failed"):
+        raise HTTPException(409, "Cannot edit a post that is currently publishing or already finished")
+    if "caption" in body or "hashtags" in body:
+        caption_text = body.get("caption", post.caption or "")
+        new_tags = body.get("hashtags", jd.get("hashtags", []))
+        post.caption = _compose_caption(caption_text, new_tags)
+        new_jd = dict(jd)
+        new_jd["hashtags"] = new_tags
+        post.job_data = new_jd
+        flag_modified(post, "job_data")
+    if "scheduled_time" in body:
+        try:
+            st = body["scheduled_time"]
+            if st:
+                dt = datetime.fromisoformat(str(st).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                post.scheduled_time = dt
+            else:
+                post.scheduled_time = None
+        except Exception as exc:
+            raise HTTPException(400, f"Invalid scheduled_time: {exc}")
+    await db.commit()
+    return {"success": True, "id": post.id}
+
+
 @app.get("/api/posting/calendar")
 async def api_posting_calendar(
     page_id: str,
