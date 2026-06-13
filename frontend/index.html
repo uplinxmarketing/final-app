@@ -3798,7 +3798,7 @@ async function mqFetchPosts() {
       if (_mq.search) p.set('search', _mq.search);
       if (_mq.dateFrom) p.set('date_from', _mq.dateFrom);
       if (_mq.dateTo) p.set('date_to', _mq.dateTo);
-      fetches.push(api('GET', `/api/posting/fb-scheduled-posts?${p}`).then(d => { fbPosts = (d?.posts || []).map(x => ({...x, _source:'facebook'})); }).catch(() => { fbPosts = []; }));
+      fetches.push(api('GET', `/api/posting/fb-scheduled-posts?${p}`).then(d => { fbPosts = (d?.posts || []).filter(x => !_mqDeletedFB.has(String(x.id))).map(x => ({...x, _source:'facebook'})); }).catch(() => { fbPosts = []; }));
     }
     await Promise.all(fetches);
     // A newer selection superseded this fetch while it was in flight — drop it.
@@ -3815,6 +3815,11 @@ async function mqFetchPosts() {
     if (seq === _mq._seq) _mq.loading = false;
   }
 }
+
+// FB posts deleted in this session. Meta's scheduled_posts edge can keep
+// returning a post for a short while after deletion, so we filter these out of
+// every fetch to stop "cancelled" posts from reappearing on refresh.
+let _mqDeletedFB = new Set();
 
 // Debounce caption/hashtag search: the FB and IG queries run server-side
 // (and the FB one fans out across pages), so fetching on every keystroke
@@ -4147,11 +4152,19 @@ async function mqCancelPost(postId) {
 
 async function mqCancelFBPost(fbPostId) {
   if (!confirm('Cancel this Facebook scheduled post? It will be deleted from Meta.')) return;
+  // Send the post's owning page so the server uses the right page token.
+  const p = _mq.fbPosts.find(x => String(x.id) === String(fbPostId));
+  const pageQ = p && p.page_id ? `?page_id=${encodeURIComponent(p.page_id)}` : '';
   try {
-    const res = await api('DELETE', `/api/posting/facebook-scheduled/${encodeURIComponent(fbPostId)}`);
+    const res = await api('DELETE', `/api/posting/facebook-scheduled/${encodeURIComponent(fbPostId)}${pageQ}`);
     if (res === null) throw new Error('Session expired');
-    toast('Facebook post cancelled');
+    // Remember it as deleted and drop it locally now, so it disappears
+    // immediately and won't reappear if Meta's edge is slow to update.
+    _mqDeletedFB.add(String(fbPostId));
+    _mq.fbPosts = _mq.fbPosts.filter(x => String(x.id) !== String(fbPostId));
+    toast(res && res.already_gone ? 'Post was already removed from Meta' : 'Facebook post cancelled');
     document.getElementById('mq-fb-modal')?.remove();
+    mqRenderPosts();
     await mqFetchPosts();
   } catch(e) {
     let msg = e.message || String(e);
