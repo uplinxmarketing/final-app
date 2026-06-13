@@ -3543,20 +3543,24 @@ function startQueueStatsPolling() {
 // ══════════════════════════════════════════════════════════════════════════════
 // My Queue — user-scoped Instagram scheduled post manager
 // ══════════════════════════════════════════════════════════════════════════════
-let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null };
+let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null, platform: 'all', fbPageId: null, fbPosts: [] };
 
 async function mqInit() {
   const panel = document.getElementById('posts-tab-myqueue');
   if (!panel) return;
   if (!_postingIgAccounts.length) await loadPostingPagesAndIG();
   panel.innerHTML = `
-    <div id="mq-sidebar" style="width:200px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;background:var(--bg-secondary)">
-      <div style="padding:14px 12px 8px;font-size:12px;font-weight:700;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase">Instagram Accounts</div>
-      <div style="padding:0 10px 8px">
-        <input id="mq-acct-search" type="text" placeholder="🔍 Search pages…" oninput="_mq.acctSearch=this.value.toLowerCase();mqRenderSidebar()" style="width:100%;padding:6px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
+    <div id="mq-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;background:var(--bg-secondary)">
+      <div style="padding:10px 10px 6px;display:flex;gap:3px;border-bottom:1px solid var(--border)">
+        <button id="mq-plat-all" onclick="mqSelectPlatform('all')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff">All</button>
+        <button id="mq-plat-facebook" onclick="mqSelectPlatform('facebook')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">📘 FB</button>
+        <button id="mq-plat-instagram" onclick="mqSelectPlatform('instagram')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">📷 IG</button>
       </div>
-      <div id="mq-acct-list"></div>
-      <div style="padding:8px 10px;margin-top:auto;border-top:1px solid var(--border)">
+      <div style="padding:6px 10px 6px">
+        <input id="mq-acct-search" type="text" placeholder="🔍 Search…" oninput="_mq.acctSearch=this.value.toLowerCase();mqRenderSidebar()" style="width:100%;padding:6px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
+      </div>
+      <div id="mq-acct-list" style="flex:1;overflow-y:auto"></div>
+      <div style="padding:8px 10px;border-top:1px solid var(--border)">
         <button onclick="mqAddPost()" style="width:100%;padding:8px;border-radius:7px;border:1px dashed var(--border);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;justify-content:center">＋ Schedule new post</button>
       </div>
     </div>
@@ -3584,53 +3588,124 @@ async function mqInit() {
   if (lbl) { lbl.textContent = mqDateLabel();
     const btn = document.getElementById('mq-daterange-btn'); const has = !!(_mq.dateFrom || _mq.dateTo);
     if (btn) { btn.style.borderColor = has ? 'var(--accent)' : 'var(--border)'; btn.style.color = has ? 'var(--accent)' : 'var(--text-secondary)'; } }
-  // Show ALL queued posts by default. Clicking a page in the sidebar narrows the
-  // view to that account; the "All accounts" entry clears the filter again.
-  // Keep a still-valid prior selection, otherwise default to All (igId = null).
+  // Validate persisted selections; reset if the account is no longer connected.
   if (_mq.igId && !_postingIgAccounts.some(a => a.id === _mq.igId)) _mq.igId = null;
-  mqSelectAccount(_mq.igId || null);
+  if (_mq.fbPageId && !(_postingPages||[]).some(p => p.id === _mq.fbPageId)) _mq.fbPageId = null;
+  mqRenderHeader();
+  const tb = document.getElementById('mq-toolbar');
+  if (tb) tb.style.display = 'flex';
+  mqFetchPosts();
 }
 
 function mqRenderSidebar() {
   const list = document.getElementById('mq-acct-list');
   if (!list) return;
-  if (!_postingIgAccounts.length) {
-    list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-dim)">No Instagram accounts connected.</div>';
-    return;
-  }
-  const accts = _mq.acctSearch
-    ? _postingIgAccounts.filter(a => (a.username||a.name||'').toLowerCase().includes(_mq.acctSearch) || (a.page_name||'').toLowerCase().includes(_mq.acctSearch))
-    : _postingIgAccounts;
-  // "All accounts" entry — selected when no specific account filter is active.
-  // Hidden while searching so it doesn't clutter filtered results.
-  const allActive = !_mq.igId;
-  const allRow = _mq.acctSearch ? '' : `<div onclick="mqSelectAccount(null)" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${allActive?'var(--accent)':'transparent'};background:${allActive?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if(_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if(_mq.igId)this.style.background='transparent'">
-      <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">📋</div>
-      <div style="min-width:0;overflow:hidden">
-        <div style="font-size:12px;font-weight:700;color:var(--text-primary)">All accounts</div>
-        <div style="font-size:10px;color:var(--text-dim)">Every queued post</div>
-      </div>
+  // Update platform tab highlight
+  ['all','facebook','instagram'].forEach(p => {
+    const btn = document.getElementById(`mq-plat-${p}`);
+    if (btn) { btn.style.background = _mq.platform===p ? 'var(--accent)' : 'transparent'; btn.style.color = _mq.platform===p ? '#fff' : 'var(--text-secondary)'; }
+  });
+
+  const q = _mq.acctSearch;
+  const showFB = _mq.platform === 'all' || _mq.platform === 'facebook';
+  const showIG = _mq.platform === 'all' || _mq.platform === 'instagram';
+
+  const fbPages = ((_postingPages||[]).filter(p => !q || (p.name||p.id||'').toLowerCase().includes(q)));
+  const igAccts = (_postingIgAccounts||[]).filter(a => !q || (a.username||a.name||'').toLowerCase().includes(q) || (a.page_name||'').toLowerCase().includes(q));
+
+  let html = '';
+
+  // "All Platforms" row — only visible when platform=all and no search
+  if (_mq.platform === 'all' && !q) {
+    const active = !_mq.igId && !_mq.fbPageId;
+    html += `<div onclick="mqSelectPlatform('all')" style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'}">
+      <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#1877f2 50%,#ee2a7b 50%);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">✦</div>
+      <div style="min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text-primary)">All platforms</div><div style="font-size:10px;color:var(--text-dim)">FB + IG posts</div></div>
     </div>`;
-  if (!accts.length) {
-    list.innerHTML = allRow + '<div style="padding:10px 12px;font-size:12px;color:var(--text-dim)">No matches.</div>';
-    return;
   }
-  list.innerHTML = allRow + accts.map(a => {
-    const active = _mq.igId === a.id;
-    const pic = a.picture_url ? `<img src="${escHtml(a.picture_url)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;flex-shrink:0">${escHtml((a.username||a.name||'?')[0].toUpperCase())}</div>`;
-    return `<div onclick="mqSelectAccount('${escHtml(a.id)}')" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if('${a.id}'!==_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if('${a.id}'!==_mq.igId)this.style.background='transparent'">
-      ${pic}
-      <div style="min-width:0;overflow:hidden">
-        <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${escHtml(a.username||a.name||a.id)}</div>
-        <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.page_name||'')}</div>
-      </div>
-    </div>`;
-  }).join('');
+
+  // Facebook section
+  if (showFB) {
+    if (!q) html += `<div style="padding:6px 12px 3px;font-size:10px;font-weight:700;color:#1877f2;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;gap:5px">${fbIcon(11)} Facebook Pages</div>`;
+    if (!_postingPages||!_postingPages.length) {
+      if (!q) html += '<div style="padding:4px 12px 8px;font-size:11px;color:var(--text-dim)">No pages connected.</div>';
+    } else {
+      if (!q && _mq.platform === 'facebook') {
+        const allFBActive = !_mq.fbPageId;
+        html += `<div onclick="mqSelectFBPage(null)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-left:3px solid ${allFBActive?'var(--accent)':'transparent'};background:${allFBActive?'var(--bg-primary)':'transparent'}">
+          <div style="width:26px;height:26px;border-radius:50%;background:#e7f0fd;display:flex;align-items:center;justify-content:center;flex-shrink:0">${fbIcon(14)}</div>
+          <div style="min-width:0"><div style="font-size:11px;font-weight:700;color:var(--text-primary)">All FB pages</div></div>
+        </div>`;
+      }
+      html += fbPages.map(p => {
+        const active = _mq.fbPageId === p.id;
+        const pic = p.picture_url ? `<img src="${escHtml(p.picture_url)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:26px;height:26px;border-radius:50%;background:#1877f2;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;flex-shrink:0">${escHtml((p.name||p.id||'F')[0].toUpperCase())}</div>`;
+        return `<div onclick="mqSelectFBPage('${escHtml(p.id)}')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-left:3px solid ${active?'#1877f2':'transparent'};background:${active?'var(--bg-primary)':'transparent'}">
+          ${pic}
+          <div style="min-width:0;overflow:hidden"><div style="font-size:11px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name||p.id)}</div><div style="font-size:10px;color:var(--text-dim)">Facebook</div></div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Instagram section
+  if (showIG) {
+    if (!q) html += `<div style="padding:6px 12px 3px;font-size:10px;font-weight:700;color:#ee2a7b;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;gap:5px">${igIcon(11)} Instagram Accounts</div>`;
+    if (!_postingIgAccounts||!_postingIgAccounts.length) {
+      if (!q) html += '<div style="padding:4px 12px 8px;font-size:11px;color:var(--text-dim)">No IG accounts connected.</div>';
+    } else {
+      if (!q && _mq.platform === 'instagram') {
+        const allIGActive = !_mq.igId;
+        html += `<div onclick="mqSelectAccount(null)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-left:3px solid ${allIGActive?'var(--accent)':'transparent'};background:${allIGActive?'var(--bg-primary)':'transparent'}">
+          <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">📷</div>
+          <div style="min-width:0"><div style="font-size:11px;font-weight:700;color:var(--text-primary)">All IG accounts</div></div>
+        </div>`;
+      }
+      html += igAccts.map(a => {
+        const active = _mq.igId === a.id;
+        const pic = a.picture_url ? `<img src="${escHtml(a.picture_url)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;flex-shrink:0">${escHtml((a.username||a.name||'?')[0].toUpperCase())}</div>`;
+        return `<div onclick="mqSelectAccount('${escHtml(a.id)}')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'}">
+          ${pic}
+          <div style="min-width:0;overflow:hidden">
+            <div style="font-size:11px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${escHtml(a.username||a.name||a.id)}</div>
+            <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.page_name||'')}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  if (!html) html = '<div style="padding:12px;font-size:12px;color:var(--text-dim)">No matches.</div>';
+  list.innerHTML = html;
 }
 
 async function mqSelectAccount(igId) {
   _mq.igId = igId || null;
   _mq.ig = _mq.igId ? (_postingIgAccounts.find(a => a.id === _mq.igId) || null) : null;
+  _mq.platform = 'instagram';
+  _mq.fbPageId = null;
+  mqRenderSidebar();
+  mqRenderHeader();
+  const tb = document.getElementById('mq-toolbar');
+  if (tb) tb.style.display = 'flex';
+  await mqFetchPosts();
+}
+
+function mqSelectPlatform(platform) {
+  _mq.platform = platform;
+  _mq.igId = null; _mq.ig = null;
+  _mq.fbPageId = null;
+  mqRenderSidebar();
+  mqRenderHeader();
+  const tb = document.getElementById('mq-toolbar');
+  if (tb) tb.style.display = 'flex';
+  mqFetchPosts();
+}
+
+async function mqSelectFBPage(pageId) {
+  _mq.fbPageId = pageId || null;
+  _mq.platform = 'facebook';
+  _mq.igId = null; _mq.ig = null;
   mqRenderSidebar();
   mqRenderHeader();
   const tb = document.getElementById('mq-toolbar');
@@ -3641,23 +3716,40 @@ async function mqSelectAccount(igId) {
 function mqRenderHeader() {
   const h = document.getElementById('mq-header');
   if (!h) return;
-  if (!_mq.ig) {
-    // "All accounts" view header.
-    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:20px">📋</div>
-    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All accounts</div><div style="font-size:12px;color:var(--text-dim)">Every queued Instagram post</div></div>
-    <div style="margin-left:auto;display:flex;gap:8px">
-      <span id="mq-post-count" style="font-size:12px;color:var(--text-dim)"></span>
-      <button onclick="mqFetchPosts()" title="Refresh" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳</button>
-    </div>`;
+  const refreshBtn = `<button onclick="mqFetchPosts()" title="Refresh" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳</button>`;
+  const countSpan = `<span id="mq-post-count" style="font-size:12px;color:var(--text-dim)"></span>`;
+  // Specific IG account
+  if (_mq.ig) {
+    const ig = _mq.ig;
+    const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" onerror="this.style.display='none'">` : `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
+    h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:12px;color:var(--text-dim)">${escHtml(ig.page_name||'')} · Instagram</div></div><div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
     return;
   }
-  const ig = _mq.ig;
-  const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" onerror="this.style.display='none'">` : `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
-  h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:12px;color:var(--text-dim)">${escHtml(ig.page_name||'')} · Instagram</div></div>
-  <div style="margin-left:auto;display:flex;gap:8px">
-    <span id="mq-post-count" style="font-size:12px;color:var(--text-dim)"></span>
-    <button onclick="mqFetchPosts()" title="Refresh" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳</button>
-  </div>`;
+  // Specific FB page
+  if (_mq.fbPageId) {
+    const page = (_postingPages||[]).find(p => p.id === _mq.fbPageId) || {name: _mq.fbPageId, picture_url: ''};
+    const pic = page.picture_url ? `<img src="${escHtml(page.picture_url)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" onerror="this.style.display='none'">` : `<div style="width:44px;height:44px;border-radius:50%;background:#1877f2;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff">${escHtml((page.name||'F')[0].toUpperCase())}</div>`;
+    h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">${escHtml(page.name||_mq.fbPageId)}</div><div style="font-size:12px;color:var(--text-dim)">Facebook Page · Scheduled posts</div></div><div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
+    return;
+  }
+  // Facebook — all pages
+  if (_mq.platform === 'facebook') {
+    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:#1877f2;display:flex;align-items:center;justify-content:center;font-size:22px">📘</div>
+    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Facebook Pages</div><div style="font-size:12px;color:var(--text-dim)">Scheduled posts from Meta</div></div>
+    <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
+    return;
+  }
+  // Instagram — all accounts
+  if (_mq.platform === 'instagram') {
+    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:20px">📷</div>
+    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Instagram Accounts</div><div style="font-size:12px;color:var(--text-dim)">Every queued Instagram post</div></div>
+    <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
+    return;
+  }
+  // All platforms
+  h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#1877f2 50%,#ee2a7b 50%);display:flex;align-items:center;justify-content:center;font-size:20px">✦</div>
+  <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Platforms</div><div style="font-size:12px;color:var(--text-dim)">Facebook &amp; Instagram scheduled posts</div></div>
+  <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
 }
 
 async function mqFetchPosts() {
@@ -3665,22 +3757,49 @@ async function mqFetchPosts() {
   const area = document.getElementById('mq-posts-area');
   if (area) area.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0">Loading…</div>';
   try {
-    const params = new URLSearchParams();
-    if (_mq.igId) params.set('ig_account_id', _mq.igId);
-    if (_mq.search) params.set('search', _mq.search);
-    if (_mq.dateFrom) params.set('date_from', _mq.dateFrom);
-    if (_mq.dateTo) params.set('date_to', _mq.dateTo);
-    const data = await api('GET', `/api/posting/my-queue?${params}`);
-    if (data === null) throw new Error('Session expired');
-    _mq.posts = data.posts || [];
+    const showIG = _mq.platform === 'all' || _mq.platform === 'instagram';
+    const showFB = _mq.platform === 'all' || _mq.platform === 'facebook';
+    const fetches = [];
+    if (showIG) {
+      const p = new URLSearchParams();
+      if (_mq.igId) p.set('ig_account_id', _mq.igId);
+      if (_mq.search) p.set('search', _mq.search);
+      if (_mq.dateFrom) p.set('date_from', _mq.dateFrom);
+      if (_mq.dateTo) p.set('date_to', _mq.dateTo);
+      fetches.push(api('GET', `/api/posting/my-queue?${p}`).then(d => { _mq.posts = (d?.posts || []).map(x => ({...x, _source:'instagram'})); }).catch(() => { _mq.posts = []; }));
+    } else {
+      _mq.posts = [];
+    }
+    if (showFB) {
+      const p = new URLSearchParams();
+      if (_mq.fbPageId) p.set('page_id', _mq.fbPageId);
+      if (_mq.search) p.set('search', _mq.search);
+      if (_mq.dateFrom) p.set('date_from', _mq.dateFrom);
+      if (_mq.dateTo) p.set('date_to', _mq.dateTo);
+      fetches.push(api('GET', `/api/posting/fb-scheduled-posts?${p}`).then(d => { _mq.fbPosts = (d?.posts || []).map(x => ({...x, _source:'facebook'})); }).catch(() => { _mq.fbPosts = []; }));
+    } else {
+      _mq.fbPosts = [];
+    }
+    await Promise.all(fetches);
+    const all = mqGetUnifiedPosts();
     const cnt = document.getElementById('mq-post-count');
-    if (cnt) cnt.textContent = `${_mq.posts.length} post${_mq.posts.length===1?'':'s'}`;
+    if (cnt) cnt.textContent = `${all.length} post${all.length===1?'':'s'}`;
     mqRenderPosts();
   } catch(e) {
     if (area) area.innerHTML = `<div style="color:var(--accent);font-size:13px">Failed to load: ${escHtml(String(e.message||e))}</div>`;
   } finally {
     _mq.loading = false;
   }
+}
+
+function mqGetUnifiedPosts() {
+  const all = [..._mq.posts, ..._mq.fbPosts];
+  all.sort((a, b) => {
+    if (!a.scheduled_time) return 1;
+    if (!b.scheduled_time) return -1;
+    return new Date(a.scheduled_time) - new Date(b.scheduled_time);
+  });
+  return all;
 }
 
 function mqSetView(v) {
@@ -3695,13 +3814,14 @@ function mqSetView(v) {
 function mqRenderPosts() {
   const area = document.getElementById('mq-posts-area');
   if (!area) return;
-  if (!_mq.posts.length) {
+  const all = mqGetUnifiedPosts();
+  if (!all.length) {
     area.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-dim)"><div style="font-size:32px;margin-bottom:10px">📅</div><div style="font-size:13px">No scheduled posts found.</div><button onclick="mqAddPost()" style="margin-top:12px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">＋ Schedule a post</button></div>`;
     return;
   }
-  if (_mq.view === 'grid') { mqRenderGrid(area); return; }
-  if (_mq.view === 'calendar') { mqRenderCalendar(area); return; }
-  mqRenderList(area);
+  if (_mq.view === 'grid') { mqRenderGrid(area, all); return; }
+  if (_mq.view === 'calendar') { mqRenderCalendar(area, all); return; }
+  mqRenderList(area, all);
 }
 
 function _mqFmtTime(iso) {
@@ -3715,68 +3835,84 @@ function _mqAcctFor(p) {
 }
 
 function _mqCard(p, extraStyle='') {
+  const isFB = p._source === 'facebook';
   const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px 0 0 8px" onerror="this.style.display='none'">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:22px;background:var(--bg-deep);border-radius:8px 0 0 8px">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
-  const statusColor = p.status==='failed'?'#ef4444':'#f59e0b';
   const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,80);
-  // In the "All accounts" view, show which IG account each post targets.
+  const clickFn = isFB ? `mqOpenFBPostModal('${escHtml(String(p.id))}')` : `mqOpenPostModal(${p.id})`;
+  const editFn = isFB ? `mqOpenFBPostModal('${escHtml(String(p.id))}')` : `mqOpenPostModal(${p.id})`;
+  const delFn = isFB ? `mqCancelFBPost('${escHtml(String(p.id))}')` : `mqCancelPost(${p.id})`;
+  // Account tag shown in "all platforms" or "all within platform" view
   let acctTag = '';
-  if (!_mq.igId) {
-    const a = _mqAcctFor(p);
-    const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
-    acctTag = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary);font-weight:700">${pageAvatar(a ? a.picture_url : '', 'instagram', 16)}${escHtml(handle)}</span>`;
+  if (isFB) {
+    if (!_mq.fbPageId || _mq.platform === 'all') {
+      const pgPic = p.page_picture || '';
+      acctTag = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#1877f2;font-weight:700">${pageAvatar(pgPic,'facebook',15)}${escHtml(p.page_name||'Facebook')}</span>`;
+    }
+  } else {
+    if (!_mq.igId || _mq.platform === 'all') {
+      const a = _mqAcctFor(p);
+      const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
+      acctTag = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#ee2a7b;font-weight:700">${pageAvatar(a ? a.picture_url : '', 'instagram', 15)}${escHtml(handle)}</span>`;
+    }
   }
-  return `<div onclick="mqOpenPostModal(${p.id})" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s;${extraStyle}" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
+  return `<div onclick="${clickFn}" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s;${extraStyle}" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
     <div style="width:64px;min-height:64px;flex-shrink:0">${thumb}</div>
     <div style="flex:1;min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:4px">
       ${acctTag}
       <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cap||'(no caption)')}</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</span>
-        ${p.media_count>1?`<span style="font-size:10px;color:var(--text-dim)">📸×${p.media_count}</span>`:''}
-        ${p.status==='failed'?`<span style="font-size:10px;color:#ef4444;font-weight:700">❌ Failed</span>`:''}
+        ${!isFB && p.media_count>1?`<span style="font-size:10px;color:var(--text-dim)">📸×${p.media_count}</span>`:''}
+        ${!isFB && p.status==='failed'?`<span style="font-size:10px;color:#ef4444;font-weight:700">❌ Failed</span>`:''}
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;padding:8px;flex-shrink:0;justify-content:center">
-      <button onclick="event.stopPropagation();mqOpenPostModal(${p.id})" title="Edit" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer">✏️</button>
-      <button onclick="event.stopPropagation();mqCancelPost(${p.id})" title="Cancel post" style="padding:4px 8px;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer">✕</button>
+      <button onclick="event.stopPropagation();${editFn}" title="Edit" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer">✏️</button>
+      <button onclick="event.stopPropagation();${delFn}" title="Cancel post" style="padding:4px 8px;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer">✕</button>
     </div>
   </div>`;
 }
 
-function mqRenderList(area) {
-  area.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${_mq.posts.map(p => _mqCard(p)).join('')}</div>`;
+function mqRenderList(area, posts) {
+  area.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${posts.map(p => _mqCard(p)).join('')}</div>`;
 }
 
-function mqRenderGrid(area) {
-  area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${_mq.posts.map(p => {
+function mqRenderGrid(area, posts) {
+  area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${posts.map(p => {
+    const isFB = p._source === 'facebook';
     const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px 8px 0 0" onerror="this.style.display='none'">` : `<div style="width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:30px;background:var(--bg-deep);border-radius:8px 8px 0 0">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
     const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,50);
     let acctTag = '';
-    if (!_mq.igId) {
-      const a = _mqAcctFor(p);
-      const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
-      acctTag = `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-secondary);font-weight:700;margin-bottom:4px">${pageAvatar(a ? a.picture_url : '', 'instagram', 16)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(handle)}</span></div>`;
+    if (isFB) {
+      if (!_mq.fbPageId || _mq.platform === 'all') {
+        acctTag = `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#1877f2;font-weight:700;margin-bottom:4px">${fbIcon(13)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.page_name||'Facebook')}</span></div>`;
+      }
+    } else {
+      if (!_mq.igId || _mq.platform === 'all') {
+        const a = _mqAcctFor(p);
+        const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
+        acctTag = `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#ee2a7b;font-weight:700;margin-bottom:4px">${pageAvatar(a ? a.picture_url : '', 'instagram', 13)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(handle)}</span></div>`;
+      }
     }
-    return `<div onclick="mqOpenPostModal(${p.id})" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
+    const clickFn = isFB ? `mqOpenFBPostModal('${escHtml(String(p.id))}')` : `mqOpenPostModal(${p.id})`;
+    return `<div onclick="${clickFn}" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
       ${thumb}
       <div style="padding:8px 10px">
         ${acctTag}
         <div style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${escHtml(cap||'(no caption)')}</div>
         <div style="font-size:10px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</div>
-        ${p.status==='failed'?'<div style="font-size:10px;color:#ef4444;font-weight:700;margin-top:2px">❌ Failed</div>':''}
+        ${!isFB && p.status==='failed'?'<div style="font-size:10px;color:#ef4444;font-weight:700;margin-top:2px">❌ Failed</div>':''}
       </div>
     </div>`;
   }).join('')}</div>`;
 }
 
-function mqRenderCalendar(area) {
-  // Build a simple month-grid calendar showing chips for scheduled posts
+function mqRenderCalendar(area, posts) {
   const now = new Date();
   const yr = now.getFullYear(), mo = now.getMonth();
-  // Group posts by day
   const byDay = {};
-  _mq.posts.forEach(p => {
-    if (!p.scheduled_time) { (byDay['now'] = byDay['now']||[]).push(p); return; }
+  posts.forEach(p => {
+    if (!p.scheduled_time) return;
     try {
       const d = new Date(p.scheduled_time);
       if (d.getFullYear() === yr && d.getMonth() === mo) {
@@ -3793,12 +3929,16 @@ function mqRenderCalendar(area) {
   for (let i=0;i<firstDow;i++) cells += '<div></div>';
   for (let d=1;d<=daysInMo;d++) {
     const isToday = d===now.getDate();
-    const posts = byDay[d]||[];
-    const chips = posts.slice(0,3).map(p => {
+    const dayPosts = byDay[d]||[];
+    const chips = dayPosts.slice(0,3).map(p => {
+      const isFB = p._source === 'facebook';
       const cap = (p.caption||'').slice(0,25);
-      return `<div onclick="event.stopPropagation();mqOpenPostModal(${p.id})" style="font-size:9px;background:${p.status==='failed'?'rgba(239,68,68,.15)':'rgba(238,42,123,.15)'};border-left:3px solid ${p.status==='failed'?'#ef4444':'#ee2a7b'};border-radius:3px;padding:1px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;margin-top:2px">${escHtml(cap||'Post')}</div>`;
+      const bgColor = isFB ? 'rgba(24,119,242,.12)' : (p.status==='failed' ? 'rgba(239,68,68,.15)' : 'rgba(238,42,123,.12)');
+      const bdrColor = isFB ? '#1877f2' : (p.status==='failed' ? '#ef4444' : '#ee2a7b');
+      const clickFn = isFB ? `mqOpenFBPostModal('${escHtml(String(p.id))}')` : `mqOpenPostModal(${p.id})`;
+      return `<div onclick="event.stopPropagation();${clickFn}" style="font-size:9px;background:${bgColor};border-left:3px solid ${bdrColor};border-radius:3px;padding:1px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;margin-top:2px">${escHtml(cap||'Post')}</div>`;
     }).join('');
-    const more = posts.length>3 ? `<div style="font-size:8px;color:var(--text-dim);text-align:right">+${posts.length-3} more</div>` : '';
+    const more = dayPosts.length>3 ? `<div style="font-size:8px;color:var(--text-dim);text-align:right">+${dayPosts.length-3} more</div>` : '';
     cells += `<div style="border:1px solid ${isToday?'var(--accent)':'var(--border)'};border-radius:6px;padding:4px;min-height:70px;background:${isToday?'rgba(220,38,38,.06)':'var(--bg-primary)'}">
       <div style="font-size:11px;font-weight:${isToday?'700':'500'};color:${isToday?'var(--accent)':'var(--text-primary)'}">${d}</div>
       ${chips}${more}
@@ -3968,6 +4108,116 @@ async function mqCancelPost(postId) {
     let msg = e.message || String(e);
     try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
     alert('Could not cancel: ' + msg);
+  }
+}
+
+async function mqCancelFBPost(fbPostId) {
+  if (!confirm('Cancel this Facebook scheduled post? It will be deleted from Meta.')) return;
+  try {
+    const res = await api('DELETE', `/api/posting/facebook-scheduled/${encodeURIComponent(fbPostId)}`);
+    if (res === null) throw new Error('Session expired');
+    toast('Facebook post cancelled');
+    document.getElementById('mq-fb-modal')?.remove();
+    await mqFetchPosts();
+  } catch(e) {
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    alert('Could not cancel: ' + msg);
+  }
+}
+
+function mqOpenFBPostModal(fbPostId) {
+  const p = _mq.fbPosts.find(x => String(x.id) === String(fbPostId));
+  if (!p) { alert('Post not found. Please refresh.'); return; }
+
+  const page = (_postingPages||[]).find(pg => pg.id === p.page_id) || {name: p.page_name||'Facebook', picture_url: p.page_picture||''};
+  const pagePic = page.picture_url
+    ? `<img src="${escHtml(page.picture_url)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:#1877f2;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;flex-shrink:0">${escHtml((page.name||'F')[0].toUpperCase())}</div>`;
+
+  const mediaHtml = p.thumbnail
+    ? `<img src="${escHtml(p.thumbnail)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block" onerror="this.style.display='none'">`
+    : `<div style="width:100%;aspect-ratio:4/3;background:var(--bg-deep);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:36px">🖼️</div>`;
+
+  // Convert ISO scheduled_time to local datetime-local value
+  const schedVal = _toLocalInputValue(p.scheduled_time);
+
+  document.getElementById('mq-fb-modal')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'mq-fb-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = `<div style="background:var(--bg-primary);border-radius:14px;width:100%;max-width:580px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+      ${pagePic}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:800;color:var(--text-primary)">${escHtml(page.name||'Facebook Page')}</div>
+        <div style="font-size:11px;color:#1877f2;display:flex;align-items:center;gap:4px">${fbIcon(12)} Scheduled post</div>
+      </div>
+      <button onclick="document.getElementById('mq-fb-modal').remove()" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--bg-secondary);color:var(--text-dim);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+    </div>
+    <!-- Body: 2-panel -->
+    <div style="display:flex;gap:0;flex:1;overflow:hidden;min-height:0">
+      <!-- Left: preview -->
+      <div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:12px;background:var(--bg-secondary)">
+        <div style="border-radius:8px;overflow:hidden;margin-bottom:8px">${mediaHtml}</div>
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.5" id="mq-fb-cap-preview">${escHtml((p.caption||'').slice(0,200))}${(p.caption||'').length>200?'…':''}</div>
+      </div>
+      <!-- Right: edit form -->
+      <div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--text-dim);display:block;margin-bottom:4px">Caption / Message</label>
+          <textarea id="mq-fb-caption" oninput="document.getElementById('mq-fb-cap-preview').textContent=this.value.slice(0,200)+(this.value.length>200?'…':'')" style="width:100%;min-height:120px;max-height:220px;padding:9px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;resize:vertical;font-family:inherit;box-sizing:border-box;outline:none">${escHtml(p.caption||'')}</textarea>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--text-dim);display:block;margin-bottom:4px">Scheduled Time</label>
+          <input id="mq-fb-sched" type="datetime-local" value="${escHtml(schedVal||'')}" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+        </div>
+        <div style="background:rgba(24,119,242,.06);border:1px solid rgba(24,119,242,.2);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--text-dim);line-height:1.5">
+          💡 Changes are saved directly to Meta. The post is scheduled via Facebook — edits go live immediately.
+        </div>
+      </div>
+    </div>
+    <!-- Footer buttons -->
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
+      <button onclick="mqCancelFBPost('${escHtml(String(p.id))}')" style="padding:8px 14px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">✕ Cancel post</button>
+      <div style="flex:1"></div>
+      <button onclick="document.getElementById('mq-fb-modal').remove()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">Close</button>
+      <button onclick="mqSaveFBPost('${escHtml(String(p.id))}','${escHtml(p.page_id)}')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">💾 Save changes</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function mqSaveFBPost(fbPostId, pageId) {
+  const captEl = document.getElementById('mq-fb-caption');
+  const schedEl = document.getElementById('mq-fb-sched');
+  if (!captEl) return;
+  const message = captEl.value;
+  let scheduledPublishTime = null;
+  if (schedEl && schedEl.value) {
+    // Convert local datetime-local to Unix timestamp
+    try {
+      const localDate = new Date(schedEl.value);
+      if (!isNaN(localDate.getTime())) {
+        scheduledPublishTime = Math.floor(localDate.getTime() / 1000);
+      }
+    } catch(_) {}
+  }
+  try {
+    const body = { page_id: pageId, message };
+    if (scheduledPublishTime) body.scheduled_publish_time = scheduledPublishTime;
+    const res = await api('PATCH', `/api/posting/fb-scheduled-posts/${encodeURIComponent(fbPostId)}`, body);
+    if (res === null) throw new Error('Session expired');
+    toast('Facebook post updated!');
+    document.getElementById('mq-fb-modal')?.remove();
+    await mqFetchPosts();
+  } catch(e) {
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    alert('Could not save: ' + msg);
   }
 }
 

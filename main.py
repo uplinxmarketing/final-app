@@ -7407,6 +7407,190 @@ async def api_cancel_meta_fb_scheduled(
     return {"success": True}
 
 
+@app.get("/api/posting/fb-scheduled-posts")
+async def api_fb_scheduled_posts(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    page_id: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
+    """Fetch Facebook scheduled posts directly from the Meta Graph API.
+
+    If page_id is given only that page is queried; otherwise every connected
+    Facebook Page is queried and the results are merged chronologically.
+    """
+    token = await get_posting_token(request, db)
+    sess = get_session(request)
+    cache_key = sess.get("posting_user_id") or hashlib.sha256(token.encode()).hexdigest()[:16]
+
+    page_names: dict[str, str] = {}
+    page_pics: dict[str, str] = {}
+
+    if page_id:
+        page_ids = [page_id]
+    else:
+        pages_res = await _get_pages_cached(token, cache_key)
+        if not pages_res.get("success"):
+            return {"posts": []}
+        raw = pages_res["data"]
+        pages_list = raw["data"] if isinstance(raw, dict) else raw
+        page_ids = [pg["id"] for pg in pages_list]
+        for pg in pages_list:
+            page_names[pg["id"]] = pg.get("name", "")
+            pic = (pg.get("picture") or {}).get("data", {}).get("url", "")
+            page_pics[pg["id"]] = pic
+
+    # If page_id was given but we don't have metadata yet, try to get it from cache.
+    if page_id and not page_names:
+        try:
+            pages_res2 = await _get_pages_cached(token, cache_key)
+            if pages_res2.get("success"):
+                raw2 = pages_res2["data"]
+                for pg in (raw2["data"] if isinstance(raw2, dict) else raw2):
+                    page_names[pg["id"]] = pg.get("name", "")
+                    pic = (pg.get("picture") or {}).get("data", {}).get("url", "")
+                    page_pics[pg["id"]] = pic
+        except Exception:
+            pass
+
+    dt_from = None
+    dt_to = None
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            if dt_from.tzinfo is None:
+                dt_from = dt_from.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            if dt_to.tzinfo is None:
+                dt_to = dt_to.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    all_posts: list[dict] = []
+    async with httpx.AsyncClient(timeout=20) as client:
+        for pid in page_ids:
+            try:
+                page_token = await _get_page_token(token, pid)
+            except Exception:
+                page_token = token
+            try:
+                r = await client.get(
+                    f"{settings.meta_graph_base_url}/{pid}/scheduled_posts",
+                    params={
+                        "fields": "id,message,scheduled_publish_time,full_picture,attachments",
+                        "limit": 100,
+                        "access_token": page_token,
+                    },
+                )
+                if r.status_code != 200:
+                    continue
+                for post in r.json().get("data", []):
+                    scheduled_ts = post.get("scheduled_publish_time")
+                    scheduled_iso: Optional[str] = None
+                    if scheduled_ts:
+                        try:
+                            scheduled_iso = datetime.fromtimestamp(
+                                int(scheduled_ts), tz=timezone.utc
+                            ).isoformat()
+                        except Exception:
+                            pass
+
+                    # Date range filters
+                    if dt_from and scheduled_iso:
+                        try:
+                            if datetime.fromisoformat(scheduled_iso) < dt_from:
+                                continue
+                        except Exception:
+                            pass
+                    if dt_to and scheduled_iso:
+                        try:
+                            if datetime.fromisoformat(scheduled_iso) > dt_to:
+                                continue
+                        except Exception:
+                            pass
+
+                    msg = post.get("message", "")
+                    if search and search.lower() not in msg.lower():
+                        continue
+
+                    # Thumbnail: prefer full_picture, fall back to attachment image
+                    thumb = post.get("full_picture")
+                    if not thumb:
+                        try:
+                            atts = post.get("attachments", {}).get("data", [])
+                            if atts:
+                                thumb = (atts[0].get("media") or {}).get("image", {}).get("src")
+                        except Exception:
+                            pass
+
+                    all_posts.append({
+                        "id": post["id"],
+                        "caption": msg,
+                        "scheduled_time": scheduled_iso,
+                        "thumbnail": thumb,
+                        "media_type": "IMAGE" if thumb else "TEXT",
+                        "page_id": pid,
+                        "page_name": page_names.get(pid, ""),
+                        "page_picture": page_pics.get(pid, ""),
+                        "status": "pending",
+                        "platform": "facebook",
+                    })
+            except Exception:
+                continue
+
+    all_posts.sort(key=lambda x: x.get("scheduled_time") or "")
+    return {"posts": all_posts}
+
+
+class FBPostUpdateRequest(BaseModel):
+    message: Optional[str] = None
+    scheduled_publish_time: Optional[int] = None  # Unix timestamp
+    page_id: str
+
+
+@app.patch("/api/posting/fb-scheduled-posts/{post_id:path}")
+async def api_update_fb_scheduled_post(
+    post_id: str,
+    req: FBPostUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a Facebook scheduled post's caption and/or scheduled time."""
+    token = await get_posting_token(request, db)
+    try:
+        page_token = await _get_page_token(token, req.page_id)
+    except Exception:
+        page_token = token
+
+    data: dict = {}
+    if req.message is not None:
+        data["message"] = req.message
+    if req.scheduled_publish_time is not None:
+        data["scheduled_publish_time"] = req.scheduled_publish_time
+    if not data:
+        raise HTTPException(400, "Nothing to update")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{settings.meta_graph_base_url}/{post_id}",
+            params={"access_token": page_token},
+            data=data,
+        )
+    if r.status_code != 200:
+        try:
+            err = r.json().get("error", {}).get("message", "Failed to update post")
+        except Exception:
+            err = f"HTTP {r.status_code}"
+        raise HTTPException(502, err)
+    return {"success": True}
+
+
 @app.delete("/api/posting/published/{post_id}")
 async def api_delete_published_post(
     post_id: str,
