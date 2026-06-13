@@ -707,6 +707,7 @@ a{color:inherit;text-decoration:none}
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
         <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="uwNewChat()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
         <button id="ptab-btn-portfolios" class="ptab-nav-btn" onclick="switchPostsTab('portfolios')" onmouseout="if(_postTab!=='portfolios'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">🗂️ <span>Portfolios</span></button>
+        <button id="ptab-btn-myqueue" class="ptab-nav-btn" onclick="switchPostsTab('myqueue')" onmouseout="if(_postTab!=='myqueue'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">⏱ <span>My Queue</span></button>
       </div>
       <!-- AI Chat History sidebar (replaces old client list) -->
       <div id="posts-client-list" style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0">
@@ -1154,6 +1155,10 @@ a{color:inherit;text-decoration:none}
               <div id="portfolio-form-status" style="font-size:12px;color:var(--text-dim);margin-top:8px"></div>
             </div>
           </div>
+        </div>
+
+        <div id="posts-tab-myqueue" style="display:none;flex:1;overflow:hidden;flex-direction:row">
+          <!-- built entirely by mqInit() / mqRender() -->
         </div>
 
       </div><!-- end posts-page-content -->
@@ -3480,6 +3485,335 @@ async function copyDiagLog() {
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// My Queue — user-scoped Instagram scheduled post manager
+// ══════════════════════════════════════════════════════════════════════════════
+let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false };
+
+async function mqInit() {
+  const panel = document.getElementById('posts-tab-myqueue');
+  if (!panel) return;
+  if (!_postingIgAccounts.length) await loadPostingPagesAndIG();
+  panel.innerHTML = `
+    <div id="mq-sidebar" style="width:200px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;background:var(--bg-secondary)">
+      <div style="padding:14px 12px 8px;font-size:12px;font-weight:700;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase">Instagram Accounts</div>
+      <div id="mq-acct-list"></div>
+      <div style="padding:8px 10px;margin-top:auto;border-top:1px solid var(--border)">
+        <button onclick="mqAddPost()" style="width:100%;padding:8px;border-radius:7px;border:1px dashed var(--border);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;justify-content:center">＋ Schedule new post</button>
+      </div>
+    </div>
+    <div id="mq-main" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div id="mq-header" style="flex-shrink:0;padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px">
+        <div style="font-size:14px;font-weight:700;color:var(--text-dim)">Select an account →</div>
+      </div>
+      <div id="mq-toolbar" style="flex-shrink:0;padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;display:none">
+        <input id="mq-search" type="text" placeholder="Search caption or hashtag…" oninput="_mq.search=this.value;mqFetchPosts()" style="flex:1;min-width:160px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
+        <input id="mq-date-from" type="date" oninput="_mq.dateFrom=this.value;mqFetchPosts()" title="From date" style="padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
+        <input id="mq-date-to" type="date" oninput="_mq.dateTo=this.value;mqFetchPosts()" title="To date" style="padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
+        <div style="display:inline-flex;gap:2px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:2px">
+          ${['list','grid','calendar'].map(v => `<button onclick="mqSetView('${v}')" id="mq-view-${v}" title="${v} view" style="padding:5px 10px;border-radius:5px;border:none;font-size:11px;cursor:pointer;font-weight:700;background:${v==='list'?'var(--accent)':'transparent'};color:${v==='list'?'#fff':'var(--text-secondary)'}">${v==='list'?'☰':v==='grid'?'⊞':'📅'}</button>`).join('')}
+        </div>
+      </div>
+      <div id="mq-posts-area" style="flex:1;overflow-y:auto;padding:16px 20px">
+        <div style="color:var(--text-dim);font-size:13px">Select an account from the left.</div>
+      </div>
+    </div>`;
+  mqRenderSidebar();
+}
+
+function mqRenderSidebar() {
+  const list = document.getElementById('mq-acct-list');
+  if (!list) return;
+  if (!_postingIgAccounts.length) {
+    list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-dim)">No Instagram accounts connected.</div>';
+    return;
+  }
+  list.innerHTML = _postingIgAccounts.map(a => {
+    const active = _mq.igId === a.id;
+    const pic = a.picture_url ? `<img src="${escHtml(a.picture_url)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;flex-shrink:0">${escHtml((a.username||a.name||'?')[0].toUpperCase())}</div>`;
+    return `<div onclick="mqSelectAccount('${escHtml(a.id)}')" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if('${a.id}'!==_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if('${a.id}'!==_mq.igId)this.style.background='transparent'">
+      ${pic}
+      <div style="min-width:0;overflow:hidden">
+        <div style="font-size:12px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${escHtml(a.username||a.name||a.id)}</div>
+        <div style="font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.page_name||'')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function mqSelectAccount(igId) {
+  _mq.igId = igId;
+  _mq.ig = _postingIgAccounts.find(a => a.id === igId) || null;
+  mqRenderSidebar();
+  mqRenderHeader();
+  const tb = document.getElementById('mq-toolbar');
+  if (tb) tb.style.display = 'flex';
+  await mqFetchPosts();
+}
+
+function mqRenderHeader() {
+  const h = document.getElementById('mq-header');
+  if (!h || !_mq.ig) return;
+  const ig = _mq.ig;
+  const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" onerror="this.style.display='none'">` : `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
+  h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:12px;color:var(--text-dim)">${escHtml(ig.page_name||'')} · Instagram</div></div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <span id="mq-post-count" style="font-size:12px;color:var(--text-dim)"></span>
+    <button onclick="mqFetchPosts()" title="Refresh" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳</button>
+  </div>`;
+}
+
+async function mqFetchPosts() {
+  if (!_mq.igId) return;
+  _mq.loading = true;
+  const area = document.getElementById('mq-posts-area');
+  if (area) area.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0">Loading…</div>';
+  try {
+    const params = new URLSearchParams({ ig_account_id: _mq.igId });
+    if (_mq.search) params.set('search', _mq.search);
+    if (_mq.dateFrom) params.set('date_from', _mq.dateFrom);
+    if (_mq.dateTo) params.set('date_to', _mq.dateTo);
+    const data = await api('GET', `/api/posting/my-queue?${params}`);
+    if (data === null) throw new Error('Session expired');
+    _mq.posts = data.posts || [];
+    const cnt = document.getElementById('mq-post-count');
+    if (cnt) cnt.textContent = `${_mq.posts.length} post${_mq.posts.length===1?'':'s'}`;
+    mqRenderPosts();
+  } catch(e) {
+    if (area) area.innerHTML = `<div style="color:var(--accent);font-size:13px">Failed to load: ${escHtml(String(e.message||e))}</div>`;
+  } finally {
+    _mq.loading = false;
+  }
+}
+
+function mqSetView(v) {
+  _mq.view = v;
+  ['list','grid','calendar'].forEach(k => {
+    const b = document.getElementById(`mq-view-${k}`);
+    if (b) { b.style.background = k===v ? 'var(--accent)' : 'transparent'; b.style.color = k===v ? '#fff' : 'var(--text-secondary)'; }
+  });
+  mqRenderPosts();
+}
+
+function mqRenderPosts() {
+  const area = document.getElementById('mq-posts-area');
+  if (!area) return;
+  if (!_mq.posts.length) {
+    area.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-dim)"><div style="font-size:32px;margin-bottom:10px">📅</div><div style="font-size:13px">No scheduled posts found.</div><button onclick="mqAddPost()" style="margin-top:12px;padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">＋ Schedule a post</button></div>`;
+    return;
+  }
+  if (_mq.view === 'grid') { mqRenderGrid(area); return; }
+  if (_mq.view === 'calendar') { mqRenderCalendar(area); return; }
+  mqRenderList(area);
+}
+
+function _mqFmtTime(iso) {
+  if (!iso) return '⚡ Now';
+  try { return new Date(iso).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(_) { return iso; }
+}
+
+function _mqCard(p, extraStyle='') {
+  const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px 0 0 8px" onerror="this.style.display='none'">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:22px;background:var(--bg-deep);border-radius:8px 0 0 8px">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
+  const statusColor = p.status==='failed'?'#ef4444':'#f59e0b';
+  const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,80);
+  return `<div onclick="mqOpenPostModal(${p.id})" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s;${extraStyle}" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
+    <div style="width:64px;min-height:64px;flex-shrink:0">${thumb}</div>
+    <div style="flex:1;min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cap||'(no caption)')}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</span>
+        ${p.media_count>1?`<span style="font-size:10px;color:var(--text-dim)">📸×${p.media_count}</span>`:''}
+        ${p.status==='failed'?`<span style="font-size:10px;color:#ef4444;font-weight:700">❌ Failed</span>`:''}
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;padding:8px;flex-shrink:0;justify-content:center">
+      <button onclick="event.stopPropagation();mqOpenPostModal(${p.id})" title="Edit" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer">✏️</button>
+      <button onclick="event.stopPropagation();mqCancelPost(${p.id})" title="Cancel post" style="padding:4px 8px;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:10px;font-weight:700;cursor:pointer">✕</button>
+    </div>
+  </div>`;
+}
+
+function mqRenderList(area) {
+  area.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${_mq.posts.map(p => _mqCard(p)).join('')}</div>`;
+}
+
+function mqRenderGrid(area) {
+  area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${_mq.posts.map(p => {
+    const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px 8px 0 0" onerror="this.style.display='none'">` : `<div style="width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:30px;background:var(--bg-deep);border-radius:8px 8px 0 0">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
+    const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,50);
+    return `<div onclick="mqOpenPostModal(${p.id})" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
+      ${thumb}
+      <div style="padding:8px 10px">
+        <div style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${escHtml(cap||'(no caption)')}</div>
+        <div style="font-size:10px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</div>
+        ${p.status==='failed'?'<div style="font-size:10px;color:#ef4444;font-weight:700;margin-top:2px">❌ Failed</div>':''}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function mqRenderCalendar(area) {
+  // Build a simple month-grid calendar showing chips for scheduled posts
+  const now = new Date();
+  const yr = now.getFullYear(), mo = now.getMonth();
+  // Group posts by day
+  const byDay = {};
+  _mq.posts.forEach(p => {
+    if (!p.scheduled_time) { (byDay['now'] = byDay['now']||[]).push(p); return; }
+    try {
+      const d = new Date(p.scheduled_time);
+      if (d.getFullYear() === yr && d.getMonth() === mo) {
+        const key = d.getDate();
+        (byDay[key] = byDay[key]||[]).push(p);
+      }
+    } catch(_) {}
+  });
+  const monthName = new Date(yr, mo, 1).toLocaleString('en-US', {month:'long', year:'numeric'});
+  const firstDow = new Date(yr, mo, 1).getDay();
+  const daysInMo = new Date(yr, mo+1, 0).getDate();
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text-dim);padding:4px">${d}</div>`).join('');
+  let cells = '';
+  for (let i=0;i<firstDow;i++) cells += '<div></div>';
+  for (let d=1;d<=daysInMo;d++) {
+    const isToday = d===now.getDate();
+    const posts = byDay[d]||[];
+    const chips = posts.slice(0,3).map(p => {
+      const cap = (p.caption||'').slice(0,25);
+      return `<div onclick="event.stopPropagation();mqOpenPostModal(${p.id})" style="font-size:9px;background:${p.status==='failed'?'rgba(239,68,68,.15)':'rgba(238,42,123,.15)'};border-left:3px solid ${p.status==='failed'?'#ef4444':'#ee2a7b'};border-radius:3px;padding:1px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;margin-top:2px">${escHtml(cap||'Post')}</div>`;
+    }).join('');
+    const more = posts.length>3 ? `<div style="font-size:8px;color:var(--text-dim);text-align:right">+${posts.length-3} more</div>` : '';
+    cells += `<div style="border:1px solid ${isToday?'var(--accent)':'var(--border)'};border-radius:6px;padding:4px;min-height:70px;background:${isToday?'rgba(220,38,38,.06)':'var(--bg-primary)'}">
+      <div style="font-size:11px;font-weight:${isToday?'700':'500'};color:${isToday?'var(--accent)':'var(--text-primary)'}">${d}</div>
+      ${chips}${more}
+    </div>`;
+  }
+  area.innerHTML = `<div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--text-primary)">${monthName}</div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">${dayNames}</div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>`;
+}
+
+function mqOpenPostModal(postId) {
+  const p = _mq.posts.find(x => x.id === postId);
+  if (!p || !_mq.ig) return;
+  const ig = _mq.ig;
+  const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)" onerror="this.style.display='none'">` : `<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
+  const mediaHtml = p.thumbnail
+    ? `<div style="background:#000;aspect-ratio:1/1;max-height:280px;overflow:hidden;position:relative"><img src="${escHtml(p.thumbnail)}" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=width:100%;aspect-ratio:1/1;background:#111;display:flex;align-items:center;justify-content:center;font-size:32px>🖼️</div>'"></div>`
+    : `<div style="background:#111;aspect-ratio:1/1;max-height:280px;display:flex;align-items:center;justify-content:center;font-size:40px">🖼️</div>`;
+  // Split caption from hashtags for editing
+  const fullCap = p.caption || '';
+  const hashIdx = fullCap.lastIndexOf('\n\n#');
+  const editCap = hashIdx >= 0 ? fullCap.slice(0, hashIdx) : fullCap;
+  const editTags = (p.hashtags || []).join(' ');
+  const schedVal = p.scheduled_time ? new Date(p.scheduled_time).toISOString().slice(0,16) : '';
+  const existing = document.getElementById('mq-post-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'mq-post-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
+  modal.onclick = e => { if (e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div style="background:var(--bg-secondary);border-radius:14px;max-width:800px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.45);display:flex;flex-direction:column">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-secondary);z-index:1">
+      <div style="display:flex;align-items:center;gap:8px">${igIcon(16)}<span style="font-size:14px;font-weight:700;color:var(--text-primary)">Edit Scheduled Post</span><span style="font-size:10px;font-weight:700;color:#f59e0b;background:#f59e0b20;border-radius:20px;padding:2px 8px">⏱ Scheduled</span></div>
+      <button onclick="document.getElementById('mq-post-modal').remove()" style="background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px">✕</button>
+    </div>
+    <!-- Body: IG preview (left) + edit form (right) -->
+    <div style="display:flex;gap:0;flex-wrap:wrap">
+      <!-- IG mockup -->
+      <div style="flex:1;min-width:260px;max-width:360px;border-right:1px solid var(--border)">
+        <div style="background:#fff;font-family:-apple-system,'Segoe UI',sans-serif;color:#050505">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+            ${pic}
+            <div style="flex:1"><div style="font-size:13px;font-weight:700;color:#000">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:11px;color:#8e8e8e">${_mqFmtTime(p.scheduled_time)}</div></div>
+          </div>
+          ${mediaHtml}
+          <div id="mq-modal-cap-preview" style="padding:10px 12px;font-size:13px;color:#000;line-height:1.5;max-height:90px;overflow-y:auto;white-space:pre-wrap">${escHtml(fullCap).slice(0,200)}</div>
+        </div>
+      </div>
+      <!-- Edit form -->
+      <div style="flex:1;min-width:260px;padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
+          <textarea id="mq-edit-cap" rows="5" oninput="document.getElementById('mq-modal-cap-preview').textContent=this.value+(document.getElementById('mq-edit-tags').value?' \n\n'+document.getElementById('mq-edit-tags').value:'')" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;resize:vertical;outline:none;box-sizing:border-box;font-family:inherit">${escHtml(editCap)}</textarea>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Hashtags <span style="font-weight:400;color:var(--text-dim)">(space-separated, # optional)</span></label>
+          <input id="mq-edit-tags" type="text" value="${escHtml(editTags)}" oninput="document.getElementById('mq-modal-cap-preview').textContent=(document.getElementById('mq-edit-cap').value||'')+(this.value?' \n\n'+this.value:'')" placeholder="#hashtag1 #hashtag2" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Scheduled time</label>
+          <input id="mq-edit-time" type="datetime-local" value="${escHtml(schedVal)}" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div id="mq-edit-status" style="font-size:12px;min-height:18px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+          <button onclick="mqSavePost(${p.id})" style="flex:1;padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer">💾 Save changes</button>
+          <button onclick="mqCancelPost(${p.id})" style="padding:10px 14px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">✕ Cancel post</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function mqSavePost(postId) {
+  const capEl = document.getElementById('mq-edit-cap');
+  const tagsEl = document.getElementById('mq-edit-tags');
+  const timeEl = document.getElementById('mq-edit-time');
+  const statusEl = document.getElementById('mq-edit-status');
+  if (!capEl || !statusEl) return;
+  const caption = capEl.value;
+  const hashtags = (tagsEl ? tagsEl.value : '').split(/\s+/).filter(t => t.trim()).map(t => t.replace(/^#/,''));
+  const scheduled_time = timeEl && timeEl.value ? new Date(timeEl.value).toISOString() : null;
+  statusEl.textContent = 'Saving…'; statusEl.style.color = 'var(--text-dim)';
+  try {
+    const res = await api('PATCH', `/api/posting/my-queue/${postId}`, { caption, hashtags, scheduled_time });
+    if (res === null) throw new Error('Session expired');
+    statusEl.textContent = '✓ Saved!'; statusEl.style.color = '#22c55e';
+    setTimeout(() => { document.getElementById('mq-post-modal')?.remove(); mqFetchPosts(); }, 800);
+  } catch(e) {
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    statusEl.textContent = '❌ ' + msg; statusEl.style.color = '#ef4444';
+  }
+}
+
+async function mqCancelPost(postId) {
+  if (!confirm('Cancel this scheduled post? It will not be published.')) return;
+  try {
+    const res = await api('DELETE', `/api/scheduled-posts/${postId}`);
+    if (res === null) throw new Error('Session expired');
+    toast('Post cancelled');
+    document.getElementById('mq-post-modal')?.remove();
+    await mqFetchPosts();
+  } catch(e) {
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    alert('Could not cancel: ' + msg);
+  }
+}
+
+function mqAddPost() {
+  // Pre-select the current IG account as the target, then open the wizard
+  if (_mq.ig) {
+    const target = { platform: 'instagram', id: _mq.ig.id, name: '@' + (_mq.ig.username || _mq.ig.name || _mq.ig.id), picture_url: _mq.ig.picture_url };
+    _uwClearSession();
+    _uw = { target, targets: [target], posts: [], jobId: null, pollTimer: null,
+      previewCard: null, published: false, instructions: '',
+      _chatId: 'chat_' + Date.now(), _chatName: '@' + (_mq.ig.username || _mq.ig.name) };
+    _postsConvId = null;
+    if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
+    const fp = document.getElementById('uw-feed-panel'); if (fp) fp.style.display = 'none';
+    if (!document.getElementById('posts-main') || document.getElementById('posts-main').style.display === 'none')
+      enterInterface('posts');
+    _postTab = 'chat'; switchPostsTab('chat');
+    const msgs = document.getElementById('posts-chat-messages'); if (msgs) msgs.innerHTML = '';
+    uwPickTargets([target]);
+  } else {
+    uwNewChat(); startUploadWizard();
+  }
+}
+
 // ── Scheduled Posts Queue (admin cleanup / start fresh) ──────────────────────
 async function sqFetch() {
   const list = document.getElementById('sq-list');
@@ -4587,7 +4921,7 @@ function switchPostsTab(tab) {
   const isChat = tab === 'chat';
 
   // Update tab button highlight
-  ['calendar','compose','bulk','feed','chat','portfolios'].forEach(t => {
+  ['calendar','compose','bulk','feed','chat','portfolios','myqueue'].forEach(t => {
     const btn = document.getElementById(`ptab-btn-${t}`);
     const active = t === tab;
     if (btn) {
@@ -4608,16 +4942,16 @@ function switchPostsTab(tab) {
   if (!isChat) {
     // Bulk, Calendar, Feed and Portfolios have their own pickers, so they only
     // need a connected account (no sidebar page selection required).
-    const selfContained = tab === 'bulk' || tab === 'calendar' || tab === 'feed' || tab === 'portfolios';
+    const selfContained = tab === 'bulk' || tab === 'calendar' || tab === 'feed' || tab === 'portfolios' || tab === 'myqueue';
     const state = !_postingConnected ? 'connect' : ((_selectedPostPage || selfContained) ? 'content' : 'no-page');
     const banner = document.getElementById('posts-connect-banner');
     const noPage = document.getElementById('posts-no-page-state');
     if (banner) banner.style.display = state === 'connect' ? 'flex' : 'none';
     if (noPage) noPage.style.display = state === 'no-page' ? 'flex' : 'none';
-    ['calendar','compose','bulk','feed','portfolios'].forEach(t => {
+    ['calendar','compose','bulk','feed','portfolios','myqueue'].forEach(t => {
       const panel = document.getElementById(`posts-tab-${t}`);
       const active = t === tab && state === 'content';
-      if (panel) { panel.style.display = active ? 'flex' : 'none'; if (active) panel.style.flexDirection = 'column'; }
+      if (panel) { panel.style.display = active ? 'flex' : 'none'; if (active) panel.style.flexDirection = t === 'myqueue' ? 'row' : 'column'; }
     });
     if (state === 'content') {
       if (tab === 'calendar') loadCalendar();
@@ -4625,6 +4959,7 @@ function switchPostsTab(tab) {
       else if (tab === 'compose') { selectPostPlatform(_postPlatform || 'facebook'); loadPostsScheduled(); }
       else if (tab === 'bulk') initBulkComposer();
       else if (tab === 'portfolios') openPortfolioTab();
+      else if (tab === 'myqueue') mqInit();
     }
   }
 }
@@ -9184,6 +9519,56 @@ function _uwConfirmNoCaptions(nEmpty, nTotal) {
   });
 }
 
+// After publishing, return to step 2 with the same page targets so the user
+// can schedule more content without re-selecting the pages from step 1.
+function uwScheduleMoreSamePage() {
+  const savedTargets = (_uw.targets || []).map(t => ({...t}));
+  if (!savedTargets.length) { uwNewChat(); startUploadWizard(); return; }
+  _uwClearSession();
+  _uw = { target: savedTargets[0], targets: savedTargets, posts: [], jobId: null,
+    pollTimer: null, previewCard: null, published: false, instructions: '',
+    _chatId: 'chat_' + Date.now(), _chatName: null };
+  _postsConvId = null;
+  if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
+  const fp = document.getElementById('uw-feed-panel');
+  if (fp) fp.style.display = 'none';
+  if (!document.getElementById('posts-main') || document.getElementById('posts-main').style.display === 'none')
+    enterInterface('posts');
+  _postTab = 'chat'; switchPostsTab('chat');
+  const msgs = document.getElementById('posts-chat-messages');
+  if (msgs) msgs.innerHTML = '';
+  uwPickTargets(savedTargets);
+}
+
+function _uwConfirmPublish(nPosts, targets, nScheduled) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
+    wrap.onclick = e => { if (e.target === wrap) { wrap.remove(); resolve(false); } };
+    const targetLines = targets.map(t => `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:12px">${t.platform==='instagram'?'📷':'📘'} ${escHtml(t.name)}</span>`).join(' ');
+    const schedLine = nScheduled === nPosts ? `All ${nPosts} will be <b>scheduled</b> for a future date.`
+      : nScheduled ? `${nPosts - nScheduled} will publish <b>immediately</b>, ${nScheduled} are <b>scheduled</b>.`
+      : `All ${nPosts} will publish <b>immediately</b>.`;
+    wrap.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;width:min(440px,100%);padding:24px;display:flex;flex-direction:column;gap:16px" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:24px">🚀</span>
+        <span style="font-size:16px;font-weight:800;color:var(--text-primary)">Ready to publish?</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.7">
+        You're about to submit <b>${nPosts} post${nPosts===1?'':'s'}</b> to:<br>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0">${targetLines}</div>
+        ${schedLine}<br>Please make sure all captions and images are matched correctly.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="this.closest('div[style*=fixed]').remove();window._uwPubResolve(false)" style="padding:9px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">← Review posts</button>
+        <button onclick="this.closest('div[style*=fixed]').remove();window._uwPubResolve(true)" style="padding:9px 20px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer">🚀 Publish now</button>
+      </div>
+    </div>`;
+    window._uwPubResolve = (v) => { delete window._uwPubResolve; resolve(v); };
+    document.body.appendChild(wrap);
+  });
+}
+
 async function uwPublish(btn) {
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
   if (!_uw.posts.length || !targets.length) return;
@@ -9201,6 +9586,12 @@ async function uwPublish(btn) {
     const proceed = await _uwConfirmNoCaptions(noCaption, _uw.posts.length);
     if (!proceed) return;
   }
+  // Confirmation before submitting
+  const nScheduled = _uw.posts.filter(p => {
+    return targets.some(t => _uwPlatSched(p, t.platform));
+  }).length;
+  const confirmed = await _uwConfirmPublish(_uw.posts.length, targets, nScheduled);
+  if (!confirmed) return;
   // One item per (post × target) — posting to both FB and IG creates two items.
   // A post's media array may hold multiple files (carousel).
   const items = [];
@@ -9301,7 +9692,11 @@ async function uwPollJob() {
       }${
         hasIgScheduled ? '📷 Instagram scheduled posts are managed by this app and will appear in <b>Meta Business Suite only after they publish</b> at their scheduled time.' : ''
       }</div>` : '';
-      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}${schedNote}</div>`); return; }
+      const actionBtns = `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button onclick="uwScheduleMoreSamePage()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 15px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">📤 Schedule more for same page</button>
+        <button onclick="uwNewChat();startUploadWizard()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 15px;background:var(--bg-primary);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🔀 Post on a different page</button>
+      </div>`;
+      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}${schedNote}${actionBtns}</div>`); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
