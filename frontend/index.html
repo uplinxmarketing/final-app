@@ -3761,57 +3761,92 @@ function mqOpenPostModal(postId) {
   if (!p) return;
   // In the All view _mq.ig is null, so resolve the post's own account.
   const ig = _mq.ig || _mqAcctFor(p) || { id: p.instagram_id, username: '', name: p.instagram_id, picture_url: '' };
-  const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)" onerror="this.style.display='none'">` : `<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
+  const igUser = ig.username || ig.name || ig.id || 'instagram';
+
+  const pic = ig.picture_url
+    ? `<img src="${escHtml(ig.picture_url)}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid #dbdbdb" onerror="this.outerHTML='<div style=width:38px;height:38px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff>${escHtml(igUser[0].toUpperCase())}</div>'">`
+    : `<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">${escHtml(igUser[0].toUpperCase())}</div>`;
+
   const mediaHtml = p.thumbnail
-    ? `<div style="background:#000;aspect-ratio:1/1;max-height:280px;overflow:hidden;position:relative"><img src="${escHtml(p.thumbnail)}" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=width:100%;aspect-ratio:1/1;background:#111;display:flex;align-items:center;justify-content:center;font-size:32px>🖼️</div>'"></div>`
-    : `<div style="background:#111;aspect-ratio:1/1;max-height:280px;display:flex;align-items:center;justify-content:center;font-size:40px">🖼️</div>`;
+    ? `<img src="${escHtml(p.thumbnail)}" style="width:100%;aspect-ratio:1/1;object-fit:cover;display:block" onerror="this.outerHTML='<div style=width:100%;aspect-ratio:1/1;background:#111;display:flex;align-items:center;justify-content:center;font-size:40px>🖼️</div>'">`
+    : `<div style="width:100%;aspect-ratio:1/1;background:#111;display:flex;align-items:center;justify-content:center;font-size:40px">🖼️</div>`;
+
   // Split caption from hashtags for editing
   const fullCap = p.caption || '';
   const hashIdx = fullCap.lastIndexOf('\n\n#');
   const editCap = hashIdx >= 0 ? fullCap.slice(0, hashIdx) : fullCap;
   const editTags = (p.hashtags || []).join(' ');
   const schedVal = _toLocalInputValue(p.scheduled_time);
+
+  // Caption preview with Instagram-style "...more" truncation
+  const CAP_LIMIT = 130;
+  function _mqBuildCapHtml(combined, user) {
+    const esc = s => escHtml(s);
+    const userSpan = `<span style="font-weight:700;margin-right:4px">${esc(user)}</span>`;
+    if (combined.length > CAP_LIMIT) {
+      return `${userSpan}<span id="mq-cap-short" style="white-space:pre-wrap">${esc(combined.slice(0, CAP_LIMIT))}</span><span id="mq-cap-full" style="display:none;white-space:pre-wrap">${esc(combined)}</span><span onclick="document.getElementById('mq-cap-short').style.display='none';document.getElementById('mq-cap-full').style.display='';this.style.display='none'" style="color:#8e8e8e;cursor:pointer;font-weight:400"> ...more</span>`;
+    }
+    return `${userSpan}<span style="white-space:pre-wrap">${esc(combined)}</span>`;
+  }
+
   const existing = document.getElementById('mq-post-modal');
   if (existing) existing.remove();
   const modal = document.createElement('div');
   modal.id = 'mq-post-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
-  modal.onclick = e => { if (e.target===modal) modal.remove(); };
-  modal.innerHTML = `<div style="background:var(--bg-secondary);border-radius:14px;max-width:800px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.45);display:flex;flex-direction:column">
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `<div style="background:var(--bg-secondary);border-radius:14px;width:100%;max-width:840px;height:min(94vh,640px);display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.45);overflow:hidden">
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-secondary);z-index:1">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg-secondary)">
       <div style="display:flex;align-items:center;gap:8px">${igIcon(16)}<span style="font-size:14px;font-weight:700;color:var(--text-primary)">Edit Scheduled Post</span><span style="font-size:10px;font-weight:700;color:#f59e0b;background:#f59e0b20;border-radius:20px;padding:2px 8px">⏱ Scheduled</span></div>
-      <button onclick="document.getElementById('mq-post-modal').remove()" style="background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px">✕</button>
+      <button onclick="document.getElementById('mq-post-modal').remove()" style="background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;line-height:1">✕</button>
     </div>
     <!-- Body: IG preview (left) + edit form (right) -->
-    <div style="display:flex;gap:0;flex-wrap:wrap">
-      <!-- IG mockup -->
-      <div style="flex:1;min-width:260px;max-width:360px;border-right:1px solid var(--border)">
-        <div style="background:#fff;font-family:-apple-system,'Segoe UI',sans-serif;color:#050505">
-          <div style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+    <div style="display:flex;flex:1;min-height:0">
+      <!-- LEFT: Instagram mockup -->
+      <div style="width:300px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:#fafafa">
+        <div style="background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#050505">
+          <!-- IG header row -->
+          <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:none">
             ${pic}
-            <div style="flex:1"><div style="font-size:13px;font-weight:700;color:#000">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:11px;color:#8e8e8e">${_mqFmtTime(p.scheduled_time)}</div></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:#000;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(igUser)}</div>
+              <div style="font-size:11px;color:#8e8e8e">${_mqFmtTime(p.scheduled_time)}</div>
+            </div>
+            <span style="font-size:20px;color:#262626;letter-spacing:2px;margin-right:2px">···</span>
           </div>
-          ${mediaHtml}
-          <div id="mq-modal-cap-preview" style="padding:10px 12px;font-size:13px;color:#000;line-height:1.5;max-height:90px;overflow-y:auto;white-space:pre-wrap">${escHtml(fullCap).slice(0,200)}</div>
+          <!-- Media -->
+          <div style="border-top:1px solid #dbdbdb;border-bottom:1px solid #dbdbdb">${mediaHtml}</div>
+          <!-- Action icons row -->
+          <div style="display:flex;align-items:center;padding:10px 12px;gap:16px">
+            <svg width="22" height="22" fill="none" stroke="#262626" stroke-width="1.8" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <svg width="22" height="22" fill="none" stroke="#262626" stroke-width="1.8" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <svg width="22" height="22" fill="none" stroke="#262626" stroke-width="1.8" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            <div style="margin-left:auto"><svg width="22" height="22" fill="none" stroke="#262626" stroke-width="1.8" viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div>
+          </div>
+          <!-- Caption -->
+          <div id="mq-modal-cap-preview" data-user="${escHtml(igUser)}" style="padding:2px 12px 14px;font-size:13px;color:#000;line-height:1.5">
+            ${_mqBuildCapHtml(fullCap, igUser)}
+          </div>
         </div>
       </div>
-      <!-- Edit form -->
-      <div style="flex:1;min-width:260px;padding:16px;display:flex;flex-direction:column;gap:14px">
+      <!-- RIGHT: Edit form -->
+      <div style="flex:1;min-width:0;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:14px">
         <div>
           <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Caption</label>
-          <textarea id="mq-edit-cap" rows="5" oninput="document.getElementById('mq-modal-cap-preview').textContent=this.value+(document.getElementById('mq-edit-tags').value?' \n\n'+document.getElementById('mq-edit-tags').value:'')" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;resize:vertical;outline:none;box-sizing:border-box;font-family:inherit">${escHtml(editCap)}</textarea>
+          <textarea id="mq-edit-cap" oninput="_mqUpdateCapPreview(this)" style="width:100%;min-height:100px;max-height:220px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;resize:vertical;outline:none;box-sizing:border-box;font-family:inherit;line-height:1.5">${escHtml(editCap)}</textarea>
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Hashtags <span style="font-weight:400;color:var(--text-dim)">(space-separated, # optional)</span></label>
-          <input id="mq-edit-tags" type="text" value="${escHtml(editTags)}" oninput="document.getElementById('mq-modal-cap-preview').textContent=(document.getElementById('mq-edit-cap').value||'')+(this.value?' \n\n'+this.value:'')" placeholder="#hashtag1 #hashtag2" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+          <input id="mq-edit-tags" type="text" value="${escHtml(editTags)}" oninput="_mqUpdateCapPreview()" placeholder="#hashtag1 #hashtag2" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Scheduled time</label>
           ${scheduleField('mq-edit-time', schedVal, { title: '🕒 Scheduled time', emptyText: '⚡ Post immediately', clearLabel: '⚡ Post immediately', style: 'width:100%;display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box' })}
         </div>
         <div id="mq-edit-status" style="font-size:12px;min-height:18px"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:4px">
           <button onclick="mqSavePost(${p.id})" style="flex:1;padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer">💾 Save changes</button>
           <button onclick="mqCancelPost(${p.id})" style="padding:10px 14px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">✕ Cancel post</button>
         </div>
@@ -3819,6 +3854,30 @@ function mqOpenPostModal(postId) {
     </div>
   </div>`;
   document.body.appendChild(modal);
+  // Auto-resize caption textarea to fit its content
+  const capTA = modal.querySelector('#mq-edit-cap');
+  if (capTA) { capTA.style.height = 'auto'; capTA.style.height = Math.min(capTA.scrollHeight, 220) + 'px'; }
+}
+
+function _mqUpdateCapPreview() {
+  const capEl = document.getElementById('mq-edit-cap');
+  const tagsEl = document.getElementById('mq-edit-tags');
+  const preview = document.getElementById('mq-modal-cap-preview');
+  if (!capEl || !preview) return;
+  const igUser = preview.dataset.user || '';
+  const cap = capEl.value || '';
+  const tags = tagsEl ? tagsEl.value.trim() : '';
+  const combined = cap + (tags ? '\n\n' + tags : '');
+  const CAP_LIMIT = 130;
+  const esc = s => escHtml(s);
+  const userSpan = `<span style="font-weight:700;margin-right:4px">${esc(igUser)}</span>`;
+  if (combined.length > CAP_LIMIT) {
+    preview.innerHTML = `${userSpan}<span id="mq-cap-short" style="white-space:pre-wrap">${esc(combined.slice(0, CAP_LIMIT))}</span><span id="mq-cap-full" style="display:none;white-space:pre-wrap">${esc(combined)}</span><span onclick="document.getElementById('mq-cap-short').style.display='none';document.getElementById('mq-cap-full').style.display='';this.style.display='none'" style="color:#8e8e8e;cursor:pointer;font-weight:400"> ...more</span>`;
+  } else {
+    preview.innerHTML = `${userSpan}<span style="white-space:pre-wrap">${esc(combined)}</span>`;
+  }
+  // Also auto-resize textarea on input
+  if (capEl) { capEl.style.height = 'auto'; capEl.style.height = Math.min(capEl.scrollHeight, 220) + 'px'; }
 }
 
 async function mqSavePost(postId) {
