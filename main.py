@@ -6942,6 +6942,50 @@ async def api_my_queue(
     return {"posts": out, "total": len(out)}
 
 
+@app.get("/api/posting/queue-stats")
+async def api_queue_stats(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-user counts of their Instagram scheduled posts: how many are still
+    on the queue, how many published successfully, and how many failed.
+
+    Ownership is scoped to the current posting account exactly like
+    /api/posting/my-queue (the 'All accounts' branch — strict ownership, no
+    legacy null-owner leakage), so the numbers reflect only the posts this
+    user scheduled.
+    """
+    sess = get_session(request)
+    posting_user_id = sess.get("posting_user_id")
+    if not posting_user_id:
+        res = await db.execute(
+            select(ConnectedPostingAccount.facebook_user_id)
+            .where(ConnectedPostingAccount.is_active == True)
+            .order_by(ConnectedPostingAccount.id.desc())
+        )
+        posting_user_id = res.scalars().first()
+    stats = {"scheduled": 0, "posted": 0, "failed": 0}
+    if not posting_user_id:
+        return stats
+    result = await db.execute(
+        select(ScheduledPost.status, ScheduledPost.job_data).where(
+            ScheduledPost.platform == "instagram",
+            ScheduledPost.status.in_(("pending", "processing", "published", "failed")),
+        )
+    )
+    for status, jd in result.all():
+        owner = (jd or {}).get("posting_user_id")
+        if owner != posting_user_id:
+            continue
+        if status in ("pending", "processing"):
+            stats["scheduled"] += 1
+        elif status == "published":
+            stats["posted"] += 1
+        elif status == "failed":
+            stats["failed"] += 1
+    return stats
+
+
 async def _resolve_posting_uid(request: Request, db: AsyncSession) -> Optional[str]:
     """The current posting account uid — session first, else most-recent active
     account (the same fallback the bulk scheduler records on each post)."""

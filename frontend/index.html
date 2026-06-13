@@ -843,6 +843,12 @@ a{color:inherit;text-decoration:none}
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
+            <div id="posts-stats-bar" style="display:none;align-items:center;gap:6px;margin-right:2px">
+              <span id="pstat-scheduled" title="Scheduled — waiting in your queue" style="display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#f59e0b;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:800">⏱ <span class="pstat-n">0</span> <span style="font-weight:600;opacity:.85">scheduled</span></span>
+              <span id="pstat-posted" title="Posted successfully" style="display:inline-flex;align-items:center;gap:4px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:#22c55e;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:800">✅ <span class="pstat-n">0</span> <span style="font-weight:600;opacity:.85">posted</span></span>
+              <span id="pstat-failed" title="Failed to post" style="display:inline-flex;align-items:center;gap:4px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#ef4444;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:800">⚠️ <span class="pstat-n">0</span> <span style="font-weight:600;opacity:.85">failed</span></span>
+              <button id="pstat-refresh" onclick="refreshQueueStats(true)" title="Refresh counts" style="background:none;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;padding:4px 8px;color:var(--text-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">🔄</button>
+            </div>
             <button onclick="notifOpen()" title="Notifications" style="position:relative;background:none;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:15px;padding:5px 9px;color:var(--text-secondary);transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">🔔<span id="notif-badge-posts" style="display:none;position:absolute;top:0;right:-2px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;border-radius:9px;padding:1px 5px;min-width:9px;text-align:center;line-height:1.3">0</span></button>
             <button onclick="openPostingConnectModal()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'" title="Manage accounts">⚙️ Accounts</button>
           </div>
@@ -3488,6 +3494,45 @@ async function copyDiagLog() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Header queue-stats indicator (scheduled / posted / failed) — per-user, live
+// ══════════════════════════════════════════════════════════════════════════════
+let _qsTimer = null, _qsBusy = false;
+
+async function refreshQueueStats(manual) {
+  const bar = document.getElementById('posts-stats-bar');
+  if (!bar) return;
+  if (_qsBusy) return;
+  _qsBusy = true;
+  const refreshBtn = document.getElementById('pstat-refresh');
+  if (manual && refreshBtn) refreshBtn.style.transform = 'rotate(360deg)';
+  try {
+    const s = await api('GET', '/api/posting/queue-stats');
+    if (s === null || !s) return; // session expired / no data — leave as-is
+    bar.style.display = 'flex';
+    const set = (id, n) => { const el = document.getElementById(id); if (el) { const v = el.querySelector('.pstat-n'); if (v) v.textContent = n; } };
+    set('pstat-scheduled', s.scheduled || 0);
+    set('pstat-posted', s.posted || 0);
+    set('pstat-failed', s.failed || 0);
+    // Dim the failed chip when there are none so it doesn't draw the eye
+    const failChip = document.getElementById('pstat-failed');
+    if (failChip) failChip.style.opacity = (s.failed || 0) > 0 ? '1' : '.5';
+  } catch (_) { /* network hiccup — keep last known numbers */ }
+  finally {
+    _qsBusy = false;
+    if (manual && refreshBtn) setTimeout(() => { refreshBtn.style.transition = 'transform .4s'; refreshBtn.style.transform = ''; setTimeout(() => refreshBtn.style.transition = '', 400); }, 50);
+  }
+}
+
+function startQueueStatsPolling() {
+  refreshQueueStats(false);
+  if (_qsTimer) clearInterval(_qsTimer);
+  // Live updates every 30s while the Posts interface is open.
+  _qsTimer = setInterval(() => {
+    if (_activeInterface === 'posts') refreshQueueStats(false);
+  }, 30000);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // My Queue — user-scoped Instagram scheduled post manager
 // ══════════════════════════════════════════════════════════════════════════════
 let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null };
@@ -3894,7 +3939,7 @@ async function mqSavePost(postId) {
     const res = await api('PATCH', `/api/posting/my-queue/${postId}`, { caption, hashtags, scheduled_time });
     if (res === null) throw new Error('Session expired');
     statusEl.textContent = '✓ Saved!'; statusEl.style.color = '#22c55e';
-    setTimeout(() => { document.getElementById('mq-post-modal')?.remove(); mqFetchPosts(); }, 800);
+    setTimeout(() => { document.getElementById('mq-post-modal')?.remove(); mqFetchPosts(); refreshQueueStats(false); }, 800);
   } catch(e) {
     let msg = e.message || String(e);
     try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
@@ -3910,6 +3955,7 @@ async function mqCancelPost(postId) {
     toast('Post cancelled');
     document.getElementById('mq-post-modal')?.remove();
     await mqFetchPosts();
+    refreshQueueStats(false);
   } catch(e) {
     let msg = e.message || String(e);
     try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
@@ -5240,6 +5286,7 @@ async function loadPostingInterface() {
       showPostsWorkspace('connect'); return;
     }
     _postingConnected = true;
+    startQueueStatsPolling();
     const current = accounts.find(a => a.is_current) || accounts[0];
     const acctName = current.user_name || current.facebook_user_id || 'Connected';
     const label = document.getElementById('posts-account-label');
@@ -9011,27 +9058,32 @@ function _uwBuildCalendarHtml() {
     const firstLine = (p.caption || '').split(/[\n.!?]/)[0].trim().slice(0, 40);
     const tc = _uwTypeColor(p);
     const time = sched ? sched.slice(11, 16) : '';
+    // Visible post thumbnail on the left, spanning both info rows.
+    const thumbFallback = `<span class=&quot;chip-thumb&quot; style=&quot;width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;background:var(--bg-secondary);flex-shrink:0&quot;>🖼️</span>`;
     const thumb = img && !img.is_video
-      ? `<img class="chip-thumb" src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:14px;height:14px;border-radius:3px;object-fit:cover;flex-shrink:0;pointer-events:none" onerror="this.style.display='none'">`
-      : `<span class="chip-thumb" style="font-size:9px;flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
+      ? `<img class="chip-thumb" src="${_uwThumbSrc(img)}" loading="lazy" draggable="false" style="width:32px;height:32px;border-radius:4px;object-fit:cover;flex-shrink:0;pointer-events:none" onerror="this.outerHTML='${thumbFallback}'">`
+      : `<span class="chip-thumb" style="width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;background:var(--bg-secondary);flex-shrink:0">${img ? '🎬' : '🖼️'}</span>`;
     return `<div class="cal-chip" draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, drag to reschedule"
-      style="display:flex;flex-direction:column;gap:2px;background:${tc.soft};border-left:3px solid ${tc.color};border-radius:4px;padding:2px 3px 3px;overflow:hidden;min-width:0;cursor:grab;box-sizing:border-box"
+      style="display:flex;align-items:stretch;gap:4px;background:${tc.soft};border-left:3px solid ${tc.color};border-radius:4px;padding:3px;overflow:hidden;min-width:0;cursor:grab;box-sizing:border-box"
       onmouseover="this.style.filter='brightness(1.12)';var d=this.querySelector('.cal-chip-del');if(d){d.style.opacity='1';d.style.pointerEvents='auto'}" onmouseout="this.style.filter='';var d=this.querySelector('.cal-chip-del');if(d){d.style.opacity='0';d.style.pointerEvents='none'}">
-      <!-- Row 1: type badge + platform icon + thumb + P# + caption -->
-      <div style="display:flex;align-items:center;gap:2px;min-width:0;overflow:hidden">
-        <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:6px;font-weight:800;border-radius:2px;padding:1px 2px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
-        ${platformIcon(plat, 9)}${thumb}
-        <span class="chip-pnum" style="font-size:8px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
-        <span class="chip-cap" style="font-size:8px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
-      </div>
-      <!-- Row 2: time button (left) + delete X (right) -->
-      <div style="display:flex;align-items:center;gap:2px;min-width:0">
-        <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
-          style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:9px;font-weight:700;cursor:pointer;padding:1px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;text-align:left">${time ? '🕒 '+_uw12h(time) : '⚡ Now'}</button>
-        ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx},'${plat}');event.stopPropagation()" title="Remove this post"
-          style="flex-shrink:0;width:16px;height:16px;border-radius:3px;background:rgba(220,38,38,.9);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .15s">✕</button>`}
+      ${thumb}
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+        <!-- Row 1: type badge + platform icon + P# + caption -->
+        <div style="display:flex;align-items:center;gap:2px;min-width:0;overflow:hidden">
+          <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:6px;font-weight:800;border-radius:2px;padding:1px 2px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
+          ${platformIcon(plat, 9)}
+          <span class="chip-pnum" style="font-size:8px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
+          <span class="chip-cap" style="font-size:8px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
+        </div>
+        <!-- Row 2: time button (left, fills) + delete X (right) -->
+        <div style="display:flex;align-items:center;gap:2px;min-width:0">
+          <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time"
+            style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:9px;font-weight:700;cursor:pointer;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;text-align:left">${time ? '🕒 '+_uw12h(time) : '⚡ Now'}</button>
+          ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx},'${plat}');event.stopPropagation()" title="Remove this post"
+            style="flex-shrink:0;width:16px;height:16px;border-radius:3px;background:rgba(220,38,38,.9);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .15s">✕</button>`}
+        </div>
       </div>
     </div>`;
   };
@@ -10170,7 +10222,8 @@ async function uwPollJob() {
       const doneDest = _doneTargets.length
         ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--text-secondary)">Posted to ${_doneTargets.map(t => destChip(t, 20)).join('<span style="color:var(--text-dim);margin:0 2px">+</span>')}</div>`
         : '';
-      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${doneDest}${failHtml}${schedNote}${actionBtns}</div>`); return; }
+      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${doneDest}${failHtml}${schedNote}${actionBtns}</div>`);
+      refreshQueueStats(false); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
