@@ -225,12 +225,12 @@ a{color:inherit;text-decoration:none}
    column and day cells get narrow. Drop chip decorations progressively so the
    platform icon, thumbnail and text never overlap each other. */
 .uw-cal-day, .cal-day { container-type: inline-size; }
-.cal-chip { min-height: 18px; }
+.cal-chip { min-height: 22px; }
 .cal-chip > * { min-width: 0; }
-@container (max-width: 150px) {
+@container (max-width: 160px) {
   .cal-chip .chip-cap { display: none !important; }
 }
-@container (max-width: 110px) {
+@container (max-width: 90px) {
   .cal-chip .chip-thumb { display: none !important; }
 }
 @container (max-width: 78px) {
@@ -8917,6 +8917,13 @@ function _uwRenderCards() {
   const wrap = _uw.previewCard.querySelector('.uw-cards');
   const mode = _uw.viewMode || 'list';
   if (mode === 'calendar') {
+    // Ensure the card/bubble are full-width every time we render in calendar mode,
+    // not just when the user first clicks the Calendar tab button.
+    if (_uw.previewCard) {
+      const bubble = _uw.previewCard.querySelector('.msg-bubble');
+      _uw.previewCard.style.maxWidth = '100%'; _uw.previewCard.style.width = '100%';
+      if (bubble) { bubble.style.maxWidth = '100%'; bubble.style.width = '100%'; bubble.style.boxSizing = 'border-box'; }
+    }
     wrap.style.cssText = '';
     wrap.innerHTML = _uwBuildCalendarHtml();
   } else if (mode === 'grid') {
@@ -9152,7 +9159,7 @@ function _uwBuildCalendarHtml() {
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(84px,auto);gap:4px;width:100%;box-sizing:border-box">${cells}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(110px,auto);gap:4px;width:100%;box-sizing:border-box">${cells}</div>
     ${_uw.published ? `<div style=”margin-top:8px;padding:10px 14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;color:var(--text-secondary);text-align:center;line-height:1.5”>✅ <b>Posts submitted.</b> To cancel a scheduled post, open the <b>Calendar</b> tab and click on it there.</div>`
     : `<div style=”font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center”>Drag cards between days to reschedule · click 🕒 on a card to edit its time · ⚡ = posts immediately when you hit Publish<br>💬 Or type below — e.g. “move post 2 to Friday 6 PM” or “schedule all posts 1 hour apart starting tomorrow 9 AM”</div>`}
   </div>`;
