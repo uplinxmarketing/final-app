@@ -6890,16 +6890,22 @@ async def api_my_queue(
     # AttributeError on SQLite). When an IG account is selected, instagram_id
     # already scopes to an account the user's token can reach, so we accept the
     # user's own rows plus legacy rows that never recorded a posting_user_id.
-    posts = []
-    for p in rows:
-        owner = (p.job_data or {}).get("posting_user_id")
-        if ig_account_id:
-            if owner and posting_user_id and owner != posting_user_id:
-                continue
-        else:
-            if owner != posting_user_id:
-                continue
-        posts.append(p)
+    if not posting_user_id:
+        # If we still can't resolve an owner, only show rows that match the
+        # explicit IG account filter (already narrow enough to be user-scoped).
+        posts = list(rows) if ig_account_id else []
+    else:
+        posts = []
+        for p in rows:
+            owner = (p.job_data or {}).get("posting_user_id")
+            if ig_account_id:
+                # Accept user's own rows + legacy rows with no owner recorded.
+                if owner and owner != posting_user_id:
+                    continue
+            else:
+                if owner != posting_user_id:
+                    continue
+            posts.append(p)
     out = []
     for p in posts:
         jd = p.job_data or {}
