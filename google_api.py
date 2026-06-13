@@ -20,6 +20,84 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
 # ---------------------------------------------------------------------------
+# Forced read-only enforcement
+# ---------------------------------------------------------------------------
+# Hard guarantee, independent of OAuth scopes: this app may only READ from and
+# DOWNLOAD files in Google Drive/Docs/Sheets — never delete, move, rename,
+# share, or otherwise modify anything. Every Google API call funnels through the
+# guarded client below; any request that could mutate a user's Drive raises
+# DriveWriteForbidden before it ever leaves the process. Adding a write call in
+# future code will fail loudly here instead of silently touching the user's
+# Drive. The OAuth scopes are also read-only (drive.readonly etc.), so this is a
+# belt-and-braces second line of defence.
+
+class DriveWriteForbidden(RuntimeError):
+    """Raised when code attempts any non-read-only Google API call."""
+
+
+# Only these HTTP methods are ever allowed against Google APIs.
+_RO_ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+# The single exception: the OAuth2 token endpoint legitimately uses POST to
+# exchange/refresh tokens. It cannot touch Drive content, so it is allowlisted.
+_RO_POST_ALLOWLIST = (
+    "https://oauth2.googleapis.com/token",
+)
+
+# Substrings that mark a Drive/Docs/Sheets mutation even if some future code
+# tried to sneak one through with an allowed verb. Used as a defensive check.
+_RO_FORBIDDEN_URL_MARKERS = (
+    ":batchUpdate",        # docs/sheets write API
+    "/permissions",        # sharing changes
+    "/trash",
+    "emptyTrash",
+    "files/copy",
+)
+
+
+def _assert_read_only(method: str, url: str) -> None:
+    """Block any Google API request that could modify the user's Drive.
+
+    Allows safe reads (GET/HEAD/OPTIONS) and the OAuth token POST only.
+    Raises ``DriveWriteForbidden`` for everything else (DELETE/PUT/PATCH, or a
+    POST to anything other than the token endpoint).
+    """
+    m = (method or "").upper()
+    u = url or ""
+    if any(marker in u for marker in _RO_FORBIDDEN_URL_MARKERS):
+        raise DriveWriteForbidden(
+            f"Blocked a Drive-modifying request ({m} {u}). This app is read-only."
+        )
+    if m in _RO_ALLOWED_METHODS:
+        return
+    if m == "POST" and any(u.startswith(p) for p in _RO_POST_ALLOWLIST):
+        return
+    raise DriveWriteForbidden(
+        f"Blocked a non-read-only Google API request ({m} {u}). "
+        "This app may only view and download Drive files, never modify them."
+    )
+
+
+class _ReadOnlyAsyncClient(httpx.AsyncClient):
+    """httpx client that enforces the read-only Drive policy on every request.
+
+    The policy is enforced in ``send()`` — the one method that EVERY request
+    path funnels through (the ``.get``/``.post``/… helpers, ``.stream()`` and
+    direct ``.send()`` of a pre-built request all call it), so no caller can
+    bypass the check regardless of how it issues the request.
+    """
+
+    async def send(self, request, *args, **kwargs):  # type: ignore[override]
+        _assert_read_only(str(request.method), str(request.url))
+        return await super().send(request, *args, **kwargs)
+
+
+def _ro_client(*args, **kwargs) -> _ReadOnlyAsyncClient:
+    """Create a read-only-guarded httpx AsyncClient (drop-in for AsyncClient)."""
+    return _ReadOnlyAsyncClient(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
 
@@ -130,7 +208,7 @@ async def exchange_code_for_tokens(
             {"success": False, "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.post(
                 f"{GOOGLE_OAUTH_BASE}/token",
                 data={
@@ -189,7 +267,7 @@ async def refresh_access_token(
             {"success": False, "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.post(
                 f"{GOOGLE_OAUTH_BASE}/token",
                 data={
@@ -246,7 +324,7 @@ async def get_user_info(access_token: str) -> dict[str, Any]:
             {"success": False, "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.get(
                 GOOGLE_USERINFO_URL,
                 headers=_bearer(access_token),
@@ -299,7 +377,7 @@ async def read_google_doc(doc_id: str, access_token: str) -> dict[str, Any]:
             {"success": False, "title": "", "content": "", "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.get(
                 f"{GOOGLE_DOCS_BASE}/documents/{doc_id}",
                 headers=_bearer(access_token),
@@ -366,7 +444,7 @@ async def read_google_sheet(
     headers = _bearer(access_token)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             # Step 1 — spreadsheet title
             meta_response = await client.get(
                 f"{GOOGLE_SHEETS_BASE}/spreadsheets/{sheet_id}",
@@ -435,7 +513,7 @@ async def get_file_metadata(file_id: str, access_token: str) -> dict[str, Any]:
             {"success": False, "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.get(
                 f"{GOOGLE_DRIVE_BASE}/files/{file_id}",
                 headers=_bearer(access_token),
@@ -497,7 +575,7 @@ async def download_drive_file(file_id: str, access_token: str) -> dict[str, Any]
         # file through this path, and a large Drive video easily exceeds 30 s —
         # which made every big FB video item fail. Connect stays snappy.
         _timeout = httpx.Timeout(connect=15.0, read=600.0, write=60.0, pool=15.0)
-        async with httpx.AsyncClient(timeout=_timeout) as client:
+        async with _ro_client(timeout=_timeout) as client:
             response = await client.get(
                 f"{GOOGLE_DRIVE_BASE}/files/{file_id}",
                 headers=_bearer(access_token),
@@ -553,7 +631,7 @@ async def export_drive_file(
             {"success": False, "content": "", "error": str}
     """
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.get(
                 f"{GOOGLE_DRIVE_BASE}/files/{file_id}/export",
                 headers=_bearer(access_token),
@@ -743,7 +821,7 @@ async def list_drive_files(
         if query:
             params["q"] = query
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with _ro_client(timeout=30.0) as client:
             response = await client.get(
                 f"{GOOGLE_DRIVE_BASE}/files",
                 headers=_bearer(access_token),
@@ -903,7 +981,7 @@ async def get_drive_thumbnail(
     — callers treat thumbnails as a best-effort enhancement.
     """
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with _ro_client(timeout=20) as client:
             r = await client.get(
                 f"https://www.googleapis.com/drive/v3/files/{file_id}",
                 params={"fields": "thumbnailLink"},

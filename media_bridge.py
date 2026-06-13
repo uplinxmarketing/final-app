@@ -29,6 +29,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import MediaProxyToken
+# Read-only-guarded httpx client: Drive access here is download-only, and this
+# enforces (alongside the read-only OAuth scopes) that nothing can ever delete
+# or modify the user's Drive even through the streaming download path.
+from google_api import _ro_client
 
 logger = logging.getLogger("uplinx")
 
@@ -109,7 +113,7 @@ async def open_drive_stream(
     """
     url = f"{GOOGLE_DRIVE_BASE}/files/{drive_file_id}"
     headers = {"Authorization": f"Bearer {google_token}"}
-    client = httpx.AsyncClient(timeout=None)
+    client = _ro_client(timeout=None)
     try:
         req = client.build_request("GET", url, headers=headers, params={"alt": "media"})
         response = await client.send(req, stream=True)
@@ -150,7 +154,7 @@ async def stream_drive_file(
     """
     url = f"{GOOGLE_DRIVE_BASE}/files/{drive_file_id}"
     headers = {"Authorization": f"Bearer {google_token}"}
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with _ro_client(timeout=None) as client:
         async with client.stream(
             "GET", url, headers=headers, params={"alt": "media"}
         ) as response:
