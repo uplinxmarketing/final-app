@@ -877,7 +877,7 @@ a{color:inherit;text-decoration:none}
           <div class="chat-input-box" style="display:flex;align-items:flex-end;gap:10px" id="posts-chat-input-box">
             <textarea id="posts-chat-input" class="form-input" placeholder="Ask Uplinx AI about your posts…" rows="1"
               style="flex:1;resize:none;max-height:120px;overflow-y:auto;line-height:1.5;font-size:14px;background:transparent;border:none;outline:none;padding:0"
-              oninput="autoResize(this);document.getElementById('posts-send-btn').disabled=!this.value.trim()"
+              oninput="autoResize(this);_postsInputChanged(this)"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendPostsMessage()}"></textarea>
             <button id="posts-send-btn" onclick="sendPostsMessage()" disabled
               style="background:var(--accent);color:#fff;padding:6px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;flex-shrink:0;border:none;cursor:pointer;transition:background .15s"
@@ -2501,12 +2501,15 @@ function _setSendState(streaming) {
   } else {
     btn.textContent = 'Send →';
     btn.onclick = sendMessage;
-    btn.disabled = !state.activeConvId;
+    // Idle: behave like a normal send button — only active when there's text.
+    const input = document.getElementById('chat-input');
+    btn.disabled = !(input && input.value.trim());
     btn.style.background = '';
   }
 }
 
 async function sendMessage() {
+  if (_streamAbort) return; // a response is already streaming — ignore re-entrant sends (e.g. Enter key)
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
@@ -2685,6 +2688,15 @@ function _appendPostsMsg(role, content) {
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   return div;
+}
+
+// Input handler for the posts/AI chat box. While a response is streaming the
+// button is the "Stop" control, so never disable it based on text — otherwise
+// clearing the input mid-stream would make it impossible to stop the AI.
+function _postsInputChanged(el) {
+  if (_postsStreamAbort) return;
+  const btn = document.getElementById('posts-send-btn');
+  if (btn) btn.disabled = !el.value.trim();
 }
 
 async function sendPostsMessage() {
@@ -3016,6 +3028,9 @@ function handleKeydown(e) {
 }
 
 function handleInput(el) {
+  // While a response is streaming the button is the "Stop" control — never
+  // disable it based on input text, or the user couldn't stop the stream.
+  if (_streamAbort) return;
   // Enable as soon as there's text — a conversation is created lazily on first
   // send (see sendMessage), so the chat is usable without connecting Meta first.
   document.getElementById('send-btn').disabled = !el.value.trim();
@@ -7947,7 +7962,7 @@ function uwPickTargets(targets) {
   const drop = 'border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:border-color .15s';
 
   _appendPostsCard(`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📤 Add your content</div>
-    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">Posting to <b>${escHtml(label)}</b>. Pick a source for your images and (optionally) captions — you can mix them, e.g. images from your device and captions from Drive.</div>
+    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">Posting to <b>${escHtml(chatName)}</b>. Pick a source for your images and (optionally) captions — you can mix them, e.g. images from your device and captions from Drive.</div>
     <div class="uw-step">
 
       <!-- IMAGES CARD -->
