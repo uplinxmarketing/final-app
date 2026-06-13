@@ -6898,13 +6898,12 @@ async def api_my_queue(
         posts = []
         for p in rows:
             owner = (p.job_data or {}).get("posting_user_id")
-            if ig_account_id:
-                # Accept user's own rows + legacy rows with no owner recorded.
-                if owner and owner != posting_user_id:
-                    continue
-            else:
-                if owner != posting_user_id:
-                    continue
+            # Accept the user's own rows + legacy rows that never recorded a
+            # posting_user_id (owner is None). This applies whether or not an IG
+            # account filter is set, so the "All accounts" view shows the full
+            # queue (including legacy posts) rather than silently dropping rows.
+            if owner is not None and owner != posting_user_id:
+                continue
             posts.append(p)
     out = []
     for p in posts:

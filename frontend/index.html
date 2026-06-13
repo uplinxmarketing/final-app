@@ -891,12 +891,11 @@ a{color:inherit;text-decoration:none}
             <button onclick="uwFeedClose()" title="Close preview" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;padding:5px 9px;cursor:pointer">✕</button>
           </span>
         </div>
-        <!-- Schedule row: date + time inputs for the previewed post -->
+        <!-- Schedule row: shared Meta-style date+time picker for the previewed post -->
         <div id="uw-feed-sched-row" style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
           <span style="font-size:11px;font-weight:700;color:var(--text-dim);white-space:nowrap">🗓 Schedule:</span>
-          <input id="uw-feed-date" type="date" onchange="uwFeedSetSched()" style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:11px;outline:none">
-          <input id="uw-feed-time" type="time" onchange="uwFeedSetSched()" style="width:88px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:11px;outline:none">
-          <button onclick="uwFeedClearSched()" title="Post immediately (instant)" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;white-space:nowrap;font-weight:700">⚡ now</button>
+          <button id="uw-feed-sched-btn" onclick="uwFeedOpenSched()" style="flex:1;min-width:120px;display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg-primary);color:var(--text-primary);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">📅 <span id="uw-feed-sched-lbl">Set date & time</span> <span style="font-size:9px;opacity:.6">▾</span></button>
+          <button onclick="uwFeedClearSched()" title="Post immediately (instant)" style="padding:5px 9px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;white-space:nowrap;font-weight:700">⚡ now</button>
         </div>
         <div id="uw-feed-body" style="flex:1;overflow-y:auto;padding:16px"></div>
        </div>
@@ -1006,7 +1005,8 @@ a{color:inherit;text-decoration:none}
             </div>
             <div style="margin-bottom:20px">
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Schedule <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim)">(leave blank = publish now)</span></label>
-              <input type="datetime-local" id="post-schedule-time" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+              <input type="hidden" id="post-schedule-time">
+              <button type="button" id="post-schedule-time-btn" onclick="_scheduleFieldOpen('post-schedule-time')" style="display:inline-flex;align-items:center;gap:7px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer">📅 <span id="post-schedule-time-lbl">Publish now</span> <span style="font-size:9px;opacity:.6">▾</span></button>
             </div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px">
               <button onclick="submitPost()" id="post-submit-btn" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🚀 Publish / Schedule</button>
@@ -1067,7 +1067,8 @@ a{color:inherit;text-decoration:none}
                 </div>
                 <div>
                   <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Schedule start <span style="font-weight:400;text-transform:none;color:var(--text-dim)">(optional)</span></label>
-                  <input type="datetime-local" id="bulk-schedule-start" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px">
+                  <input type="hidden" id="bulk-schedule-start">
+                  <button type="button" id="bulk-schedule-start-btn" onclick="_scheduleFieldOpen('bulk-schedule-start')" style="width:100%;display:inline-flex;align-items:center;gap:7px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer;box-sizing:border-box">📅 <span id="bulk-schedule-start-lbl">Pick start time</span> <span style="font-size:9px;opacity:.6">▾</span></button>
                 </div>
               </div>
               <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -1877,7 +1878,8 @@ a{color:inherit;text-decoration:none}
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">First post at</label>
-              <input type="datetime-local" id="qup-schedule-start" style="width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text-primary);font-size:13px">
+              <input type="hidden" id="qup-schedule-start">
+              <button type="button" id="qup-schedule-start-btn" onclick="_scheduleFieldOpen('qup-schedule-start')" style="width:100%;display:inline-flex;align-items:center;gap:7px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box">📅 <span id="qup-schedule-start-lbl">Pick start time</span> <span style="font-size:9px;opacity:.6">▾</span></button>
             </div>
             <div>
               <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Hours between posts</label>
@@ -3529,11 +3531,11 @@ async function mqInit() {
   if (lbl) { lbl.textContent = mqDateLabel();
     const btn = document.getElementById('mq-daterange-btn'); const has = !!(_mq.dateFrom || _mq.dateTo);
     if (btn) { btn.style.borderColor = has ? 'var(--accent)' : 'var(--border)'; btn.style.color = has ? 'var(--accent)' : 'var(--text-secondary)'; } }
-  // Auto-select an account so the queue loads immediately. Prefer the one kept
-  // from a prior visit, else the first connected IG account.
-  const startId = (_mq.igId && _postingIgAccounts.some(a => a.id === _mq.igId))
-    ? _mq.igId : (_postingIgAccounts[0] && _postingIgAccounts[0].id);
-  if (startId) mqSelectAccount(startId);
+  // Show ALL queued posts by default. Clicking a page in the sidebar narrows the
+  // view to that account; the "All accounts" entry clears the filter again.
+  // Keep a still-valid prior selection, otherwise default to All (igId = null).
+  if (_mq.igId && !_postingIgAccounts.some(a => a.id === _mq.igId)) _mq.igId = null;
+  mqSelectAccount(_mq.igId || null);
 }
 
 function mqRenderSidebar() {
@@ -3546,11 +3548,21 @@ function mqRenderSidebar() {
   const accts = _mq.acctSearch
     ? _postingIgAccounts.filter(a => (a.username||a.name||'').toLowerCase().includes(_mq.acctSearch) || (a.page_name||'').toLowerCase().includes(_mq.acctSearch))
     : _postingIgAccounts;
+  // "All accounts" entry — selected when no specific account filter is active.
+  // Hidden while searching so it doesn't clutter filtered results.
+  const allActive = !_mq.igId;
+  const allRow = _mq.acctSearch ? '' : `<div onclick="mqSelectAccount(null)" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${allActive?'var(--accent)':'transparent'};background:${allActive?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if(_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if(_mq.igId)this.style.background='transparent'">
+      <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">📋</div>
+      <div style="min-width:0;overflow:hidden">
+        <div style="font-size:12px;font-weight:700;color:var(--text-primary)">All accounts</div>
+        <div style="font-size:10px;color:var(--text-dim)">Every queued post</div>
+      </div>
+    </div>`;
   if (!accts.length) {
-    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-dim)">No matches.</div>';
+    list.innerHTML = allRow + '<div style="padding:10px 12px;font-size:12px;color:var(--text-dim)">No matches.</div>';
     return;
   }
-  list.innerHTML = accts.map(a => {
+  list.innerHTML = allRow + accts.map(a => {
     const active = _mq.igId === a.id;
     const pic = a.picture_url ? `<img src="${escHtml(a.picture_url)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;flex-shrink:0">${escHtml((a.username||a.name||'?')[0].toUpperCase())}</div>`;
     return `<div onclick="mqSelectAccount('${escHtml(a.id)}')" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if('${a.id}'!==_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if('${a.id}'!==_mq.igId)this.style.background='transparent'">
@@ -3564,8 +3576,8 @@ function mqRenderSidebar() {
 }
 
 async function mqSelectAccount(igId) {
-  _mq.igId = igId;
-  _mq.ig = _postingIgAccounts.find(a => a.id === igId) || null;
+  _mq.igId = igId || null;
+  _mq.ig = _mq.igId ? (_postingIgAccounts.find(a => a.id === _mq.igId) || null) : null;
   mqRenderSidebar();
   mqRenderHeader();
   const tb = document.getElementById('mq-toolbar');
@@ -3575,7 +3587,17 @@ async function mqSelectAccount(igId) {
 
 function mqRenderHeader() {
   const h = document.getElementById('mq-header');
-  if (!h || !_mq.ig) return;
+  if (!h) return;
+  if (!_mq.ig) {
+    // "All accounts" view header.
+    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:20px">📋</div>
+    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All accounts</div><div style="font-size:12px;color:var(--text-dim)">Every queued Instagram post</div></div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <span id="mq-post-count" style="font-size:12px;color:var(--text-dim)"></span>
+      <button onclick="mqFetchPosts()" title="Refresh" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳</button>
+    </div>`;
+    return;
+  }
   const ig = _mq.ig;
   const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" onerror="this.style.display='none'">` : `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
   h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">@${escHtml(ig.username||ig.name||ig.id)}</div><div style="font-size:12px;color:var(--text-dim)">${escHtml(ig.page_name||'')} · Instagram</div></div>
@@ -3586,12 +3608,12 @@ function mqRenderHeader() {
 }
 
 async function mqFetchPosts() {
-  if (!_mq.igId) return;
   _mq.loading = true;
   const area = document.getElementById('mq-posts-area');
   if (area) area.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0">Loading…</div>';
   try {
-    const params = new URLSearchParams({ ig_account_id: _mq.igId });
+    const params = new URLSearchParams();
+    if (_mq.igId) params.set('ig_account_id', _mq.igId);
     if (_mq.search) params.set('search', _mq.search);
     if (_mq.dateFrom) params.set('date_from', _mq.dateFrom);
     if (_mq.dateTo) params.set('date_to', _mq.dateTo);
@@ -3634,13 +3656,26 @@ function _mqFmtTime(iso) {
   try { return new Date(iso).toLocaleString(undefined, {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(_) { return iso; }
 }
 
+// Resolve the connected IG account a queued post belongs to (for the All view).
+function _mqAcctFor(p) {
+  return _postingIgAccounts.find(a => a.id === p.instagram_id) || null;
+}
+
 function _mqCard(p, extraStyle='') {
   const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:8px 0 0 8px" onerror="this.style.display='none'">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:22px;background:var(--bg-deep);border-radius:8px 0 0 8px">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
   const statusColor = p.status==='failed'?'#ef4444':'#f59e0b';
   const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,80);
+  // In the "All accounts" view, show which IG account each post targets.
+  let acctTag = '';
+  if (!_mq.igId) {
+    const a = _mqAcctFor(p);
+    const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
+    acctTag = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary);font-weight:700">${pageAvatar(a ? a.picture_url : '', 'instagram', 16)}${escHtml(handle)}</span>`;
+  }
   return `<div onclick="mqOpenPostModal(${p.id})" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s;${extraStyle}" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
     <div style="width:64px;min-height:64px;flex-shrink:0">${thumb}</div>
     <div style="flex:1;min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:4px">
+      ${acctTag}
       <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cap||'(no caption)')}</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</span>
@@ -3663,9 +3698,16 @@ function mqRenderGrid(area) {
   area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${_mq.posts.map(p => {
     const thumb = p.thumbnail ? `<img src="${escHtml(p.thumbnail)}" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px 8px 0 0" onerror="this.style.display='none'">` : `<div style="width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:30px;background:var(--bg-deep);border-radius:8px 8px 0 0">${p.media_type==='VIDEO'?'🎬':'🖼️'}</div>`;
     const cap = (p.caption||'').split(/[\n.!?]/)[0].trim().slice(0,50);
+    let acctTag = '';
+    if (!_mq.igId) {
+      const a = _mqAcctFor(p);
+      const handle = a ? '@' + (a.username || a.name || a.id) : (p.instagram_id || 'Instagram');
+      acctTag = `<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-secondary);font-weight:700;margin-bottom:4px">${pageAvatar(a ? a.picture_url : '', 'instagram', 16)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(handle)}</span></div>`;
+    }
     return `<div onclick="mqOpenPostModal(${p.id})" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg-secondary);transition:box-shadow .12s" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.15)'" onmouseout="this.style.boxShadow=''">
       ${thumb}
       <div style="padding:8px 10px">
+        ${acctTag}
         <div style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px">${escHtml(cap||'(no caption)')}</div>
         <div style="font-size:10px;color:var(--text-dim)">🕒 ${_mqFmtTime(p.scheduled_time)}</div>
         ${p.status==='failed'?'<div style="font-size:10px;color:#ef4444;font-weight:700;margin-top:2px">❌ Failed</div>':''}
@@ -3716,8 +3758,9 @@ function mqRenderCalendar(area) {
 
 function mqOpenPostModal(postId) {
   const p = _mq.posts.find(x => x.id === postId);
-  if (!p || !_mq.ig) return;
-  const ig = _mq.ig;
+  if (!p) return;
+  // In the All view _mq.ig is null, so resolve the post's own account.
+  const ig = _mq.ig || _mqAcctFor(p) || { id: p.instagram_id, username: '', name: p.instagram_id, picture_url: '' };
   const pic = ig.picture_url ? `<img src="${escHtml(ig.picture_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3)" onerror="this.style.display='none'">` : `<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff">${escHtml((ig.username||ig.name||'?')[0].toUpperCase())}</div>`;
   const mediaHtml = p.thumbnail
     ? `<div style="background:#000;aspect-ratio:1/1;max-height:280px;overflow:hidden;position:relative"><img src="${escHtml(p.thumbnail)}" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=width:100%;aspect-ratio:1/1;background:#111;display:flex;align-items:center;justify-content:center;font-size:32px>🖼️</div>'"></div>`
@@ -3765,7 +3808,7 @@ function mqOpenPostModal(postId) {
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:6px">Scheduled time</label>
-          <input id="mq-edit-time" type="datetime-local" value="${escHtml(schedVal)}" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;box-sizing:border-box">
+          ${scheduleField('mq-edit-time', schedVal, { title: '🕒 Scheduled time', emptyText: '⚡ Post immediately', clearLabel: '⚡ Post immediately', style: 'width:100%;display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box' })}
         </div>
         <div id="mq-edit-status" style="font-size:12px;min-height:18px"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
@@ -3834,6 +3877,214 @@ function mqAddPost() {
   } else {
     uwNewChat(); startUploadWizard();
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Reusable Meta-style date + time picker (single datetime, popup calendar)
+// ──────────────────────────────────────────────────────────────────────────────
+// One picker used everywhere the user sets a schedule, so every date/time
+// control matches the My Queue filter: a month-grid calendar (click a day) plus
+// a time field, quick presets, and Apply / Cancel / Clear.
+//
+//   openDateTimePicker({
+//     value:      'YYYY-MM-DDTHH:MM' | '',   // current value (local); '' = none
+//     title:      'Schedule post',           // header text
+//     allowClear: true,                      // show the clear / post-now button
+//     clearLabel: '⚡ Post now',             // label for that button
+//     applyLabel: '✓ Apply',
+//     defaultTime:'09:00',                   // time used until one is picked
+//     onApply:    (localVal) => {...},       // localVal = 'YYYY-MM-DDTHH:MM'
+//     onClear:    () => {...}                // optional
+//   })
+let _dtp = null;
+function openDateTimePicker(opts) {
+  opts = opts || {};
+  const pad = n => String(n).padStart(2, '0');
+  const now = new Date();
+  let selDay = null, navY = null, navM = null, time = '';
+  const init = (opts.value || '').trim();
+  if (init) {
+    const dt = new Date(init);
+    if (!isNaN(dt)) {
+      selDay = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+      navY = dt.getFullYear(); navM = dt.getMonth();
+      time = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    }
+  }
+  if (navY == null) { navY = now.getFullYear(); navM = now.getMonth(); }
+  if (!time) time = opts.defaultTime || '09:00';
+  _dtp = { selDay, navY, navM, time, opts };
+  document.querySelectorAll('.dtp-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'dtp-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+  overlay.addEventListener('mousedown', ev => { if (ev.target === overlay) _dtpClose(); });
+  document.body.appendChild(overlay);
+  _dtp.overlay = overlay;
+  _dtpRender();
+  const onKey = ev => {
+    if (ev.key === 'Escape') { ev.stopPropagation(); _dtpClose(); }
+    else if (ev.key === 'Enter') { ev.stopPropagation(); ev.preventDefault(); _dtpApply(); }
+  };
+  _dtp.onKey = onKey;
+  document.addEventListener('keydown', onKey, true);
+}
+
+function _dtpClose() {
+  if (!_dtp) return;
+  if (_dtp.overlay) _dtp.overlay.remove();
+  if (_dtp.onKey) document.removeEventListener('keydown', _dtp.onKey, true);
+  _dtp = null;
+}
+
+function _dtpNav(delta) {
+  if (!_dtp) return;
+  const d = new Date(_dtp.navY, _dtp.navM + delta, 1);
+  _dtp.navY = d.getFullYear(); _dtp.navM = d.getMonth();
+  _dtpRender();
+}
+
+function _dtpClickDay(iso) { if (_dtp) { _dtp.selDay = iso; _dtpRender(); } }
+function _dtpSetTime(v) { if (_dtp) _dtp.time = v || '09:00'; }
+
+function _dtpPreset(kind) {
+  if (!_dtp) return;
+  const pad = n => String(n).padStart(2, '0');
+  const now = new Date();
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  if (kind === 'today') _dtp.selDay = iso(now);
+  else if (kind === 'tomorrow') _dtp.selDay = iso(new Date(now.getTime()+864e5));
+  else if (kind === 'week') _dtp.selDay = iso(new Date(now.getTime()+7*864e5));
+  if (_dtp.selDay) { const [y,m] = _dtp.selDay.split('-'); _dtp.navY=+y; _dtp.navM=+m-1; }
+  _dtpRender();
+}
+
+function _dtpApply() {
+  if (!_dtp) return;
+  if (!_dtp.selDay) {
+    const hdr = _dtp.overlay && _dtp.overlay.querySelector('.dtp-month');
+    if (hdr) { hdr.style.color = 'var(--accent)'; setTimeout(()=>{ if(hdr) hdr.style.color='var(--text-primary)'; }, 800); }
+    return;
+  }
+  const val = `${_dtp.selDay}T${_dtp.time || '09:00'}`;
+  const cb = _dtp.opts.onApply;
+  _dtpClose();
+  if (typeof cb === 'function') cb(val);
+}
+
+function _dtpClear() {
+  if (!_dtp) return;
+  const cb = _dtp.opts.onClear;
+  _dtpClose();
+  if (typeof cb === 'function') cb();
+}
+
+function _dtpRender() {
+  if (!_dtp || !_dtp.overlay) return;
+  const pad = n => String(n).padStart(2, '0');
+  const yr = _dtp.navY, mo = _dtp.navM, o = _dtp.opts;
+  const monthName = new Date(yr, mo, 1).toLocaleString(undefined, {month:'long', year:'numeric'});
+  const firstDow = new Date(yr, mo, 1).getDay();
+  const daysIn = new Date(yr, mo+1, 0).getDate();
+  const n = new Date();
+  const todayIso = `${n.getFullYear()}-${pad(n.getMonth()+1)}-${pad(n.getDate())}`;
+  const dow = ['S','M','T','W','T','F','S'].map(d=>`<div style="text-align:center;font-size:10px;color:var(--text-dim);font-weight:700;padding:3px 0">${d}</div>`).join('');
+  let cells = '';
+  for (let i=0;i<firstDow;i++) cells += '<div></div>';
+  for (let d=1; d<=daysIn; d++) {
+    const iso = `${yr}-${pad(mo+1)}-${pad(d)}`;
+    const sel = iso === _dtp.selDay;
+    const isToday = iso === todayIso;
+    const bg = sel ? 'var(--accent)' : 'transparent';
+    const col = sel ? '#fff' : 'var(--text-primary)';
+    const ring = (isToday && !sel) ? 'box-shadow:inset 0 0 0 1px var(--accent);' : '';
+    cells += `<div onclick="_dtpClickDay('${iso}')" style="text-align:center;font-size:12px;padding:7px 0;border-radius:7px;cursor:pointer;background:${bg};color:${col};font-weight:${sel?'700':'500'};${ring}" onmouseover="if('${iso}'!==(_dtp&&_dtp.selDay))this.style.background='var(--bg-hover)'" onmouseout="if('${iso}'!==(_dtp&&_dtp.selDay))this.style.background='${bg}'">${d}</div>`;
+  }
+  const allowClear = !!o.allowClear;
+  const niceSel = _dtp.selDay
+    ? new Date(_dtp.selDay + 'T' + (_dtp.time||'09:00')).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+    : 'No date selected — pick a day below';
+  _dtp.overlay.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.4);padding:16px;width:322px;max-width:94vw;box-sizing:border-box">
+    <div style="font-size:14px;font-weight:800;color:var(--text-primary);margin-bottom:2px">${escHtml(o.title||'Pick date & time')}</div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:12px">${escHtml(niceSel)}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <button onclick="_dtpNav(-1)" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:15px;padding:2px 8px;border-radius:5px">‹</button>
+      <span class="dtp-month" style="font-size:13px;font-weight:700;color:var(--text-primary)">${monthName}</span>
+      <button onclick="_dtpNav(1)" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:15px;padding:2px 8px;border-radius:5px">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">${dow}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:2px">${cells}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin:11px 0 4px">
+      ${[['today','Today'],['tomorrow','Tomorrow'],['week','In a week']].map(([k,l])=>`<button onclick="_dtpPreset('${k}')" style="padding:4px 10px;border-radius:14px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer">${l}</button>`).join('')}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin:10px 0 4px">
+      <label style="font-size:11px;font-weight:700;color:var(--text-secondary);white-space:nowrap">🕒 Time</label>
+      <input type="time" value="${_dtp.time||'09:00'}" oninput="_dtpSetTime(this.value)" style="flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+      ${allowClear ? `<button onclick="_dtpClear()" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(220,38,38,.4);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">${escHtml(o.clearLabel||'Clear')}</button>` : ''}
+      <span style="flex:1"></span>
+      <button onclick="_dtpClose()" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">Cancel</button>
+      <button onclick="_dtpApply()" style="padding:9px 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:800;cursor:pointer">${escHtml(o.applyLabel||'✓ Apply')}</button>
+    </div>
+  </div>`;
+}
+
+// Format a local 'YYYY-MM-DDTHH:MM' (or ISO) value for a picker-button label.
+function _dtpLabel(val) {
+  if (!val) return '';
+  try { return new Date(val).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+  catch(_) { return val; }
+}
+
+// ── Schedule field: a hidden <input> (so existing value reads keep working) +
+// a button that opens the picker above. Keeps native datetime-local call sites
+// working unchanged — they still read document.getElementById(id).value.
+let _schedFields = {};
+// Configs for schedule pickers whose markup lives in static HTML (so they can't
+// be built via scheduleField()). Registered up-front so the picker has its
+// title / empty-label / clear-label ready on first click.
+_schedFields['post-schedule-time'] = { title: '🕒 Schedule post', allowClear: true, clearLabel: '⚡ Publish now', emptyText: 'Publish now', onChange: null };
+_schedFields['bulk-schedule-start'] = { title: '🕒 First post time', allowClear: true, clearLabel: '⚡ Clear', emptyText: 'Pick start time', onChange: null };
+_schedFields['qup-schedule-start'] = { title: '🕒 First post time', allowClear: true, clearLabel: '⚡ Clear', emptyText: 'Pick start time', onChange: null };
+function scheduleField(id, value, opts) {
+  opts = opts || {};
+  _schedFields[id] = {
+    title: opts.title || 'Schedule',
+    allowClear: opts.allowClear !== false,
+    clearLabel: opts.clearLabel || '⚡ Post now',
+    emptyText: opts.emptyText || 'Set date & time',
+    onChange: opts.onChange || null,
+  };
+  const v = value || '';
+  const style = opts.style || 'display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box';
+  const has = !!v;
+  const lbl = has ? _dtpLabel(v) : _schedFields[id].emptyText;
+  return `<input type="hidden" id="${id}" value="${escHtml(v)}"><button type="button" id="${id}-btn" onclick="_scheduleFieldOpen('${id}')" style="${style}${has?';border-color:var(--accent);color:var(--accent)':''}">📅 <span id="${id}-lbl">${escHtml(lbl)}</span> <span style="font-size:9px;opacity:.6">▾</span></button>`;
+}
+
+function _scheduleFieldOpen(id) {
+  const cfg = _schedFields[id] || {};
+  const input = document.getElementById(id);
+  openDateTimePicker({
+    value: input ? input.value : '',
+    title: cfg.title || 'Schedule',
+    allowClear: cfg.allowClear !== false,
+    clearLabel: cfg.clearLabel || '⚡ Post now',
+    onApply: val => _scheduleFieldSet(id, val),
+    onClear: (cfg.allowClear !== false) ? () => _scheduleFieldSet(id, '') : undefined,
+  });
+}
+
+function _scheduleFieldSet(id, val) {
+  const cfg = _schedFields[id] || {};
+  const input = document.getElementById(id);
+  if (input) input.value = val || '';
+  const lblEl = document.getElementById(id + '-lbl');
+  if (lblEl) lblEl.textContent = val ? _dtpLabel(val) : (cfg.emptyText || 'Set date & time');
+  const btn = document.getElementById(id + '-btn');
+  if (btn) { const has = !!val; btn.style.borderColor = has ? 'var(--accent)' : 'var(--border)'; btn.style.color = has ? 'var(--accent)' : 'var(--text-primary)'; }
+  if (typeof cfg.onChange === 'function') { try { cfg.onChange(val || ''); } catch(e) { console.warn('scheduleField onChange', e); } }
 }
 
 // ── My Queue date-range picker (Meta-style popup calendar + direct typing) ────
@@ -4848,6 +5099,17 @@ function pageAvatar(pic, platform, size = 28) {
   return `<span style="position:relative;display:inline-block;width:${size}px;height:${size}px;flex-shrink:0">
     ${img}
     <span style="position:absolute;bottom:-2px;right:-3px;width:${badge}px;height:${badge}px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bg-primary)">${platformIcon(platform, badge - 3)}</span>
+  </span>`;
+}
+
+// A rounded "destination" pill: real page/profile avatar (with platform badge)
+// + the page name. Used wherever we show which page(s) a post goes to, so the
+// UI shows actual profile pictures and brand icons instead of plain emoji.
+function destChip(t, size = 22) {
+  const name = (t && t.name) ? t.name : '';
+  return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg-primary);border:1px solid var(--border);border-radius:20px;padding:3px 11px 3px 3px;vertical-align:middle;max-width:100%">
+    ${pageAvatar(t ? t.picture_url : '', t ? t.platform : 'facebook', size)}
+    <b style="font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</b>
   </span>`;
 }
 
@@ -6302,6 +6564,7 @@ function clearPostComposer() {
   ['post-caption','post-media-url','post-schedule-time'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
+  _scheduleFieldSet('post-schedule-time', '');
   const s = document.getElementById('post-status-msg'); if (s) s.textContent = '';
 }
 
@@ -6414,7 +6677,7 @@ function renderBulkPosts() {
         <select onchange="updateBulkPost(${i},'media_type',this.value)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text-primary);font-size:12px">
           ${['IMAGE','REELS','STORIES'].map(t => `<option value="${t}" ${t===p.media_type?'selected':''}>${t}</option>`).join('')}
         </select>
-        <input type="datetime-local" value="${p.scheduled_time||''}" onchange="updateBulkPost(${i},'scheduled_time',this.value)" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text-primary);font-size:12px">
+        ${scheduleField(`bulk-sched-${i}`, p.scheduled_time||'', { title:`🕒 Post ${i+1} time`, emptyText:'Set time', clearLabel:'⚡ Clear', onChange:v=>updateBulkPost(i,'scheduled_time',v), style:'display:inline-flex;align-items:center;gap:6px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer' })}
       </div>
       <textarea id="bulk-cap-${i}" rows="3" placeholder="Caption…" onchange="updateBulkPost(${i},'caption',this.value)" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-primary);font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;margin-bottom:7px"></textarea>
       <input id="bulk-tags-${i}" type="text" placeholder="#hashtags (space-separated)" onchange="updateBulkPost(${i},'hashtags',this.value)" style="width:100%;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-size:12px;box-sizing:border-box">
@@ -7284,8 +7547,9 @@ function uwPickTargets(targets) {
   _uw._chatName = chatName;
   _uwChatsSafeUpsert(_uw._chatId, chatName, { posts: [], target: _uw.target, targets: _uw.targets, viewMode: _uw.viewMode, instructions: '' });
   _uwSave(); // persist the account/portfolio selection right away
-  const label = targets.map(t => `${t.platform==='instagram'?'📷':'📘'} ${t.name}`).join(' + ');
-  _appendPostsMsg('user', `Post to ${label}`);
+  const chipLabel = targets.map(t => destChip(t, 20)).join('<span style="color:var(--text-dim);margin:0 2px">+</span>');
+  const _ptMsg = _appendPostsMsg('user', `Post to ${targets.map(t => t.name).join(' + ')}`);
+  if (_ptMsg) { const _b = _ptMsg.querySelector('.msg-bubble'); if (_b) _b.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">Post to ${chipLabel}</span>`; }
   // Small segmented toggle: each option is a pill; the active one is filled.
   const seg = (group, opts) => `<div style="display:inline-flex;gap:4px;background:var(--bg-primary);border:1px solid var(--border);border-radius:9px;padding:3px">${
     opts.map((o,idx) => `<button type="button" class="uw-seg uw-seg-${group}" data-val="${o.val}" onclick="uw${group==='img'?'Img':'Cap'}Src(this,'${o.val}')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:7px;border:none;background:${idx===0?'var(--accent)':'transparent'};color:${idx===0?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;cursor:pointer">${o.icon} ${o.text}</button>`).join('')
@@ -8441,7 +8705,8 @@ function _uwRenderPreview() {
       return a.i - b.i;
     })
     .map(x => x.p);
-  const destLabel = (_uw.targets||[_uw.target]).map(t => escHtml(t.name)).join(' + ');
+  const destTargets = (_uw.targets||[_uw.target]).filter(Boolean);
+  const destChips = destTargets.map(t => destChip(t, 22)).join('<span style="color:var(--text-dim);margin:0 2px">+</span>');
   const fromDoc = _uw.posts.filter(p => p._schedLocal).length;
   const schedHint = fromDoc
     ? `🕒 ${fromDoc === _uw.posts.length ? 'Schedule times were taken from your captions file' : fromDoc + ' schedule time(s) were taken from your captions file'} — adjust any post's date below.`
@@ -8453,7 +8718,7 @@ function _uwRenderPreview() {
   const _tabListSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="2" width="16" height="2.5" rx="1.2"/><rect x="0" y="6.8" width="16" height="2.5" rx="1.2"/><rect x="0" y="11.5" width="16" height="2.5" rx="1.2"/></svg>`;
   const _tabGridSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg>`;
   const _tabCalSvg = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="2" width="16" height="14" rx="2" opacity=".25"/><rect x="0" y="4" width="16" height="12" rx="2"/><rect x="1" y="6" width="14" height="1.5" opacity=".4"/><rect x="3" y="0" width="1.5" height="4" rx=".75"/><rect x="11.5" y="0" width="1.5" height="4" rx=".75"/><rect x="2" y="9" width="2" height="2" rx=".5"/><rect x="5.5" y="9" width="2" height="2" rx=".5"/><rect x="9" y="9" width="2" height="2" rx=".5"/><rect x="12.5" y="9" width="2" height="2" rx=".5"/></svg>`;
-  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:8px">Here's the preview — <b>${_uw.posts.length}</b> post(s) for <b>${destLabel}</b>. Check each image, caption and time, then publish.</div>
+  const card = _appendPostsCard(`<div style="font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">Here's the preview — <b>${_uw.posts.length}</b> post(s) for ${destChips}. Check each image, caption and time, then publish.</div>
     ${_uw.instructions ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;margin-bottom:8px">💬 To apply your instructions ("${escHtml(_uw.instructions)}"), use <b>🤖 Let AI handle it</b>. The quick publish below posts captions as-is.</div>` : ''}
     <div class="uw-preview" style="position:relative">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
@@ -8831,65 +9096,21 @@ function uwCalDrop(e, day) {
   _uwRenderCards();
 }
 
-// Schedule editor for one (post, platform) — opens as a centered modal so it
-// always appears in the same place, with date + time fields you can type into
-// directly. "⚡ Post now" clears the schedule for that platform's copy.
+// Schedule editor for one (post, platform) — opens the shared Meta-style
+// date+time picker. "⚡ Post now" clears the schedule for that platform's copy.
 function uwCalTimeOpen(idx, plat, e) {
   if (e) { e.stopPropagation && e.stopPropagation(); e.preventDefault && e.preventDefault(); }
-  document.querySelectorAll('.uw-cal-pop').forEach(el => el.remove());
   const p = _uw.posts[idx]; if (!p) return;
   const curSched = _uwPlatSched(p, plat);
-  const today = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const defDate = curSched ? curSched.slice(0, 10)
-    : `${_uw.calYear ?? today.getFullYear()}-${pad((_uw.calMonth ?? today.getMonth()) + 1)}-${pad(today.getDate())}`;
-  const defTime = curSched ? curSched.slice(11, 16) : today.toTimeString().slice(0, 5);
   const platLabel = plat === 'instagram' ? 'Instagram' : 'Facebook';
-  const inp = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--text-primary);font-size:15px;outline:none;box-sizing:border-box;font-family:inherit';
-  const overlay = document.createElement('div');
-  overlay.className = 'uw-cal-pop';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML = `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:14px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.45);min-width:280px;max-width:92vw;box-sizing:border-box">
-    <div style="font-size:14px;font-weight:800;color:var(--text-primary);margin-bottom:2px">🕒 Post ${idx+1} · ${platLabel}</div>
-    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:12px">Type the date and time directly, then press Enter or ✓ Apply.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <input type="date" class="uw-tp-date" value="${defDate}" style="${inp};flex:1;min-width:140px">
-      <input type="time" class="uw-tp-time" value="${defTime}" style="${inp};width:110px">
-    </div>
-    <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;align-items:center">
-      <button class="uw-tp-now" title="Remove the scheduled time — post will go live immediately when you press Publish" style="padding:9px 12px;border:1px solid rgba(220,38,38,.4);border-radius:8px;background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer">⚡ Remove schedule</button>
-      <span style="display:flex;gap:8px">
-        <button class="uw-tp-cancel" style="padding:9px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:700;cursor:pointer">Cancel</button>
-        <button class="uw-tp-ok" style="padding:9px 18px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:800;cursor:pointer">✓ Apply</button>
-      </span>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-  const dateEl = overlay.querySelector('.uw-tp-date');
-  const timeEl = overlay.querySelector('.uw-tp-time');
-  const closePop = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
-  const apply = () => {
-    const d = dateEl.value, t = timeEl.value;
-    if (!d || !t) { (d ? timeEl : dateEl).style.borderColor = 'var(--accent)'; return; }
-    const val = `${d}T${t}`;
-    if (val !== curSched) { _uwSetPlatSched(p, plat, val); _uwSnap(); }
-    closePop();
-    _uwRenderCards();
-  };
-  overlay.querySelector('.uw-tp-ok').onclick = apply;
-  overlay.querySelector('.uw-tp-cancel').onclick = closePop;
-  overlay.querySelector('.uw-tp-now').onclick = () => {
-    if (curSched) { _uwSetPlatSched(p, plat, null); _uwSnap(); }
-    closePop();
-    _uwRenderCards();
-  };
-  overlay.addEventListener('mousedown', ev => { if (ev.target === overlay) closePop(); });
-  const onKey = ev => {
-    if (ev.key === 'Escape') { ev.stopPropagation(); closePop(); }
-    else if (ev.key === 'Enter') { ev.stopPropagation(); ev.preventDefault(); apply(); }
-  };
-  document.addEventListener('keydown', onKey, true);
-  setTimeout(() => { timeEl.focus(); try { timeEl.select(); } catch(_) {} }, 30);
+  openDateTimePicker({
+    value: curSched || '',
+    title: `🕒 Post ${idx+1} · ${platLabel}`,
+    allowClear: true,
+    clearLabel: '⚡ Post now',
+    onApply: val => { if (val !== curSched) { _uwSetPlatSched(p, plat, val); _uwSnap(); } _uwRenderCards(); },
+    onClear: () => { if (curSched) { _uwSetPlatSched(p, plat, null); _uwSnap(); } _uwRenderCards(); },
+  });
 }
 
 // Delete a post from the calendar (undo restores it).
@@ -9094,7 +9315,7 @@ function _uwPostCardHtml(p, i) {
       </span>
       <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="uw-date-${i}" style="font-size:11px;color:var(--text-dim)">${p._schedLocal ? '🕒' : '⚡ now'}</span>
-        <input type="datetime-local" class="uw-when-${i}" value="${p._schedLocal || ''}" onchange="uwSetPostTime(${i}, this.value)" title="Schedule this post — clear it to post immediately" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:4px 6px;color:var(--text-primary);font-size:11px">
+        <button type="button" onclick="uwOpenCardTime(${i});event.stopPropagation()" title="Schedule this post — clear it to post immediately" style="display:inline-flex;align-items:center;gap:5px;background:var(--bg-secondary);border:1px solid ${p._schedLocal?'var(--accent)':'var(--border)'};border-radius:7px;padding:4px 9px;color:${p._schedLocal?'var(--accent)':'var(--text-primary)'};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">📅 ${p._schedLocal ? escHtml(_dtpLabel(p._schedLocal)) : 'Set time'}</button>
         <button onclick="uwShowFeedPreview(${i})" title="See how this post will look on the feed" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-secondary);font-size:10px;padding:4px 8px;cursor:pointer;font-weight:600">👁 Preview</button>
         <button onclick="uwRemovePost(${i})" title="Remove this post from the upload" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:10px;padding:4px 8px;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🗑 Remove</button>
         <span class="uw-res-${i}" style="font-size:11px;color:var(--text-dim)"></span>
@@ -9322,26 +9543,39 @@ function _uwFeedRefresh(i) {
   if (_uwFeed.open && _uwFeed.i === i) _uwRenderFeed();
 }
 
-// Set schedule from the feed panel date/time inputs.
-function uwFeedSetSched() {
+// Open the shared Meta-style picker for the previewed post's schedule.
+function uwFeedOpenSched() {
   const p = _uw.posts[_uwFeed.i];
   if (!p) return;
-  const d = document.getElementById('uw-feed-date');
-  const t = document.getElementById('uw-feed-time');
-  const dateVal = d && d.value;
-  const timeVal = (t && t.value) || '09:00';
-  if (!dateVal) return;
-  const iso = `${dateVal}T${timeVal}:00`;
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+  const plat = (_uwFeed.mode === 'instagram' ? 'instagram' : 'facebook');
+  let cur = null;
+  if (targets.length > 1 && p._platSched) cur = p._platSched[plat] || p._schedLocal;
+  else cur = p._schedLocal;
+  openDateTimePicker({
+    value: cur || '',
+    title: `🕒 Post ${_uwFeed.i + 1} schedule`,
+    allowClear: true,
+    clearLabel: '⚡ Post now',
+    onApply: val => uwFeedApplySched(val),
+    onClear: () => uwFeedApplySched(''),
+  });
+}
+
+// Apply a picked schedule to the previewed post (matches it across targets).
+function uwFeedApplySched(val) {
+  const p = _uw.posts[_uwFeed.i];
+  if (!p) return;
+  const iso = val ? (val.length === 16 ? `${val}:00` : val) : null;
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
   if (targets.length > 1) {
     p._platSched = p._platSched || {};
     targets.forEach(tg => { p._platSched[tg.platform] = iso; });
   } else {
     p._schedLocal = iso;
-    p._sched = new Date(iso).toISOString();
+    p._sched = iso ? new Date(iso).toISOString() : null;
   }
   _uwSnap(); _uwSave(); _uwRenderCards();
-  // Update the schedule label in feed mockup without full re-render
   const title = document.getElementById('uw-feed-title');
   if (title) title.textContent = `Post ${_uwFeed.i + 1} preview`;
   _uwRenderFeed();
@@ -9349,41 +9583,26 @@ function uwFeedSetSched() {
 
 // Clear schedule (post immediately).
 function uwFeedClearSched() {
-  const p = _uw.posts[_uwFeed.i];
-  if (!p) return;
-  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
-  if (targets.length > 1) {
-    p._platSched = p._platSched || {};
-    targets.forEach(tg => { p._platSched[tg.platform] = null; });
-  } else {
-    p._schedLocal = null; p._sched = null;
-  }
-  const d = document.getElementById('uw-feed-date');
-  const t = document.getElementById('uw-feed-time');
-  if (d) d.value = '';
-  if (t) t.value = '';
-  _uwSnap(); _uwSave(); _uwRenderCards(); _uwRenderFeed();
+  uwFeedApplySched('');
 }
 
-// Populate the feed panel's date/time inputs from the currently-previewed post.
+// Reflect the previewed post's schedule on the feed panel's picker button.
 function _uwFeedSyncSchedInputs() {
   const p = _uw.posts[_uwFeed.i];
-  const d = document.getElementById('uw-feed-date');
-  const t = document.getElementById('uw-feed-time');
-  if (!d || !t) return;
+  const lbl = document.getElementById('uw-feed-sched-lbl');
+  const btn = document.getElementById('uw-feed-sched-btn');
+  if (!lbl) return;
   const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
   const plat = (_uwFeed.mode === 'instagram' ? 'instagram' : 'facebook');
   let sched = null;
   if (p && targets.length > 1 && p._platSched) sched = p._platSched[plat] || p._schedLocal;
   else if (p) sched = p._schedLocal;
   if (sched) {
-    const dt = new Date(sched);
-    const yyyy = dt.getFullYear(), mm = String(dt.getMonth()+1).padStart(2,'0'), dd = String(dt.getDate()).padStart(2,'0');
-    const hh = String(dt.getHours()).padStart(2,'0'), mi = String(dt.getMinutes()).padStart(2,'0');
-    d.value = `${yyyy}-${mm}-${dd}`;
-    t.value = `${hh}:${mi}`;
+    lbl.textContent = _dtpLabel(sched);
+    if (btn) { btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)'; }
   } else {
-    d.value = ''; t.value = '';
+    lbl.textContent = 'Set date & time';
+    if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.color = 'var(--text-primary)'; }
   }
 }
 
@@ -9642,6 +9861,19 @@ function uwSetPostTime(i, val) {
   _uwFeedRefresh(i);
 }
 
+// Open the shared Meta-style picker for a list-card's schedule (step 2/3 list).
+function uwOpenCardTime(i) {
+  const p = _uw.posts[i]; if (!p) return;
+  openDateTimePicker({
+    value: p._schedLocal || '',
+    title: `🕒 Schedule Post ${i+1}`,
+    allowClear: true,
+    clearLabel: '⚡ Post now',
+    onApply: val => { uwSetPostTime(i, val); _uwRenderCards(); },
+    onClear: () => { uwSetPostTime(i, ''); _uwRenderCards(); },
+  });
+}
+
 // Card body click → open the feed preview, unless the click landed on one of
 // the card's own controls (buttons, inputs, thumbnails, editable fields).
 function uwCardClick(e, i) {
@@ -9839,16 +10071,20 @@ async function uwPollJob() {
       }
       const hasFbScheduled = (job.results||[]).some(r => r.success && r.scheduled && !r.scheduled_id);
       const hasIgScheduled = (job.results||[]).some(r => r.success && r.scheduled && r.scheduled_id);
-      const schedNote = (hasFbScheduled || hasIgScheduled) ? `<div style="margin-top:8px;font-size:11px;color:var(--text-dim);line-height:1.5;border-top:1px solid var(--border);padding-top:8px">${
-        hasFbScheduled ? '📘 Facebook scheduled posts appear in <b>Meta Business Suite → Content → Scheduled</b> immediately.<br>' : ''
+      const schedNote = (hasFbScheduled || hasIgScheduled) ? `<div style="margin-top:8px;font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--border);padding-top:8px">${
+        hasFbScheduled ? `<span style="display:inline-flex;align-items:center;gap:5px">${fbIcon(13)} Facebook scheduled posts appear in <b>Meta Business Suite → Content → Scheduled</b> immediately.</span><br>` : ''
       }${
-        hasIgScheduled ? '📷 Instagram scheduled posts are managed by this app and will appear in <b>Meta Business Suite only after they publish</b> at their scheduled time.' : ''
+        hasIgScheduled ? `<span style="display:inline-flex;align-items:center;gap:5px">${igIcon(13)} Instagram scheduled posts are managed by this app and will appear in <b>Meta Business Suite only after they publish</b> at their scheduled time.</span>` : ''
       }</div>` : '';
       const actionBtns = `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button onclick="uwScheduleMoreSamePage()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 15px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">📤 Schedule more for same page</button>
         <button onclick="uwNewChat();startUploadWizard()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 15px;background:var(--bg-primary);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🔀 Post on a different page</button>
       </div>`;
-      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${failHtml}${schedNote}${actionBtns}</div>`); return; }
+      const _doneTargets = (_uw.targets || [_uw.target]).filter(Boolean);
+      const doneDest = _doneTargets.length
+        ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--text-secondary)">Posted to ${_doneTargets.map(t => destChip(t, 20)).join('<span style="color:var(--text-dim);margin:0 2px">+</span>')}</div>`
+        : '';
+      _appendPostsCard(`<div style="font-size:13px">${job.failed?'⚠️':'✅'} <b>${job.failed?'Done with issues':'All done!'}</b> ${job.published_count} published${job.scheduled_count?', '+job.scheduled_count+' scheduled':''}${job.failed?', '+job.failed+' failed':''}.${doneDest}${failHtml}${schedNote}${actionBtns}</div>`); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
