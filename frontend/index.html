@@ -2800,10 +2800,17 @@ async function _uwApplyPreviewData(data) {
     return;
   }
   const prevPosts = _uw.posts || [];
+  const captions = data.captions || [];
   _uw.imgSrc = 'drive';
   _uw.mediaPool = media;
-  _uw.posts = _uwGroupPosts(media, data.captions || []);
-  await _uwAiMatch(_uw.posts, data.captions || []);
+  // A content plan (captions) is authoritative: one post per plan row, images
+  // matched into them. No plan → group every image as before.
+  if (captions.length) {
+    const built = await _uwBuildPlanPosts(media, captions);
+    _uw.posts = built.posts;
+  } else {
+    _uw.posts = _uwGroupPosts(media, []);
+  }
   _uwMergePrevContent(_uw.posts, prevPosts);
   _uwRenderPreview();
 }
@@ -7362,18 +7369,25 @@ async function uwBuildPreview(btn) {
         captions = r.captions || [];
       }
     }
-    // 3) Group into posts (carousels by filename) + match captions. The AI
-    // pass refines the heuristic match when names/numbers don't line up.
+    // 3) Build posts. When a content plan (captions) is provided, the plan is
+    // authoritative — one post per plan row, images matched into them (extra
+    // images are left out). With no plan, fall back to grouping every image.
     const prevPosts = _uw.posts || [];
     _uw.mediaPool = media;
-    _uw.posts = _uwGroupPosts(media, captions);
-    if (captions.length && _uw.posts.length) {
-      status.textContent = '🤖 Matching captions and dates with AI…';
-      await _uwAiMatch(_uw.posts, captions);
+    let dropped = 0;
+    if (captions.length) {
+      status.textContent = '🤖 Matching your content plan to the images…';
+      const built = await _uwBuildPlanPosts(media, captions);
+      _uw.posts = built.posts;
+      dropped = built.dropped;
+    } else {
+      _uw.posts = _uwGroupPosts(media, []);
     }
     _uwMergePrevContent(_uw.posts, prevPosts);
     const carCount = _uw.posts.filter(p => p.mediaList.length > 1).length;
-    status.textContent = `${_uw.posts.length} post(s)` + (carCount ? `, ${carCount} carousel(s)` : '') + ` from ${media.length} file(s).`;
+    status.textContent = `${_uw.posts.length} post(s)` + (carCount ? `, ${carCount} carousel(s)` : '')
+      + (captions.length ? ` from your content plan` : ` from ${media.length} file(s)`)
+      + (dropped ? ` · ${dropped} folder image(s) weren't referenced in the plan and were left out.` : '.');
     btn.disabled = false;
     _uwRenderPreview();
   } catch(e) { status.textContent = 'Error: '+(e.message||e); btn.disabled=false; }
@@ -7513,6 +7527,164 @@ function _uwGroupPosts(media, captions) {
   });
   posts.forEach(p => { delete p._label; });
   return posts;
+}
+
+// ── Plan-driven post building ────────────────────────────────────────────────
+// When the user uploads a content plan (a sheet/doc with caption rows), THAT
+// file is authoritative: it defines exactly which posts exist — one post per
+// row — and the folder's images are matched INTO those rows. Images the plan
+// never references are left out instead of being turned into their own posts.
+// This is the inverse of _uwGroupPosts (which builds posts from every image and
+// was creating carousels/posts the plan never asked for).
+//
+// Returns { posts, dropped } — dropped = number of folder images not referenced
+// by any plan row, so the caller can tell the user about them.
+async function _uwBuildPlanPosts(media, captions) {
+  const caps = captions || [];
+  if (!caps.length) return { posts: _uwGroupPosts(media, []), dropped: 0 };
+
+  // Wrap each media file with its parsed name info and (optional) subfolder.
+  const items = (media || []).map((m, idx) => ({
+    m, idx, info: _uwParseName(m.name || ''), group: m.group || null,
+  }));
+  const used = new Set();
+  const avail = () => items.filter(x => !used.has(x.idx));
+  const take = arr => { arr.forEach(x => used.add(x.idx)); return arr; };
+
+  // One slot per plan row. _capIdx keeps the slot's row index so the preview
+  // sorts posts in the plan's own order.
+  const slots = caps.map((c, k) => {
+    const st = _uwSplitTags(c.caption || '');
+    return {
+      k, cap: c, text: st.text, tags: st.tags,
+      type: c.type || '',                          // 'image' | 'reel' | 'carousel' | ''
+      label: _uwCaptionLabel(c.caption),           // 'carouselN' | 'postN' | null
+      refs: (c.file || '').split(/[,;\n]+/).map(s => s.trim()).filter(Boolean),
+      items: [],
+    };
+  });
+
+  // Phase A — explicit file references from the sheet's image/file column.
+  // Most authoritative: the plan literally names the file(s) for this row.
+  slots.forEach(s => {
+    if (!s.refs.length) return;
+    s.refs.forEach(ref => {
+      const hit = avail().find(x =>
+        _uwNamesMatch(ref, x.m.name || '') || (x.group && _uwNamesMatch(ref, x.group)));
+      if (hit) { take([hit]); s.items.push(hit); }
+    });
+  });
+
+  // Phase B — "carousel N" rows claim the whole carousel: every slide sharing
+  // that carousel id (by filename) or a matching subfolder group.
+  slots.forEach(s => {
+    if (s.items.length || !(s.label && /^carousel\d+$/.test(s.label))) return;
+    const cid = Number(s.label.replace('carousel', ''));
+    let slides = avail().filter(x => x.info.carousel && x.info.cid === cid)
+                        .sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx));
+    if (!slides.length) slides = avail().filter(x => x.group && _uwNamesMatch(x.group, s.label));
+    if (slides.length) { take(slides); s.items.push(...slides); }
+  });
+
+  // Phase C — "post N" single rows claim the file numbered to match.
+  slots.forEach(s => {
+    if (s.items.length || !(s.label && /^post\d+$/.test(s.label))) return;
+    const n = Number(s.label.replace('post', ''));
+    const hit = avail().find(x => !x.info.carousel && x.info.postNum === n);
+    if (hit) { take([hit]); s.items.push(hit); }
+  });
+
+  // Phase D — carousel-type rows with no label/ref match claim the next whole
+  // unclaimed subfolder group (or carousel id), so multi-image posts stay
+  // grouped even when the plan didn't number them.
+  slots.forEach(s => {
+    if (s.items.length || s.type !== 'carousel') return;
+    const groups = {};
+    avail().forEach(x => { if (x.group) (groups[x.group] = groups[x.group] || []).push(x); });
+    const firstGroup = Object.values(groups).find(g => g.length > 1);
+    if (firstGroup) { take(firstGroup); s.items.push(...firstGroup); return; }
+    const carIds = {};
+    avail().forEach(x => { if (x.info.carousel) (carIds[x.info.cid] = carIds[x.info.cid] || []).push(x); });
+    const firstCar = Object.values(carIds)[0];
+    if (firstCar) {
+      firstCar.sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx));
+      take(firstCar); s.items.push(...firstCar);
+    }
+  });
+
+  // Phase E — AI/vision placement for the remaining single-image rows. Each
+  // unclaimed image is offered as a candidate and the model picks which
+  // still-empty row it belongs to (by content, filename, type). Carousels are
+  // not placed here — they need the grouping signals handled above.
+  const singleSlots = slots.filter(s => !s.items.length && s.type !== 'carousel');
+  const leftover = avail();
+  if (singleSlots.length && leftover.length) {
+    try {
+      const placed = await _uwAiPlaceImages(leftover, singleSlots);
+      if (placed) {
+        for (const [mediaIdx, slotK] of placed) {
+          const it = items[mediaIdx];
+          const s = slots.find(x => x.k === slotK);
+          if (it && s && !used.has(it.idx) && !s.items.length && s.type !== 'carousel') {
+            take([it]); s.items.push(it);
+          }
+        }
+      }
+    } catch (e) { /* fall through to ordered fill */ }
+  }
+
+  // Phase F — ordered fill: any row still without an image takes the next
+  // available file in folder order, so no planned post is left unpublishable.
+  slots.forEach(s => {
+    if (s.items.length) return;
+    const next = avail()[0];
+    if (next) { take([next]); s.items.push(next); }
+  });
+
+  // Build the final posts — exactly one per plan row, in plan order.
+  const posts = slots.map(s => {
+    const mediaList = s.items.map(x => x.m);
+    const isReel = s.type === 'reel'
+      || (s.type !== 'carousel' && mediaList.length === 1 && mediaList[0] && mediaList[0].is_video);
+    const p = {
+      mediaList,
+      media_type: isReel ? 'REELS' : 'IMAGE',
+      caption: s.text, hashtags: s.tags.slice(),
+      _sched: s.cap.schedule ? new Date(s.cap.schedule).toISOString() : null,
+      _schedLocal: s.cap.schedule || null,
+      _capIdx: s.k,
+    };
+    return p;
+  });
+
+  const dropped = avail().length;
+  return { posts, dropped };
+}
+
+// AI/vision placement helper for plan mode: given unclaimed image items and the
+// plan rows still missing an image, ask the match endpoint which row each image
+// belongs to. Returns [[mediaIndex, slotK], …] or null on failure.
+async function _uwAiPlaceImages(leftoverItems, emptySlots) {
+  if (!leftoverItems.length || !emptySlots.length) return null;
+  const res = await api('POST', '/api/posting/ai/match', {
+    posts: leftoverItems.map(x => {
+      const firstImg = x.m;
+      return {
+        index: x.idx,
+        files: [x.m.name || ''].concat(x.group ? ['[folder] ' + x.group] : []),
+        kind: x.m.is_video ? 'reel' : 'image',
+        drive_id: (!firstImg.local_file_id && firstImg.id) ? firstImg.id : '',
+        local_id: firstImg.local_file_id || '',
+      };
+    }),
+    captions: emptySlots.map(s => ({
+      index: s.k, caption: s.text || '', schedule: s.cap.schedule || null,
+      type: s.type || '', file: s.cap.file || '',
+    })),
+  });
+  if (!res || !res.success || !Array.isArray(res.assignments)) return null;
+  // Endpoint returns [[post_index, caption_index|null]] = [[mediaIndex, slotK]].
+  return res.assignments.filter(pair => Array.isArray(pair) && pair[1] != null);
 }
 
 // Does a caption block mention this media filename (with or without extension)?
