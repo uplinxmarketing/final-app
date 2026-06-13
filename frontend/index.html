@@ -4005,6 +4005,16 @@ function _dtpNav(delta) {
 
 function _dtpClickDay(iso) { if (_dtp) { _dtp.selDay = iso; _dtpRender(); } }
 function _dtpSetTime(v) { if (_dtp) _dtp.time = v || '09:00'; }
+// Let the user type a full date (YYYY-MM-DD from the native date input) and
+// jump the calendar to it.
+function _dtpSetDate(v) {
+  if (!_dtp || !v) return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return;
+  _dtp.selDay = v;
+  _dtp.navY = +m[1]; _dtp.navM = +m[2] - 1;
+  _dtpRender();
+}
 
 function _dtpPreset(kind) {
   if (!_dtp) return;
@@ -4065,7 +4075,11 @@ function _dtpRender() {
     : 'No date selected — pick a day below';
   _dtp.overlay.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.4);padding:16px;width:322px;max-width:94vw;box-sizing:border-box">
     <div style="font-size:14px;font-weight:800;color:var(--text-primary);margin-bottom:2px">${escHtml(o.title||'Pick date & time')}</div>
-    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:12px">${escHtml(niceSel)}</div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:10px">${escHtml(niceSel)}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px">
+      <label style="font-size:11px;font-weight:700;color:var(--text-secondary);white-space:nowrap">📅 Date</label>
+      <input type="date" value="${_dtp.selDay||''}" onchange="_dtpSetDate(this.value)" style="flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box">
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
       <button onclick="_dtpNav(-1)" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:15px;padding:2px 8px;border-radius:5px">‹</button>
       <span class="dtp-month" style="font-size:13px;font-weight:700;color:var(--text-primary)">${monthName}</span>
@@ -9999,7 +10013,7 @@ function _uwConfirmPublish(nPosts, targets, nScheduled) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';
     wrap.onclick = e => { if (e.target === wrap) { wrap.remove(); resolve(false); } };
-    const targetLines = targets.map(t => `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:12px">${t.platform==='instagram'?'📷':'📘'} ${escHtml(t.name)}</span>`).join(' ');
+    const targetLines = targets.map(t => destChip(t, 20)).join(' ');
     const schedLine = nScheduled === nPosts ? `All ${nPosts} will be <b>scheduled</b> for a future date.`
       : nScheduled ? `${nPosts - nScheduled} will publish <b>immediately</b>, ${nScheduled} are <b>scheduled</b>.`
       : `All ${nPosts} will publish <b>immediately</b>.`;
