@@ -2799,10 +2799,12 @@ async function _uwApplyPreviewData(data) {
     _appendPostsCard(`<div style="font-size:13px">⚠️ The AI prepared <b>${media.length}</b> file(s) but didn't specify where to post. Ask it again mentioning the Facebook page or Instagram account, or use 📤 the upload wizard.</div>`);
     return;
   }
+  const prevPosts = _uw.posts || [];
   _uw.imgSrc = 'drive';
   _uw.mediaPool = media;
   _uw.posts = _uwGroupPosts(media, data.captions || []);
   await _uwAiMatch(_uw.posts, data.captions || []);
+  _uwMergePrevContent(_uw.posts, prevPosts);
   _uwRenderPreview();
 }
 
@@ -7353,12 +7355,14 @@ async function uwBuildPreview(btn) {
     }
     // 3) Group into posts (carousels by filename) + match captions. The AI
     // pass refines the heuristic match when names/numbers don't line up.
+    const prevPosts = _uw.posts || [];
     _uw.mediaPool = media;
     _uw.posts = _uwGroupPosts(media, captions);
     if (captions.length && _uw.posts.length) {
       status.textContent = '🤖 Matching captions and dates with AI…';
       await _uwAiMatch(_uw.posts, captions);
     }
+    _uwMergePrevContent(_uw.posts, prevPosts);
     const carCount = _uw.posts.filter(p => p.mediaList.length > 1).length;
     status.textContent = `${_uw.posts.length} post(s)` + (carCount ? `, ${carCount} carousel(s)` : '') + ` from ${media.length} file(s).`;
     btn.disabled = false;
@@ -7615,6 +7619,46 @@ function _uwPostKind(p) {
 }
 
 function _uwMediaKey(m) { return m.local_file_id ? ('local:'+m.local_file_id) : ('drive:'+m.id); }
+
+// Stable identity for a post = the set of media files it contains. Used to
+// carry user content across any posts rebuild.
+function _uwContentKey(p) {
+  return (p.mediaList || []).map(_uwMediaKey).sort().join('|');
+}
+
+// Safety net for every posts rebuild: a new post made of the same media files
+// must never come out with LESS content than the user already had. If a rebuilt
+// post is missing its caption/hashtags/schedule but the previous post with the
+// same files had them, copy them over. This makes caption/schedule wipes
+// structurally impossible no matter which code path triggered the rebuild.
+function _uwMergePrevContent(newPosts, prevPosts) {
+  if (!(prevPosts || []).length || !(newPosts || []).length) return 0;
+  const prevByKey = new Map();
+  prevPosts.forEach(p => { const k = _uwContentKey(p); if (k) prevByKey.set(k, p); });
+  let restored = 0;
+  newPosts.forEach(p => {
+    const old = prevByKey.get(_uwContentKey(p));
+    if (!old) return;
+    const hadContent = (old.caption || '').trim() || (old.hashtags || []).length || old._schedLocal || old._platSched;
+    if (!hadContent) return;
+    const empty = !(p.caption || '').trim() && !(p.hashtags || []).length;
+    if (empty && ((old.caption || '').trim() || (old.hashtags || []).length)) {
+      p.caption = old.caption || '';
+      p.hashtags = (old.hashtags || []).slice();
+      if (old._capIdx != null) p._capIdx = old._capIdx;
+      restored++;
+    }
+    if (!p._schedLocal && old._schedLocal) {
+      p._schedLocal = old._schedLocal;
+      p._sched = old._sched || new Date(old._schedLocal).toISOString();
+      restored++;
+    }
+    if (!p._platSched && old._platSched) { p._platSched = { ...old._platSched }; restored++; }
+  });
+  if (restored) console.warn(`uw: rebuild tried to drop content — restored ${restored} field group(s) from previous posts`);
+  return restored;
+}
+
 function _uwPostType(p) {
   if (!p.mediaList.length) return { icon:'➕', label:'New post — add an image below' };
   if (p.mediaList.length > 1) return { icon:'🖼️', label:`Carousel · ${p.mediaList.length} images` };
@@ -7871,7 +7915,7 @@ function _uwBuildCalendarHtml() {
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, drag to reschedule"
       style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
-      onmouseover="this.style.filter='brightness(1.12)';this.querySelector('.cal-chip-del').style.opacity='1'" onmouseout="this.style.filter='';this.querySelector('.cal-chip-del').style.opacity='0'">
+      onmouseover="this.style.filter='brightness(1.12)';var d=this.querySelector('.cal-chip-del');d.style.opacity='1';d.style.pointerEvents='auto'" onmouseout="this.style.filter='';var d=this.querySelector('.cal-chip-del');d.style.opacity='0';d.style.pointerEvents='none'">
       <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
       <span class="chip-pnum" style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
@@ -7879,7 +7923,7 @@ function _uwBuildCalendarHtml() {
       <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time (or double-click the card)"
         style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:1px 5px;flex-shrink:0;white-space:nowrap;min-height:16px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
       <button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
-        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s;flex-shrink:0">✕</button>
+        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;flex-shrink:0">✕</button>
     </div>`;
   };
   const uwCpf = _uw.calPlatFilter || 'both';
