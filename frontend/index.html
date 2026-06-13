@@ -3488,7 +3488,7 @@ async function copyDiagLog() {
 // ══════════════════════════════════════════════════════════════════════════════
 // My Queue — user-scoped Instagram scheduled post manager
 // ══════════════════════════════════════════════════════════════════════════════
-let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false };
+let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '' };
 
 async function mqInit() {
   const panel = document.getElementById('posts-tab-myqueue');
@@ -3497,6 +3497,9 @@ async function mqInit() {
   panel.innerHTML = `
     <div id="mq-sidebar" style="width:200px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;background:var(--bg-secondary)">
       <div style="padding:14px 12px 8px;font-size:12px;font-weight:700;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase">Instagram Accounts</div>
+      <div style="padding:0 10px 8px">
+        <input id="mq-acct-search" type="text" placeholder="🔍 Search pages…" oninput="_mq.acctSearch=this.value.toLowerCase();mqRenderSidebar()" style="width:100%;padding:6px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
+      </div>
       <div id="mq-acct-list"></div>
       <div style="padding:8px 10px;margin-top:auto;border-top:1px solid var(--border)">
         <button onclick="mqAddPost()" style="width:100%;padding:8px;border-radius:7px;border:1px dashed var(--border);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;justify-content:center">＋ Schedule new post</button>
@@ -3528,7 +3531,14 @@ function mqRenderSidebar() {
     list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-dim)">No Instagram accounts connected.</div>';
     return;
   }
-  list.innerHTML = _postingIgAccounts.map(a => {
+  const accts = _mq.acctSearch
+    ? _postingIgAccounts.filter(a => (a.username||a.name||'').toLowerCase().includes(_mq.acctSearch) || (a.page_name||'').toLowerCase().includes(_mq.acctSearch))
+    : _postingIgAccounts;
+  if (!accts.length) {
+    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-dim)">No matches.</div>';
+    return;
+  }
+  list.innerHTML = accts.map(a => {
     const active = _mq.igId === a.id;
     const pic = a.picture_url ? `<img src="${escHtml(a.picture_url)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : `<div style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;flex-shrink:0">${escHtml((a.username||a.name||'?')[0].toUpperCase())}</div>`;
     return `<div onclick="mqSelectAccount('${escHtml(a.id)}')" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-left:3px solid ${active?'var(--accent)':'transparent'};background:${active?'var(--bg-primary)':'transparent'};transition:background .12s" onmouseover="if('${a.id}'!==_mq.igId)this.style.background='var(--bg-hover)'" onmouseout="if('${a.id}'!==_mq.igId)this.style.background='transparent'">
