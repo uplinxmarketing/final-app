@@ -9022,16 +9022,16 @@ function _uwBuildCalendarHtml() {
     return `<div class="cal-chip" draggable="true" ondragstart="uwCalDragStart(event,${idx},'${plat}')" ondragend="uwCalDragEnd(event)"
       onclick="uwCalOpenPreview(${idx},'${plat}');event.stopPropagation()"
       title="Post ${idx+1} · ${tc.label} · ${plat}${firstLine ? ' — ' + escHtml(firstLine) : ''} — click to preview, drag to reschedule"
-      style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 18px 2px 3px;overflow:hidden;min-width:0;cursor:grab"
-      onmouseover="this.style.filter='brightness(1.12)';var d=this.querySelector('.cal-chip-del');d.style.opacity='1';d.style.pointerEvents='auto'" onmouseout="this.style.filter='';var d=this.querySelector('.cal-chip-del');d.style.opacity='0';d.style.pointerEvents='none'">
+      style="position:relative;display:flex;align-items:center;gap:3px;background:${tc.soft};border-left:4px solid ${tc.color};border-radius:4px;padding:2px 4px;overflow:hidden;min-width:0;cursor:grab"
+      onmouseover="this.style.filter='brightness(1.12)';var d=this.querySelector('.cal-chip-del');if(d){d.style.opacity='1';d.style.pointerEvents='auto'}" onmouseout="this.style.filter='';var d=this.querySelector('.cal-chip-del');if(d){d.style.opacity='0';d.style.pointerEvents='none'}">
+      ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx},'${plat}');event.stopPropagation()" title="Remove this post"
+        style="position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:rgba(220,38,38,.92);border:1.5px solid #fff;color:#fff;font-size:8px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;z-index:2">✕</button>`}
       <span class="chip-badge" style="background:${tc.color};color:#fff;font-size:7px;font-weight:800;border-radius:3px;padding:1px 3px;letter-spacing:.3px;flex-shrink:0">${tc.short}</span>
       ${platformIcon(plat, 10)}${thumb}
       <span class="chip-pnum" style="font-size:9px;font-weight:700;color:var(--text-primary);flex-shrink:0">P${idx+1}</span>
       <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
       <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time (or double-click the card)"
-        style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:1px 5px;flex-shrink:0;white-space:nowrap;min-height:16px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
-      ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx},'${plat}');event.stopPropagation()" title="Remove this post"
-        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;flex-shrink:0">✕</button>`}
+        style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:2px 6px;flex-shrink:0;white-space:nowrap;min-height:18px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
     </div>`;
   };
   const uwCpf = _uw.calPlatFilter || 'both';
