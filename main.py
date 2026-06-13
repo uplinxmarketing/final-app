@@ -4183,6 +4183,13 @@ async def api_posting_instagram(request: Request, db: AsyncSession = Depends(get
 _pages_cache: dict[str, tuple[float, list]] = {}
 _PAGES_CACHE_TTL = 300  # 5 minutes
 
+# Page access tokens are long-lived and stable, so cache resolved tokens for a
+# few minutes. Without this every publish/update/scheduled-post call re-hits
+# GET /{page-id} (gr:get:Page) — and its /me/accounts fallback — which was
+# exhausting the Meta rate limit.
+_page_token_cache: dict[str, tuple[float, str]] = {}
+_PAGE_TOKEN_CACHE_TTL = 600  # 10 minutes
+
 
 async def _get_pages_cached(token: str, cache_key: str) -> dict:
     """Call get_pages with a 5-minute in-memory cache keyed by cache_key."""
@@ -4403,7 +4410,14 @@ async def _get_page_token(user_token: str, page_id: str) -> str:
     ``/me/accounts`` — the direct lookup fails for some page/permission
     combinations where the page (with its token) is still present in the
     accounts list. Surfaces Meta's real error so failures are diagnosable.
+
+    Resolved tokens are cached for a few minutes to keep repeated calls off the
+    Meta rate limit.
     """
+    ck = f"{page_id}:{hashlib.sha256(user_token.encode()).hexdigest()[:16]}"
+    cached = _page_token_cache.get(ck)
+    if cached and time.time() - cached[0] < _PAGE_TOKEN_CACHE_TTL:
+        return cached[1]
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
             f"{settings.meta_graph_base_url}/{page_id}",
@@ -4412,6 +4426,7 @@ async def _get_page_token(user_token: str, page_id: str) -> str:
         if r.status_code == 200:
             tok = r.json().get("access_token")
             if tok:
+                _page_token_cache[ck] = (time.time(), tok)
                 return tok
         # Capture the direct-lookup error before trying the fallback.
         try:
@@ -4427,6 +4442,7 @@ async def _get_page_token(user_token: str, page_id: str) -> str:
         if fr.status_code == 200:
             for pg in fr.json().get("data", []):
                 if pg.get("id") == page_id and pg.get("access_token"):
+                    _page_token_cache[ck] = (time.time(), pg["access_token"])
                     return pg["access_token"]
     raise HTTPException(
         502,
@@ -7478,33 +7494,32 @@ async def api_fb_scheduled_posts(
 
     page_names: dict[str, str] = {}
     page_pics: dict[str, str] = {}
+    page_tokens: dict[str, str] = {}
 
-    if page_id:
-        page_ids = [page_id]
-    else:
-        pages_res = await _get_pages_cached(token, cache_key)
-        if not pages_res.get("success"):
-            return {"posts": []}
+    # Always load the cached pages list: it's a single 5-minute-cached
+    # /me/accounts call that already includes each page's name, picture AND
+    # access_token. Pulling the page token from here avoids a per-page
+    # /{page-id} token lookup on every fetch — that per-page lookup (and its
+    # /me/accounts fallback when it failed) was the main driver of Meta
+    # rate-limit usage on this screen.
+    pages_res = await _get_pages_cached(token, cache_key)
+    if pages_res.get("success"):
         raw = pages_res["data"]
         pages_list = raw["data"] if isinstance(raw, dict) else raw
-        page_ids = [pg["id"] for pg in pages_list]
         for pg in pages_list:
             page_names[pg["id"]] = pg.get("name", "")
             pic = (pg.get("picture") or {}).get("data", {}).get("url", "")
             page_pics[pg["id"]] = pic
+            if pg.get("access_token"):
+                page_tokens[pg["id"]] = pg["access_token"]
 
-    # If page_id was given but we don't have metadata yet, try to get it from cache.
-    if page_id and not page_names:
-        try:
-            pages_res2 = await _get_pages_cached(token, cache_key)
-            if pages_res2.get("success"):
-                raw2 = pages_res2["data"]
-                for pg in (raw2["data"] if isinstance(raw2, dict) else raw2):
-                    page_names[pg["id"]] = pg.get("name", "")
-                    pic = (pg.get("picture") or {}).get("data", {}).get("url", "")
-                    page_pics[pg["id"]] = pic
-        except Exception:
-            pass
+    if page_id:
+        page_ids = [page_id]
+    else:
+        page_ids = list(page_names.keys())
+        if not page_ids:
+            # Pages list unavailable (Meta error) and no specific page asked for.
+            return {"posts": []}
 
     dt_from = None
     dt_to = None
@@ -7526,10 +7541,14 @@ async def api_fb_scheduled_posts(
     all_posts: list[dict] = []
     async with httpx.AsyncClient(timeout=20) as client:
         for pid in page_ids:
-            try:
-                page_token = await _get_page_token(token, pid)
-            except Exception:
-                page_token = token
+            page_token = page_tokens.get(pid)
+            if not page_token:
+                # Token not present in the accounts list (rare) — fall back to
+                # the direct (now-cached) page-token lookup so the page works.
+                try:
+                    page_token = await _get_page_token(token, pid)
+                except Exception:
+                    page_token = token
             try:
                 r = await client.get(
                     f"{settings.meta_graph_base_url}/{pid}/scheduled_posts",

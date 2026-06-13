@@ -3584,7 +3584,7 @@ async function mqInit() {
         <div style="font-size:14px;font-weight:700;color:var(--text-dim)">Select an account →</div>
       </div>
       <div id="mq-toolbar" style="flex-shrink:0;padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;display:none">
-        <input id="mq-search" type="text" placeholder="Search caption or hashtag…" oninput="_mq.search=this.value;mqFetchPosts()" style="flex:1;min-width:160px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
+        <input id="mq-search" type="text" placeholder="Search caption or hashtag…" oninput="mqSearchInput(this.value)" style="flex:1;min-width:160px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
         <div style="position:relative">
           <button id="mq-daterange-btn" onclick="mqDateToggle(event)" title="Filter by date range" style="display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📅 <span id="mq-daterange-label">All dates</span> <span style="font-size:9px;opacity:.6">▾</span></button>
           <div id="mq-daterange-pop" style="display:none"></div>
@@ -3814,6 +3814,16 @@ async function mqFetchPosts() {
   } finally {
     if (seq === _mq._seq) _mq.loading = false;
   }
+}
+
+// Debounce caption/hashtag search: the FB and IG queries run server-side
+// (and the FB one fans out across pages), so fetching on every keystroke
+// hammered the Meta rate limit. Wait until the user pauses typing.
+let _mqSearchTimer = null;
+function mqSearchInput(val) {
+  _mq.search = val;
+  clearTimeout(_mqSearchTimer);
+  _mqSearchTimer = setTimeout(() => mqFetchPosts(), 450);
 }
 
 function mqGetUnifiedPosts() {
