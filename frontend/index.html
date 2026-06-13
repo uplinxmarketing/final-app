@@ -2880,8 +2880,8 @@ function _uwAssistContext() {
       type: _uwTypeColor(p).label.toLowerCase(),
       files: p.mediaList.slice(0, 3).map(m => m.name || '').filter(Boolean),
       caption: (p.caption || '').slice(0, 90),
-      schedule_facebook: _uwPlatSched(p, 'facebook') || null,
-      schedule_instagram: _uwPlatSched(p, 'instagram') || null,
+      schedule_facebook: (p._skipPlatforms||[]).includes('facebook') ? null : (_uwPlatSched(p, 'facebook') || null),
+      schedule_instagram: (p._skipPlatforms||[]).includes('instagram') ? null : (_uwPlatSched(p, 'instagram') || null),
     }));
   } else {
     const step = _uwAssistStepEl();
@@ -8641,6 +8641,7 @@ function _uwBuildCalendarHtml() {
   const inThisMonth = yr === now.getFullYear() && mo === now.getMonth();
   _uw.posts.forEach((p, idx) => {
     (targets.length ? targets : [{platform:'facebook'}]).forEach(t => {
+      if ((p._skipPlatforms || []).includes(t.platform)) return;
       const sched = _uwPlatSched(p, t.platform);
       if (sched) {
         const d = new Date(sched);
@@ -8679,7 +8680,7 @@ function _uwBuildCalendarHtml() {
       <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
       <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time (or double-click the card)"
         style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:1px 5px;flex-shrink:0;white-space:nowrap;min-height:16px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
-      ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
+      ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx},'${plat}');event.stopPropagation()" title="Remove this post"
         style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;flex-shrink:0">✕</button>`}
     </div>`;
   };
@@ -8892,12 +8893,25 @@ function uwCalTimeOpen(idx, plat, e) {
 }
 
 // Delete a post from the calendar (undo restores it).
-function uwCalDeletePost(idx) {
+// When plat is provided and multiple targets exist, only removes that platform's
+// entry instead of deleting the whole post across all platforms.
+function uwCalDeletePost(idx, plat) {
   if (_uw.published) {
     toast('These posts are already submitted — use the Calendar tab to cancel scheduled posts.', 'error');
     return;
   }
-  if (!_uw.posts[idx]) return;
+  const p = _uw.posts[idx]; if (!p) return;
+  const targets = _uw.targets || (_uw.target ? [_uw.target] : []);
+  if (plat && targets.length > 1) {
+    const skipped = p._skipPlatforms || [];
+    const activeOthers = targets.filter(t => t.platform !== plat && !skipped.includes(t.platform));
+    if (activeOthers.length > 0) {
+      p._skipPlatforms = [...skipped, plat];
+      _uwSnap();
+      _uwRenderCards();
+      return;
+    }
+  }
   _uw.posts.splice(idx, 1);
   if (_uwFeed.open) {
     if (_uwFeed.i === idx) uwFeedClose();
@@ -8919,6 +8933,7 @@ function uwCalDayExpand(day, yr, mo, e) {
   const posts = [];
   _uw.posts.forEach((p, idx) => {
     (targets.length ? targets : [{platform:'facebook'}]).forEach(t => {
+      if ((p._skipPlatforms || []).includes(t.platform)) return;
       const sched = _uwPlatSched(p, t.platform);
       let belongs = false;
       if (sched) {
@@ -8956,8 +8971,8 @@ function uwCalDayExpand(day, yr, mo, e) {
           <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${time ? '🕒 ' + _uw12h(time) : '🕒 now ⚡'}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-          <button onclick="uwCalTimeOpen(${idx},'${plat}',event);event.stopPropagation()" title="Edit time" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:var(--text-secondary);font-size:12px;cursor:pointer;padding:4px 9px">🕒 Time</button>
-          <button onclick="uwCalDeletePost(${idx});document.getElementById('uw-cal-expand-pop')&&document.getElementById('uw-cal-expand-pop').remove();event.stopPropagation()" title="Delete" style="background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:10px;cursor:pointer;padding:2px 5px">✕</button>
+          <button onclick="uwCalTimeOpen(${idx},'${plat}',event);event.stopPropagation()" title="Edit time" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:5px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:12px;cursor:pointer;padding:4px 9px;white-space:nowrap">${time ? '🕒 '+_uw12h(time) : '⚡ Now'}</button>
+          <button onclick="uwCalDeletePost(${idx},'${plat}');document.getElementById('uw-cal-expand-pop')&&document.getElementById('uw-cal-expand-pop').remove();event.stopPropagation()" title="Delete" style="background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:10px;cursor:pointer;padding:2px 5px">✕</button>
         </div>
       </div>`;
     }).join('')
@@ -9736,6 +9751,7 @@ async function uwPublish(btn) {
       ? { local_file_id: m.local_file_id, mime_type: m.mime_type, filename: m.name }
       : { drive_file_id: m.id, mime_type: m.mime_type, filename: m.name });
     targets.forEach(t => {
+      if ((p._skipPlatforms || []).includes(t.platform)) return;
       // Per-platform schedule override (set by dragging a chip on the calendar)
       // takes precedence over the post's shared schedule.
       const platLocal = _uwPlatSched(p, t.platform);
