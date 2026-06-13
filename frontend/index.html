@@ -3488,7 +3488,7 @@ async function copyDiagLog() {
 // ══════════════════════════════════════════════════════════════════════════════
 // My Queue — user-scoped Instagram scheduled post manager
 // ══════════════════════════════════════════════════════════════════════════════
-let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '' };
+let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null };
 
 async function mqInit() {
   const panel = document.getElementById('posts-tab-myqueue');
@@ -3511,8 +3511,10 @@ async function mqInit() {
       </div>
       <div id="mq-toolbar" style="flex-shrink:0;padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;display:none">
         <input id="mq-search" type="text" placeholder="Search caption or hashtag…" oninput="_mq.search=this.value;mqFetchPosts()" style="flex:1;min-width:160px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
-        <input id="mq-date-from" type="date" oninput="_mq.dateFrom=this.value;mqFetchPosts()" title="From date" style="padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
-        <input id="mq-date-to" type="date" oninput="_mq.dateTo=this.value;mqFetchPosts()" title="To date" style="padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none">
+        <div style="position:relative">
+          <button id="mq-daterange-btn" onclick="mqDateToggle(event)" title="Filter by date range" style="display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📅 <span id="mq-daterange-label">All dates</span> <span style="font-size:9px;opacity:.6">▾</span></button>
+          <div id="mq-daterange-pop" style="display:none"></div>
+        </div>
         <div style="display:inline-flex;gap:2px;background:var(--bg-primary);border:1px solid var(--border);border-radius:7px;padding:2px">
           ${['list','grid','calendar'].map(v => `<button onclick="mqSetView('${v}')" id="mq-view-${v}" title="${v} view" style="padding:5px 10px;border-radius:5px;border:none;font-size:11px;cursor:pointer;font-weight:700;background:${v==='list'?'var(--accent)':'transparent'};color:${v==='list'?'#fff':'var(--text-secondary)'}">${v==='list'?'☰':v==='grid'?'⊞':'📅'}</button>`).join('')}
         </div>
@@ -3522,6 +3524,11 @@ async function mqInit() {
       </div>
     </div>`;
   mqRenderSidebar();
+  // Reflect any persisted date filter on the freshly-rebuilt toolbar button.
+  const lbl = document.getElementById('mq-daterange-label');
+  if (lbl) { lbl.textContent = mqDateLabel();
+    const btn = document.getElementById('mq-daterange-btn'); const has = !!(_mq.dateFrom || _mq.dateTo);
+    if (btn) { btn.style.borderColor = has ? 'var(--accent)' : 'var(--border)'; btn.style.color = has ? 'var(--accent)' : 'var(--text-secondary)'; } }
   // Auto-select an account so the queue loads immediately. Prefer the one kept
   // from a prior visit, else the first connected IG account.
   const startId = (_mq.igId && _postingIgAccounts.some(a => a.id === _mq.igId))
@@ -3827,6 +3834,120 @@ function mqAddPost() {
   } else {
     uwNewChat(); startUploadWizard();
   }
+}
+
+// ── My Queue date-range picker (Meta-style popup calendar + direct typing) ────
+function _mqFmtDay(iso) {
+  if (!iso) return '';
+  try { const [y,m,d]=iso.split('-'); return new Date(+y,+m-1,+d).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+  catch(_) { return iso; }
+}
+function mqDateLabel() {
+  const f=_mq.dateFrom, t=_mq.dateTo;
+  if (!f && !t) return 'All dates';
+  if (f && t) return `${_mqFmtDay(f)} – ${_mqFmtDay(t)}`;
+  if (f) return `From ${_mqFmtDay(f)}`;
+  return `Until ${_mqFmtDay(t)}`;
+}
+function mqDateToggle(ev) {
+  if (ev) ev.stopPropagation();
+  const pop = document.getElementById('mq-daterange-pop');
+  if (!pop) return;
+  if (pop.style.display === 'block') { pop.style.display='none'; return; }
+  // Seed the picker's draft state from the applied filter.
+  _mq.dpFrom = _mq.dateFrom; _mq.dpTo = _mq.dateTo;
+  const seed = _mq.dateFrom || _mq.dateTo || new Date().toISOString().slice(0,10);
+  const [sy,sm] = seed.split('-'); _mq.dpMonth = new Date(+sy, +sm-1, 1);
+  pop.style.display = 'block';
+  mqDateRender();
+  // Close when clicking outside.
+  setTimeout(() => document.addEventListener('mousedown', _mqDateOutside), 0);
+}
+function _mqDateOutside(e) {
+  const pop = document.getElementById('mq-daterange-pop');
+  const btn = document.getElementById('mq-daterange-btn');
+  if (pop && !pop.contains(e.target) && btn && !btn.contains(e.target)) {
+    pop.style.display='none';
+    document.removeEventListener('mousedown', _mqDateOutside);
+  }
+}
+function mqDateNav(delta) {
+  if (!_mq.dpMonth) _mq.dpMonth = new Date();
+  _mq.dpMonth = new Date(_mq.dpMonth.getFullYear(), _mq.dpMonth.getMonth()+delta, 1);
+  mqDateRender();
+}
+function mqDateClickDay(iso) {
+  // First pick (or restart) sets start; second pick sets end (ordered).
+  if (!_mq.dpFrom || (_mq.dpFrom && _mq.dpTo)) { _mq.dpFrom = iso; _mq.dpTo = ''; }
+  else if (iso < _mq.dpFrom) { _mq.dpTo = _mq.dpFrom; _mq.dpFrom = iso; }
+  else { _mq.dpTo = iso; }
+  mqDateRender();
+}
+function mqDateTypeFrom(v) { _mq.dpFrom = v; if (_mq.dpTo && v && v > _mq.dpTo) _mq.dpTo=''; if (v){const[y,m]=v.split('-');_mq.dpMonth=new Date(+y,+m-1,1);} mqDateRender(); }
+function mqDateTypeTo(v) { _mq.dpTo = v; if (_mq.dpFrom && v && v < _mq.dpFrom) _mq.dpFrom=''; mqDateRender(); }
+function mqDatePreset(kind) {
+  const today = new Date(); const iso = d => d.toISOString().slice(0,10);
+  if (kind==='all') { _mq.dpFrom=''; _mq.dpTo=''; }
+  else if (kind==='7') { _mq.dpFrom=iso(today); _mq.dpTo=iso(new Date(today.getTime()+6*864e5)); }
+  else if (kind==='30') { _mq.dpFrom=iso(today); _mq.dpTo=iso(new Date(today.getTime()+29*864e5)); }
+  else if (kind==='month') { _mq.dpFrom=iso(new Date(today.getFullYear(),today.getMonth(),1)); _mq.dpTo=iso(new Date(today.getFullYear(),today.getMonth()+1,0)); }
+  if (_mq.dpFrom){const[y,m]=_mq.dpFrom.split('-');_mq.dpMonth=new Date(+y,+m-1,1);}
+  mqDateRender();
+}
+function mqDateApply() {
+  _mq.dateFrom = _mq.dpFrom || ''; _mq.dateTo = _mq.dpTo || '';
+  const lbl = document.getElementById('mq-daterange-label'); if (lbl) lbl.textContent = mqDateLabel();
+  const btn = document.getElementById('mq-daterange-btn');
+  const has = !!(_mq.dateFrom || _mq.dateTo);
+  if (btn) { btn.style.borderColor = has ? 'var(--accent)' : 'var(--border)'; btn.style.color = has ? 'var(--accent)' : 'var(--text-secondary)'; }
+  const pop = document.getElementById('mq-daterange-pop'); if (pop) pop.style.display='none';
+  document.removeEventListener('mousedown', _mqDateOutside);
+  mqFetchPosts();
+}
+function mqDateClear() { _mq.dpFrom=''; _mq.dpTo=''; mqDateApply(); }
+function mqDateRender() {
+  const pop = document.getElementById('mq-daterange-pop');
+  if (!pop) return;
+  const m = _mq.dpMonth || new Date();
+  const yr=m.getFullYear(), mo=m.getMonth();
+  const monthName = new Date(yr,mo,1).toLocaleString(undefined,{month:'long',year:'numeric'});
+  const firstDow = new Date(yr,mo,1).getDay();
+  const daysIn = new Date(yr,mo+1,0).getDate();
+  const pad = n => String(n).padStart(2,'0');
+  const dow = ['S','M','T','W','T','F','S'].map(d=>`<div style="text-align:center;font-size:10px;color:var(--text-dim);font-weight:700;padding:3px 0">${d}</div>`).join('');
+  let cells='';
+  for (let i=0;i<firstDow;i++) cells+='<div></div>';
+  for (let d=1;d<=daysIn;d++) {
+    const iso = `${yr}-${pad(mo+1)}-${pad(d)}`;
+    const isStart = iso===_mq.dpFrom, isEnd = iso===_mq.dpTo;
+    const inRange = _mq.dpFrom && _mq.dpTo && iso>_mq.dpFrom && iso<_mq.dpTo;
+    const edge = isStart||isEnd;
+    const bg = edge ? 'var(--accent)' : inRange ? 'rgba(238,42,123,.15)' : 'transparent';
+    const col = edge ? '#fff' : 'var(--text-primary)';
+    cells+=`<div onclick="mqDateClickDay('${iso}')" style="text-align:center;font-size:11px;padding:6px 0;border-radius:6px;cursor:pointer;background:${bg};color:${col};font-weight:${edge?'700':'500'}" onmouseover="if('${iso}'!==_mq.dpFrom&&'${iso}'!==_mq.dpTo)this.style.background='var(--bg-hover)'" onmouseout="this.style.background='${bg}'">${d}</div>`;
+  }
+  pop.innerHTML = `<div style="position:absolute;top:6px;right:0;z-index:9500;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:14px;width:300px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1"><label style="font-size:10px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:3px">FROM</label>
+        <input type="date" value="${_mq.dpFrom||''}" oninput="mqDateTypeFrom(this.value)" style="width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box"></div>
+      <div style="flex:1"><label style="font-size:10px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:3px">TO</label>
+        <input type="date" value="${_mq.dpTo||''}" oninput="mqDateTypeTo(this.value)" style="width:100%;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box"></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <button onclick="mqDateNav(-1)" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;padding:2px 8px;border-radius:5px">‹</button>
+      <span style="font-size:12px;font-weight:700;color:var(--text-primary)">${monthName}</span>
+      <button onclick="mqDateNav(1)" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;padding:2px 8px;border-radius:5px">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">${dow}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-top:2px">${cells}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 4px">
+      ${[['7','Next 7d'],['30','Next 30d'],['month','This month'],['all','All']].map(([k,l])=>`<button onclick="mqDatePreset('${k}')" style="padding:4px 9px;border-radius:14px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer">${l}</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="mqDateClear()" style="flex:1;padding:8px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">Clear</button>
+      <button onclick="mqDateApply()" style="flex:1;padding:8px;border-radius:7px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">Apply</button>
+    </div>
+  </div>`;
 }
 
 // ── Scheduled Posts Queue (admin cleanup / start fresh) ──────────────────────
