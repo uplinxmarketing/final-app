@@ -7542,15 +7542,12 @@ async def api_fb_scheduled_posts(
                 if r.status_code != 200:
                     continue
                 for post in r.json().get("data", []):
-                    # Guard against cross-posted scheduled posts leaking across
-                    # pages: Meta returns posts shared to multiple pages on each
-                    # page's /scheduled_posts edge. A page post id is formatted
-                    # "{page_id}_{post_id}", so drop any whose owning page isn't
-                    # the page we asked for. Posts with no "_" (unknown format)
-                    # are kept — we can't prove they're foreign.
-                    post_id_val = str(post.get("id", ""))
-                    if "_" in post_id_val and post_id_val.split("_", 1)[0] != str(pid):
-                        continue
+                    # Each post here is already scoped to the page we queried via
+                    # the /{pid}/scheduled_posts URL, so it is attributed to pid
+                    # below. (We intentionally do NOT filter on the post-id
+                    # prefix: scheduled video/other post types don't always use
+                    # the "{page_id}_{post_id}" form, and filtering on it hid
+                    # legitimate posts.)
                     scheduled_ts = post.get("scheduled_publish_time")
                     scheduled_iso: Optional[str] = None
                     if scheduled_ts:
