@@ -7194,6 +7194,61 @@ async def api_cancel_scheduled_post(post_id: int, request: Request, db: AsyncSes
     return {"success": True}
 
 
+@app.get("/api/admin/scheduled-posts/summary")
+async def api_admin_scheduled_summary(request: Request, db: AsyncSession = Depends(get_db)):
+    """Count app-tracked scheduled posts by status, plus a list of the active
+    (cancellable) ones — admin only. Used by the 'start fresh' cleanup tool."""
+    await require_admin(request, db)
+    counts_res = await db.execute(
+        select(ScheduledPost.status, func.count())
+        .group_by(ScheduledPost.status)
+    )
+    counts = {row[0]: row[1] for row in counts_res.all()}
+    active_res = await db.execute(
+        select(ScheduledPost)
+        .where(ScheduledPost.status.in_(("pending", "failed")))
+        .order_by(ScheduledPost.scheduled_time)
+    )
+    active = [
+        {
+            "id": p.id,
+            "platform": p.platform,
+            "status": p.status,
+            "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
+            "caption": (p.caption or "")[:80],
+        }
+        for p in active_res.scalars().all()
+    ]
+    return {"counts": counts, "active": active, "active_count": len(active)}
+
+
+@app.post("/api/admin/scheduled-posts/cancel-all")
+async def api_admin_cancel_all_scheduled(request: Request, db: AsyncSession = Depends(get_db)):
+    """Cancel every app-tracked pending/failed scheduled post — admin only.
+
+    A 'start fresh' tool to clear out the self-scheduled (Instagram / Drive-job)
+    queue. Uses the same atomic guard as the single cancel: only rows still in
+    ``pending``/``failed`` are flipped to ``cancelled``, so a post the worker is
+    publishing right now (``processing``) is never touched. Already-published
+    posts are never affected — this only stops things from firing in the future.
+    """
+    await require_admin(request, db)
+    res = await db.execute(
+        update(ScheduledPost)
+        .where(ScheduledPost.status.in_(("pending", "failed")))
+        .values(status="cancelled", next_retry_at=None)
+    )
+    await db.commit()
+    cancelled = res.rowcount or 0
+    _sess_c = get_session(request)
+    await log_posting_event(
+        db, "cancel", f"Bulk-cancelled {cancelled} pending scheduled post(s) (start fresh)",
+        level="info",
+        username=_sess_c.get("posting_username") or _sess_c.get("username") or "",
+        user_id=_sess_c.get("user_id"))
+    return {"success": True, "cancelled": cancelled}
+
+
 @app.get("/api/posting/token-health")
 async def api_posting_token_health(request: Request, db: AsyncSession = Depends(get_db)):
     """Expiry status of every active posting account token, worst first."""

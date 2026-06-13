@@ -410,6 +410,27 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
 
+    <!-- Scheduled Posts Queue (cleanup / start fresh) section -->
+    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:16px;font-weight:700;color:var(--text-primary)">🗓 Scheduled Posts Queue</div>
+          <span id="sq-count-badge" style="display:none;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px">0 pending</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button onclick="sqFetch()" title="Refresh queue from server"
+            style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-deep);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer">⟳ Refresh</button>
+          <button onclick="sqCancelAll()" id="sq-cancelall-btn" title="Cancel every pending scheduled post"
+            style="padding:5px 12px;border-radius:6px;border:1px solid #ef4444;background:var(--bg-deep);color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">🧹 Cancel all pending (start fresh)</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
+        App-scheduled posts (Instagram &amp; Drive jobs) waiting to publish. Use <b>Cancel all pending</b> to clear out
+        phantom posts left from an earlier scheduling bug. This only stops <i>future</i> firing — already-published posts are never affected.
+      </div>
+      <div id="sq-list" style="font-size:12px;color:var(--text-dim)">Click ⟳ Refresh to load the queue.</div>
+    </div>
+
     <!-- Posting Event Log section -->
     <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:22px;margin-top:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -3457,6 +3478,57 @@ async function copyDiagLog() {
     btn.textContent = '❌ Failed';
   }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+}
+
+// ── Scheduled Posts Queue (admin cleanup / start fresh) ──────────────────────
+async function sqFetch() {
+  const list = document.getElementById('sq-list');
+  const badge = document.getElementById('sq-count-badge');
+  if (list) list.innerHTML = 'Loading…';
+  try {
+    const data = await api('GET', '/api/admin/scheduled-posts/summary');
+    if (data === null) throw new Error('Session expired — please sign in again');
+    const active = data.active || [];
+    if (badge) {
+      badge.style.display = active.length ? 'inline' : 'none';
+      badge.textContent = `${active.length} pending`;
+    }
+    if (!active.length) {
+      if (list) list.innerHTML = '<span style="color:#22c55e">✓ Queue is clean — no pending scheduled posts.</span>';
+      return;
+    }
+    const rows = active.map(p => {
+      const when = p.scheduled_time ? new Date(p.scheduled_time).toLocaleString() : '⚡ immediate';
+      const plat = p.platform === 'instagram' ? '📷 IG' : '📘 FB';
+      return `<div style="display:flex;gap:10px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border)">
+        <span style="font-family:monospace;color:var(--text-dim)">#${p.id}</span>
+        <span style="white-space:nowrap">${plat}</span>
+        <span style="color:var(--text-dim);white-space:nowrap">${escHtml(when)}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary)">${escHtml(p.caption || '(no caption)')}</span>
+      </div>`;
+    }).join('');
+    if (list) list.innerHTML = `<div style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">${rows}</div>`;
+  } catch(e) {
+    if (list) list.innerHTML = `<span style="color:#ef4444">Failed to load: ${escHtml(String(e.message || e))}</span>`;
+  }
+}
+
+async function sqCancelAll() {
+  if (!confirm('Cancel ALL pending scheduled posts? They will not be published. Already-published posts are not affected. This cannot be undone.')) return;
+  const btn = document.getElementById('sq-cancelall-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelling…'; }
+  try {
+    const res = await api('POST', '/api/admin/scheduled-posts/cancel-all');
+    if (res === null) throw new Error('Session expired — please sign in again');
+    toast(`Cancelled ${res.cancelled} pending post(s) — queue is fresh.`, 'success');
+    await sqFetch();
+  } catch(e) {
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    alert('Could not cancel: ' + msg);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧹 Cancel all pending (start fresh)'; }
+  }
 }
 
 // ── Posting Event Log (admin dashboard) ──────────────────────────────────────
@@ -10099,6 +10171,7 @@ function hideAdminDashboard() {
 async function loadAdminDashboard() {
   await Promise.all([loadDashboardStats(), loadDashboardUsers()]);
   pelFetch();
+  sqFetch();
 }
 
 async function loadDashboardStats() {
