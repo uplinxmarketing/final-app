@@ -4468,6 +4468,10 @@ class BulkPostItem(BaseModel):
 
 class BulkPublishRequest(BaseModel):
     items: list[BulkPostItem]
+    # Optional client-generated key making the submit idempotent. Re-submitting
+    # the same key (after a window close / dropped network / lost response)
+    # returns the job already queued rather than creating a duplicate.
+    idempotency_key: Optional[str] = None
 
 
 def _compose_caption(caption: str, hashtags: list[str]) -> str:
@@ -4828,6 +4832,30 @@ async def api_bulk_publish_drive(
     """
     if not req.items:
         raise HTTPException(400, "No posts to publish")
+    session = get_session(request)
+    # Idempotency: if this exact submit was already accepted (same key from the
+    # same user), return the existing job instead of queueing it twice. This is
+    # what makes "close the window / lose the network mid-publish" safe — the
+    # client can retry the submit and never create duplicate posts.
+    if req.idempotency_key:
+        existing = await db.execute(
+            select(PublishJob).where(
+                PublishJob.idempotency_key == req.idempotency_key,
+                PublishJob.created_by == str(session.get("user_id") or ""),
+            ).order_by(PublishJob.id.desc())
+        )
+        dup = existing.scalars().first()
+        if dup is not None:
+            position = await _job_queue_position(dup, db) if dup.status == "queued" else 0
+            return {
+                "job_id": dup.id,
+                "queued": True,
+                "total": dup.total,
+                "position": position,
+                "warning": "",
+                "duplicate": True,
+                "message": "Already submitted — resuming the existing job.",
+            }
     # Validate connections up front so the user gets immediate feedback.
     # Also resolves the active posting account — needed for scheduled posts
     # where the session may not carry posting_user_id (e.g. portfolio users).
@@ -4837,7 +4865,6 @@ async def api_bulk_publish_drive(
     if any(m.drive_file_id and not m.local_file_id for it in req.items for m in it.media):
         await get_google_token(request, db)
     base_url = _public_base_url(request)
-    session = get_session(request)
 
     # Resolve the posting account UID. Session has it when the user connected
     # Meta in this browser tab; fall back to the most recent active account
@@ -4878,6 +4905,7 @@ async def api_bulk_publish_drive(
         posting_user_id=posting_user_id,
         google_user_id=google_user_id,
         base_url=base_url,
+        idempotency_key=req.idempotency_key or None,
     )
     db.add(job)
     await db.flush()
@@ -4935,6 +4963,29 @@ def _job_public_view(job: PublishJob, position: int = 0) -> dict:
         "error": job.error,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
+
+
+@app.get("/api/posting/jobs/by-key/{key}")
+async def api_get_publish_job_by_key(key: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Find a submitted job by its idempotency key.
+
+    Used to re-attach after a window close / network drop: the client may have
+    sent the submit and had its response lost, so it never recorded a job id.
+    Looking the job up by the key it generated *before* submitting lets the UI
+    resume tracking the real job instead of re-submitting (which would duplicate).
+    """
+    session = get_session(request)
+    result = await db.execute(
+        select(PublishJob).where(
+            PublishJob.idempotency_key == key,
+            PublishJob.created_by == str(session.get("user_id") or ""),
+        ).order_by(PublishJob.id.desc())
+    )
+    job = result.scalars().first()
+    if not job:
+        raise HTTPException(404, "No job for that key")
+    position = await _job_queue_position(job, db) if job.status == "queued" else 0
+    return _job_public_view(job, position)
 
 
 @app.get("/api/posting/jobs/{job_id}")
@@ -7491,6 +7542,12 @@ async def api_fb_scheduled_posts(
                 if r.status_code != 200:
                     continue
                 for post in r.json().get("data", []):
+                    # Each post here is already scoped to the page we queried via
+                    # the /{pid}/scheduled_posts URL, so it is attributed to pid
+                    # below. (We intentionally do NOT filter on the post-id
+                    # prefix: scheduled video/other post types don't always use
+                    # the "{page_id}_{post_id}" form, and filtering on it hid
+                    # legitimate posts.)
                     scheduled_ts = post.get("scheduled_publish_time")
                     scheduled_iso: Optional[str] = None
                     if scheduled_ts:

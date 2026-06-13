@@ -942,6 +942,10 @@ class PublishJob(Base):
     base_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     claimed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Client-generated key that makes submission idempotent: a re-submit of the
+    # same publish (after a lost response / window close / network blip) returns
+    # the job already queued instead of creating a duplicate.
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, index=True
     )
@@ -1063,6 +1067,7 @@ async def init_db() -> None:
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE connected_posting_accounts ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE publish_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR",
         ]:
             if _is_sqlite:
                 _stmt = _stmt.replace("ADD COLUMN IF NOT EXISTS", "ADD COLUMN")
