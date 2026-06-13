@@ -1106,11 +1106,18 @@ async def get_scheduled_posts(token: str, page_id: str) -> dict[str, Any]:
     )
 
 
-async def delete_scheduled_post(token: str, post_id: str) -> dict[str, Any]:
-    """Delete a scheduled post by its ID."""
+async def delete_scheduled_post(token: str, post_id: str, retries: int = 4) -> dict[str, Any]:
+    """Delete a scheduled post by its ID.
+
+    ``retries`` is exposed so callers that verify the post's state afterwards
+    (e.g. the cancel endpoint) can avoid the long transient-error back-off —
+    Meta sometimes returns a code-1 "unknown error" on a delete that actually
+    succeeded, and retrying it for ~30s just to fail is worse than checking.
+    """
     url = f"{BASE_URL}/{post_id}"
     return await _api_request(
         "DELETE",
         url,
+        retries=retries,
         params={"access_token": token},
     )
