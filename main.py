@@ -7454,6 +7454,7 @@ async def api_cancel_meta_fb_scheduled(
     meta_post_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    page_id: Optional[str] = None,
 ):
     """Cancel a Meta-native Facebook scheduled post (not tracked in our DB).
 
@@ -7461,17 +7462,33 @@ async def api_cancel_meta_fb_scheduled(
     with string IDs like "123456789_987654321". They can't be cancelled via
     our DB endpoint (which expects integer IDs), so this routes directly to
     the Meta Graph API delete call.
+
+    The owning page is taken from the explicit ``page_id`` the client sends
+    (every fetched post carries it); we fall back to the id prefix only when
+    it's absent. If Meta reports the post no longer exists — e.g. it was
+    already deleted in Business Suite — we treat the cancel as successful so
+    the UI can clear the card instead of getting stuck on an error.
     """
     token = await get_posting_token(request, db)
-    page_id = meta_post_id.split("_")[0]
+    pid = page_id or meta_post_id.split("_")[0]
+    used_page_token = True
     try:
-        page_token = await _get_page_token(token, page_id)
+        page_token = await _get_page_token(token, pid)
     except Exception:
         page_token = token
+        used_page_token = False
     res = await meta_api.delete_scheduled_post(page_token, meta_post_id)
-    if not res.get("success"):
-        raise HTTPException(502, f"Meta refused the cancel: {res.get('error', 'unknown error')}")
-    return {"success": True}
+    if res.get("success"):
+        return {"success": True}
+    err = str(res.get("error", "unknown error"))
+    low = err.lower()
+    # Idempotent delete: a code-100 "does not exist" while using the correct
+    # page token means the post is already gone (deleted in Business Suite).
+    # We require the page token so a permissions error (also code 100 under the
+    # user token) isn't mistaken for a deleted post.
+    if used_page_token and ("error 100" in low or "does not exist" in low or "cannot be loaded" in low):
+        return {"success": True, "already_gone": True}
+    raise HTTPException(502, f"Meta refused the cancel: {err}")
 
 
 @app.get("/api/posting/fb-scheduled-posts")
