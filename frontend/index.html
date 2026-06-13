@@ -3558,7 +3558,12 @@ function startQueueStatsPolling() {
 // ══════════════════════════════════════════════════════════════════════════════
 // My Queue — user-scoped Instagram scheduled post manager
 // ══════════════════════════════════════════════════════════════════════════════
-let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null, platform: 'all', fbPageId: null, fbPosts: [] };
+// Defaults to Instagram (its scheduled posts come from our local DB = zero
+// Meta API calls) instead of "all platforms", which used to fan out a live
+// Graph call to every Facebook page on open. Facebook is one click away and
+// loads per-page on demand. fbShowAll = the user explicitly asked to load
+// every FB page (vs. the default "pick a page" prompt).
+let _mq = { igId: null, ig: null, posts: [], view: 'list', search: '', dateFrom: '', dateTo: '', loading: false, acctSearch: '', dpFrom: '', dpTo: '', dpMonth: null, platform: 'instagram', fbPageId: null, fbShowAll: false, fbPosts: [] };
 
 async function mqInit() {
   const panel = document.getElementById('posts-tab-myqueue');
@@ -3646,7 +3651,7 @@ function mqRenderSidebar() {
       if (!q) html += '<div style="padding:4px 12px 8px;font-size:11px;color:var(--text-dim)">No pages connected.</div>';
     } else {
       if (!q && _mq.platform === 'facebook') {
-        const allFBActive = !_mq.fbPageId;
+        const allFBActive = !_mq.fbPageId && _mq.fbShowAll;
         html += `<div onclick="mqSelectFBPage(null)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-left:3px solid ${allFBActive?'var(--accent)':'transparent'};background:${allFBActive?'var(--bg-primary)':'transparent'}">
           <div style="width:26px;height:26px;border-radius:50%;background:#e7f0fd;display:flex;align-items:center;justify-content:center;flex-shrink:0">${fbIcon(14)}</div>
           <div style="min-width:0"><div style="font-size:11px;font-weight:700;color:var(--text-primary)">All FB pages</div></div>
@@ -3707,9 +3712,18 @@ async function mqSelectAccount(igId) {
 }
 
 function mqSelectPlatform(platform) {
+  // With exactly one Facebook page, skip the picker and just open it — still a
+  // single-page (cheap) fetch, and there's nothing to choose between.
+  if (platform === 'facebook' && (_postingPages || []).length === 1) {
+    mqSelectFBPage(_postingPages[0].id);
+    return;
+  }
   _mq.platform = platform;
   _mq.igId = null; _mq.ig = null;
   _mq.fbPageId = null;
+  // Switching to the Facebook tab starts on the page-picker, NOT a full
+  // fan-out across every page. The user picks a page (or "all pages" explicitly).
+  _mq.fbShowAll = false;
   mqRenderSidebar();
   mqRenderHeader();
   const tb = document.getElementById('mq-toolbar');
@@ -3719,6 +3733,8 @@ function mqSelectPlatform(platform) {
 
 async function mqSelectFBPage(pageId) {
   _mq.fbPageId = pageId || null;
+  // pageId == null means the user explicitly chose "All FB pages".
+  _mq.fbShowAll = !pageId;
   _mq.platform = 'facebook';
   _mq.igId = null; _mq.ig = null;
   mqRenderSidebar();
@@ -3747,10 +3763,12 @@ function mqRenderHeader() {
     h.innerHTML = `${pic}<div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">${escHtml(page.name||_mq.fbPageId)}</div><div style="font-size:12px;color:var(--text-dim)">Facebook Page · Scheduled posts</div></div><div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
     return;
   }
-  // Facebook — all pages
+  // Facebook — all pages (or the page-picker prompt before a page is chosen)
   if (_mq.platform === 'facebook') {
+    const fbTitle = _mq.fbShowAll ? 'All Facebook Pages' : 'Facebook';
+    const fbSub = _mq.fbShowAll ? 'Scheduled posts from Meta' : 'Select a page to view scheduled posts';
     h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:#e7f0fd;display:flex;align-items:center;justify-content:center">${fbIcon(26)}</div>
-    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Facebook Pages</div><div style="font-size:12px;color:var(--text-dim)">Scheduled posts from Meta</div></div>
+    <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">${fbTitle}</div><div style="font-size:12px;color:var(--text-dim)">${fbSub}</div></div>
     <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
     return;
   }
@@ -3775,12 +3793,21 @@ async function mqFetchPosts() {
   // posts mixing in when I filtered by one page" bug. Only the newest call is
   // allowed to commit its results.
   const seq = (_mq._seq = (_mq._seq || 0) + 1);
-  _mq.loading = true;
   const area = document.getElementById('mq-posts-area');
+  // Facebook page-picker gate: avoid fanning a live Graph call out to every
+  // page. With the FB tab open but no page chosen (and "all pages" not
+  // explicitly requested), show a prompt instead of fetching anything.
+  if (_mq.platform === 'facebook' && !_mq.fbPageId && !_mq.fbShowAll) {
+    _mq.posts = []; _mq.fbPosts = []; _mq.loading = false;
+    const cnt = document.getElementById('mq-post-count'); if (cnt) cnt.textContent = '';
+    if (area) area.innerHTML = mqPickPageHtml();
+    return;
+  }
+  _mq.loading = true;
   if (area) area.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0">Loading…</div>';
   try {
     const showIG = _mq.platform === 'all' || _mq.platform === 'instagram';
-    const showFB = _mq.platform === 'all' || _mq.platform === 'facebook';
+    const showFB = _mq.platform === 'all' || (_mq.platform === 'facebook' && (!!_mq.fbPageId || _mq.fbShowAll));
     // Accumulate into locals; commit to _mq only if we're still the latest call.
     let igPosts = [], fbPosts = [];
     const fetches = [];
@@ -3829,6 +3856,18 @@ function mqSearchInput(val) {
   _mq.search = val;
   clearTimeout(_mqSearchTimer);
   _mqSearchTimer = setTimeout(() => mqFetchPosts(), 450);
+}
+
+// Prompt shown on the Facebook tab before a page is chosen — keeps us from
+// querying every page's scheduled posts at once.
+function mqPickPageHtml() {
+  const n = (_postingPages || []).length;
+  return `<div style="text-align:center;padding:44px 20px;color:var(--text-dim)">
+    <div style="margin-bottom:12px">${fbIcon(34)}</div>
+    <div style="font-size:14px;font-weight:800;color:var(--text-primary);margin-bottom:6px">Select a Facebook page</div>
+    <div style="font-size:12px;max-width:340px;margin:0 auto 16px;line-height:1.6">Pick a page from the left to see its scheduled posts. ${n>1?'Loading all '+n+' pages at once uses more of your Meta API quota.':''}</div>
+    ${n>1?`<button onclick="mqSelectFBPage(null)" style="padding:9px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">Load all ${n} pages anyway</button>`:''}
+  </div>`;
 }
 
 function mqGetUnifiedPosts() {
