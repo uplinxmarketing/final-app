@@ -3567,9 +3567,9 @@ async function mqInit() {
   panel.innerHTML = `
     <div id="mq-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;background:var(--bg-secondary)">
       <div style="padding:10px 10px 6px;display:flex;gap:3px;border-bottom:1px solid var(--border)">
-        <button id="mq-plat-all" onclick="mqSelectPlatform('all')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff">All</button>
-        <button id="mq-plat-facebook" onclick="mqSelectPlatform('facebook')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">📘 FB</button>
-        <button id="mq-plat-instagram" onclick="mqSelectPlatform('instagram')" style="flex:1;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">📷 IG</button>
+        <button id="mq-plat-all" onclick="mqSelectPlatform('all')" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff">All</button>
+        <button id="mq-plat-facebook" onclick="mqSelectPlatform('facebook')" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">${fbIcon(13)} FB</button>
+        <button id="mq-plat-instagram" onclick="mqSelectPlatform('instagram')" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 4px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--text-secondary)">${igIcon(13)} IG</button>
       </div>
       <div style="padding:6px 10px 6px">
         <input id="mq-acct-search" type="text" placeholder="🔍 Search…" oninput="_mq.acctSearch=this.value.toLowerCase();mqRenderSidebar()" style="width:100%;padding:6px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box">
@@ -3749,14 +3749,14 @@ function mqRenderHeader() {
   }
   // Facebook — all pages
   if (_mq.platform === 'facebook') {
-    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:#1877f2;display:flex;align-items:center;justify-content:center;font-size:22px">📘</div>
+    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:#e7f0fd;display:flex;align-items:center;justify-content:center">${fbIcon(26)}</div>
     <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Facebook Pages</div><div style="font-size:12px;color:var(--text-dim)">Scheduled posts from Meta</div></div>
     <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
     return;
   }
   // Instagram — all accounts
   if (_mq.platform === 'instagram') {
-    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);display:flex;align-items:center;justify-content:center;font-size:20px">📷</div>
+    h.innerHTML = `<div style="width:44px;height:44px;border-radius:50%;background:#fde7f3;display:flex;align-items:center;justify-content:center">${igIcon(26)}</div>
     <div><div style="font-size:15px;font-weight:800;color:var(--text-primary)">All Instagram Accounts</div><div style="font-size:12px;color:var(--text-dim)">Every queued Instagram post</div></div>
     <div style="margin-left:auto;display:flex;gap:8px">${countSpan}${refreshBtn}</div>`;
     return;
@@ -3768,12 +3768,21 @@ function mqRenderHeader() {
 }
 
 async function mqFetchPosts() {
+  // Sequence guard: rapidly switching platform/page fires overlapping fetches,
+  // and the all-pages request (it queries every page server-side) often
+  // resolves *after* a later single-page request. Without this guard a stale
+  // response would overwrite the current selection — that's the "other pages'
+  // posts mixing in when I filtered by one page" bug. Only the newest call is
+  // allowed to commit its results.
+  const seq = (_mq._seq = (_mq._seq || 0) + 1);
   _mq.loading = true;
   const area = document.getElementById('mq-posts-area');
   if (area) area.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0">Loading…</div>';
   try {
     const showIG = _mq.platform === 'all' || _mq.platform === 'instagram';
     const showFB = _mq.platform === 'all' || _mq.platform === 'facebook';
+    // Accumulate into locals; commit to _mq only if we're still the latest call.
+    let igPosts = [], fbPosts = [];
     const fetches = [];
     if (showIG) {
       const p = new URLSearchParams();
@@ -3781,9 +3790,7 @@ async function mqFetchPosts() {
       if (_mq.search) p.set('search', _mq.search);
       if (_mq.dateFrom) p.set('date_from', _mq.dateFrom);
       if (_mq.dateTo) p.set('date_to', _mq.dateTo);
-      fetches.push(api('GET', `/api/posting/my-queue?${p}`).then(d => { _mq.posts = (d?.posts || []).map(x => ({...x, _source:'instagram'})); }).catch(() => { _mq.posts = []; }));
-    } else {
-      _mq.posts = [];
+      fetches.push(api('GET', `/api/posting/my-queue?${p}`).then(d => { igPosts = (d?.posts || []).map(x => ({...x, _source:'instagram'})); }).catch(() => { igPosts = []; }));
     }
     if (showFB) {
       const p = new URLSearchParams();
@@ -3791,19 +3798,21 @@ async function mqFetchPosts() {
       if (_mq.search) p.set('search', _mq.search);
       if (_mq.dateFrom) p.set('date_from', _mq.dateFrom);
       if (_mq.dateTo) p.set('date_to', _mq.dateTo);
-      fetches.push(api('GET', `/api/posting/fb-scheduled-posts?${p}`).then(d => { _mq.fbPosts = (d?.posts || []).map(x => ({...x, _source:'facebook'})); }).catch(() => { _mq.fbPosts = []; }));
-    } else {
-      _mq.fbPosts = [];
+      fetches.push(api('GET', `/api/posting/fb-scheduled-posts?${p}`).then(d => { fbPosts = (d?.posts || []).map(x => ({...x, _source:'facebook'})); }).catch(() => { fbPosts = []; }));
     }
     await Promise.all(fetches);
+    // A newer selection superseded this fetch while it was in flight — drop it.
+    if (seq !== _mq._seq) return;
+    _mq.posts = igPosts;
+    _mq.fbPosts = fbPosts;
     const all = mqGetUnifiedPosts();
     const cnt = document.getElementById('mq-post-count');
     if (cnt) cnt.textContent = `${all.length} post${all.length===1?'':'s'}`;
     mqRenderPosts();
   } catch(e) {
-    if (area) area.innerHTML = `<div style="color:var(--accent);font-size:13px">Failed to load: ${escHtml(String(e.message||e))}</div>`;
+    if (seq === _mq._seq && area) area.innerHTML = `<div style="color:var(--accent);font-size:13px">Failed to load: ${escHtml(String(e.message||e))}</div>`;
   } finally {
-    _mq.loading = false;
+    if (seq === _mq._seq) _mq.loading = false;
   }
 }
 
@@ -5621,6 +5630,10 @@ async function loadPostingClients() {
     // Restore silently — re-renders the preview card when user opens the chat tab
     _uw.posts = sess.posts; _uw.target = sess.target; _uw.targets = sess.targets;
     _uw.viewMode = sess.viewMode || 'list'; _uw.instructions = sess.instructions || '';
+    // Resume fields: re-attach to an in-flight publish on the next render
+    // instead of treating the draft as never-submitted (which risks a dup).
+    _uw.jobId = sess.jobId || null; _uw.submitKey = sess.submitKey || null;
+    _uw.published = !!sess.published;
     const chatName = sess.chatName || (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
     // Reuse the chat id stored in the session so restoring never duplicates
     // the chat entry; mint one only for legacy sessions that lack it.
@@ -7419,6 +7432,11 @@ function _uwSave() {
       chatId: _uw._chatId || null,
       chatName: _uw._chatName || null,
       historyHtml: _uwMsgsSnapshot(),
+      // Resume fields — let a reload re-attach to an in-flight publish instead
+      // of re-submitting it (which would duplicate posts).
+      jobId: _uw.jobId || null,
+      submitKey: _uw.submitKey || null,
+      published: !!_uw.published,
       _ts: Date.now()
     };
     // localStorage (not sessionStorage) so closing the window doesn't lose it.
@@ -7512,6 +7530,11 @@ function uwNewChat() {
   _uwClearSession();
   _uw._chatId = null; _uw._chatName = null;
   _uw.posts = []; _uw.previewCard = null;
+  // Drop any in-flight publish identity so a brand-new chat never reuses a
+  // previous chat's idempotency key (which would resume the old job instead
+  // of submitting these posts).
+  _uw.jobId = null; _uw.submitKey = null; _uw.published = false;
+  clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
   _postsConvId = null;
   if (typeof _uwFeed === 'object') { _uwFeed.open = false; _uwFeed.i = null; }
   const fp = document.getElementById('uw-feed-panel');
@@ -7540,6 +7563,17 @@ function _uwChatOpen(id) {
   _uw.instructions = d.instructions || '';
   _uw._chatId = id;
   _uw._chatName = entry.name;
+  // Re-attach to an in-flight publish only when opening the chat that actually
+  // owns it (the live session holds the jobId/key); otherwise clear job state
+  // so a different chat never inherits another chat's running publish.
+  const _live = _uwLoad();
+  if (_live && _live.chatId === id) {
+    _uw.jobId = _live.jobId || null;
+    _uw.submitKey = _live.submitKey || null;
+    _uw.published = !!_live.published;
+  } else {
+    _uw.jobId = null; _uw.submitKey = null; _uw.published = !!d.published;
+  }
   // Close feed panel so stale content from a previous chat is not shown
   _uwFeed.open = false; _uwFeed.i = null;
   const fp = document.getElementById('uw-feed-panel');
@@ -7706,6 +7740,10 @@ async function startUploadWizard() {
       && ((sess.posts && sess.posts.length) || (sess.targets && sess.targets.length) || sess.target)) {
     _uw.posts = sess.posts || []; _uw.target = sess.target; _uw.targets = sess.targets;
     _uw.viewMode = sess.viewMode || 'list'; _uw.instructions = sess.instructions || '';
+    // Carry the in-flight publish identity across the reload so the rebuilt
+    // preview card reconnects to the running job (no re-submit, no duplicates).
+    _uw.jobId = sess.jobId || null; _uw.submitKey = sess.submitKey || null;
+    _uw.published = !!sess.published;
     const chatName = sess.chatName || (_uw.targets || (_uw.target ? [_uw.target] : [])).map(t => (t.name||'').replace(/^[@📘📷]\s*/,'')).join(' + ') || 'Chat';
     if (!_uw._chatId) {
       _uw._chatId = sess.chatId || ('chat_' + Date.now());
@@ -9153,6 +9191,39 @@ function _uwRenderPreview() {
     viewMode: _uw.viewMode, instructions: _uw.instructions,
     historyHtml: _historyHtml
   });
+  // If this card was rebuilt after a reload while a publish was in flight,
+  // re-attach to the running job instead of waiting for the user to re-submit.
+  _uwMaybeResumeJob();
+}
+
+// After a reload, reconnect a freshly-rebuilt preview card to an in-flight
+// publish job so the user sees it finish — and never re-submits it.
+//   • jobId known    → resume polling that job.
+//   • only submitKey → the submit may have landed but its response was lost;
+//                       look the job up by key and resume if it exists.
+async function _uwMaybeResumeJob() {
+  const card = _uw.previewCard;
+  const status = card && card.querySelector('.uw-pub-status');
+  if (_uw.jobId) {
+    if (status) status.textContent = '🔄 Reconnecting to your publish…';
+    clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
+    uwPollJob();
+    return;
+  }
+  if (_uw.submitKey && !_uw.published) {
+    try {
+      const job = await fetch(`/api/posting/jobs/by-key/${encodeURIComponent(_uw.submitKey)}`)
+        .then(r => r.ok ? r.json() : null);
+      if (job && job.id) {
+        _uw.jobId = job.id; _uwSave();
+        if (status) status.textContent = '🔄 Reconnecting to your publish…';
+        clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
+        uwPollJob();
+      }
+      // 404 → the submit never reached the server; nothing was published.
+      // The draft is intact; the user can click Publish to submit safely.
+    } catch(_) { /* offline — leave the draft; resume on next load */ }
+  }
 }
 
 // Abort the upload — discard this preview and offer a fresh start.
@@ -10413,10 +10484,17 @@ async function uwPublish(btn) {
     });
   });
   btn.disabled = true; status.textContent = 'Submitting…';
+  // Generate an idempotency key once and persist it BEFORE the POST. If the
+  // window closes / network drops mid-submit, the same key is reused on the
+  // next attempt so the server returns the already-queued job instead of
+  // creating a duplicate. Reuse an existing key if a prior attempt set one.
+  if (!_uw.submitKey) _uw.submitKey = _uwGenKey();
+  _uwSave();
   try {
-    const res = await api('POST', '/api/posting/bulk/drive', { items });
+    const res = await _uwSubmitBulk(items, _uw.submitKey, status);
     if (!res || !res.job_id) { status.textContent='Submit failed — please try again.'; btn.disabled=false; return; }
     _uw.jobId = res.job_id; status.textContent = res.message || 'Queued!';
+    _uwSave(); // persist the job id so a reload re-attaches instead of re-submitting
     if (res.warning) _appendPostsCard(`<div style="font-size:12px;color:#d97706;line-height:1.6">⚠️ ${escHtml(res.warning)}<br>
       To protect scheduled posts from server redeploys, set <code>CHECKPOINT_FILE=/data/checkpoint.json</code>
       and <code>UPLOADS_DIR=/data/uploads</code> (on a persistent disk), or set <code>DATABASE_URL</code>
@@ -10425,7 +10503,62 @@ async function uwPublish(btn) {
     // don't poll the same job in parallel.
     clearTimeout(_uw.pollTimer); _uw.pollTimer = null;
     uwPollJob();
-  } catch(e) { status.textContent='Error: '+(e.message||e); btn.disabled=false; }
+  } catch(e) {
+    if (e && e._uwFatal) {
+      // A real rejection (bad request, disconnected account) — show it as-is.
+      status.textContent = 'Error: ' + (e.message || e);
+    } else {
+      // Network/transient error after exhausting retries. The submit key is
+      // persisted, so the button stays enabled and a later click is safe (the
+      // server dedupes on the key — it never double-publishes).
+      status.textContent = '⚠️ Couldn\'t reach the server — your posts are saved. Click Publish again to retry (no duplicates).';
+    }
+    btn.disabled = false;
+  }
+}
+
+// Random idempotency key for a publish submission.
+function _uwGenKey() {
+  try { if (window.crypto && crypto.randomUUID) return 'pub_' + crypto.randomUUID(); } catch(_) {}
+  return 'pub_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+}
+
+// POST the bulk job with network-resilient retries, reusing the idempotency
+// key so a retry after a dropped connection never creates a duplicate job.
+// Uses fetch directly so it can tell apart the cases that matter:
+//   • network error / 5xx / 429  → transient: back off and retry
+//   • HTTP 4xx (bad request, disconnected account) → surface immediately
+//   • 401 → not signed in: stop quietly (the app handles re-auth elsewhere)
+async function _uwSubmitBulk(items, key, statusEl) {
+  const delays = [0, 2000, 4000, 8000, 16000];
+  let lastErr = null;
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]) {
+      if (statusEl) statusEl.textContent = `Connection issue — retrying (${attempt}/${delays.length - 1})…`;
+      await new Promise(r => setTimeout(r, delays[attempt]));
+    }
+    try {
+      const r = await fetch('/api/posting/bulk/drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, idempotency_key: key }),
+      });
+      if (r.status === 401) return null;                 // not signed in
+      if (r.ok) return await r.json();                   // success (incl. dedup)
+      const bodyText = await r.text().catch(() => '');
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) {
+        const fatal = new Error(bodyText || ('HTTP ' + r.status)); // won't fix on retry
+        fatal._uwFatal = true;
+        throw fatal;
+      }
+      lastErr = new Error(bodyText || ('HTTP ' + r.status)); // 5xx/429 → retry
+    } catch (e) {
+      // A 4xx error from the branch above is permanent — propagate, don't retry.
+      if (e && e._uwFatal) throw e;
+      lastErr = e; // network failure (TypeError) → retry
+    }
+  }
+  throw lastErr || new Error('submit failed');
 }
 
 async function uwPollJob() {
@@ -10475,6 +10608,8 @@ async function uwPollJob() {
     else if (job.status==='done'){
       status.textContent=''; _uw.jobId=null; _uw._pollProg=null;
       _uw.published = true; // Lock wizard calendar — posts are in the DB now
+      _uw.submitKey = null; // job is terminal — a future publish gets a fresh key
+      _uwSave();
       if (job.failed) _logAdd('warn', `Job done with ${job.failed} failure(s)`, `published:${job.published_count} scheduled:${job.scheduled_count} failed:${job.failed}`);
       // Surface per-post errors in the chat itself, not just the admin log panel.
       let failHtml = '';
@@ -10520,6 +10655,7 @@ async function uwPollJob() {
       refreshQueueStats(false); return; }
     else if (job.status==='failed'){
       status.textContent=`❌ ${job.error||'Job failed'}`; _uw.jobId=null;
+      _uw.submitKey = null; _uwSave(); // terminal — allow a fresh retry submit
       _logAdd('error', `Publish job ${job.id || _uw.jobId} failed`, job.error || 'unknown error'); return; }
     _uw.pollTimer = setTimeout(uwPollJob, 2000);
   } catch(e){ _logAdd('warn', 'Poll error', String(e)); _uw.pollTimer = setTimeout(uwPollJob, 3000); }
