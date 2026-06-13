@@ -6913,9 +6913,13 @@ async def api_my_queue(
         thumb = None
         if media:
             m0 = media[0]
-            fid = m0.get("local_file_id") or m0.get("cache_file_id")
-            if fid:
-                thumb = f"/api/uploads/{fid}"
+            _mime = m0.get("mime_type") or ""
+            # Only offer a thumbnail for image media (videos fall back to the
+            # 🎬 placeholder). The endpoint resolves disk/Drive sources itself.
+            if (not _mime or _mime.startswith("image/")) and (
+                m0.get("local_file_id") or m0.get("cache_file_id") or m0.get("drive_file_id")
+            ):
+                thumb = f"/api/posting/my-queue/{p.id}/thumb"
         out.append({
             "id": p.id,
             "status": p.status,
@@ -6932,6 +6936,29 @@ async def api_my_queue(
     return {"posts": out, "total": len(out)}
 
 
+async def _resolve_posting_uid(request: Request, db: AsyncSession) -> Optional[str]:
+    """The current posting account uid — session first, else most-recent active
+    account (the same fallback the bulk scheduler records on each post)."""
+    uid = get_session(request).get("posting_user_id")
+    if uid:
+        return uid
+    res = await db.execute(
+        select(ConnectedPostingAccount.facebook_user_id)
+        .where(ConnectedPostingAccount.is_active == True)
+        .order_by(ConnectedPostingAccount.id.desc())
+    )
+    return res.scalars().first()
+
+
+def _owns_scheduled_post(post: "ScheduledPost", posting_user_id: Optional[str]) -> bool:
+    """True if the current posting account may manage this scheduled post.
+    Accepts the user's own rows plus legacy rows that never recorded an owner."""
+    owner = (post.job_data or {}).get("posting_user_id")
+    if owner is None:
+        return True
+    return bool(posting_user_id) and owner == posting_user_id
+
+
 @app.patch("/api/posting/my-queue/{post_id}")
 async def api_my_queue_update(
     post_id: int,
@@ -6939,16 +6966,13 @@ async def api_my_queue_update(
     db: AsyncSession = Depends(get_db),
 ):
     """Edit caption, hashtags, or scheduled_time of a user-owned pending IG post."""
-    sess = get_session(request)
-    posting_user_id = sess.get("posting_user_id")
-    if not posting_user_id:
-        raise HTTPException(403, "No posting account selected")
+    posting_user_id = await _resolve_posting_uid(request, db)
     body = await request.json()
     post = await db.get(ScheduledPost, post_id)
     if not post:
         raise HTTPException(404, "Post not found")
     jd = post.job_data or {}
-    if jd.get("posting_user_id") != posting_user_id:
+    if not _owns_scheduled_post(post, posting_user_id):
         raise HTTPException(403, "You don't own this post")
     if post.status not in ("pending", "failed"):
         raise HTTPException(409, "Cannot edit a post that is currently publishing or already finished")
@@ -6974,6 +6998,56 @@ async def api_my_queue_update(
             raise HTTPException(400, f"Invalid scheduled_time: {exc}")
     await db.commit()
     return {"success": True, "id": post.id}
+
+
+@app.get("/api/posting/my-queue/{post_id}/thumb")
+async def api_my_queue_thumb(post_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Serve the first media item of a scheduled post as an inline image.
+
+    Handles every storage case so the My Queue list/grid/preview shows a real
+    picture: device uploads and Drive-cached files stream from disk, while
+    Drive-only media (not yet pre-cached) is downloaded with the post's Google
+    token and converted to JPEG on the fly. Non-image media returns 404 so the
+    UI falls back to its 🎬/🖼️ placeholder.
+    """
+    posting_user_id = await _resolve_posting_uid(request, db)
+    post = await db.get(ScheduledPost, post_id)
+    if not post or not _owns_scheduled_post(post, posting_user_id):
+        raise HTTPException(404, "Not found")
+    jd = post.job_data or {}
+    media = jd.get("media") or []
+    if not media:
+        raise HTTPException(404, "No media")
+    m0 = media[0]
+    mime = m0.get("mime_type") or ""
+    if mime and not mime.startswith("image/"):
+        raise HTTPException(404, "Not an image")
+    # 1) Disk-backed (device upload or pre-cached Drive file).
+    fid = m0.get("local_file_id") or m0.get("cache_file_id")
+    if fid and "/" not in fid and "\\" not in fid and not fid.startswith("."):
+        path = _UPLOAD_DIR / fid
+        if path.is_file():
+            async with aiofiles.open(path, "rb") as fh:
+                data = await fh.read()
+            out, out_mime, _ = await asyncio.to_thread(
+                _ensure_jpeg_sync, data, mime or "image/jpeg", m0.get("filename") or "image")
+            return Response(content=out, media_type=out_mime,
+                headers={"Cache-Control": "private, max-age=600"})
+    # 2) Drive-only: download with the post's Google account and convert.
+    drive_id = m0.get("drive_file_id")
+    if not drive_id:
+        raise HTTPException(404, "Media not available")
+    try:
+        google_token = await _google_token_for_uid(jd.get("google_user_id"), db)
+    except Exception:
+        raise HTTPException(502, "Could not access source media")
+    dl = await google_api.download_drive_file(drive_id, google_token)
+    if not dl.get("success"):
+        raise HTTPException(502, "Source media unavailable")
+    out, out_mime, _ = await asyncio.to_thread(
+        _ensure_jpeg_sync, dl["bytes"], mime or "image/jpeg", m0.get("filename") or "image")
+    return Response(content=out, media_type=out_mime,
+        headers={"Cache-Control": "private, max-age=600"})
 
 
 @app.get("/api/posting/calendar")
