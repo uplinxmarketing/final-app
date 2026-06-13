@@ -7581,6 +7581,17 @@ async def api_posting_notifications(request: Request, db: AsyncSession = Depends
         # owner recorded (show those to everyone rather than no one).
         if owner_uid and my_uid and owner_uid != my_uid:
             continue
+        # Generate a thumbnail URL for image posts (same logic as api_my_queue).
+        jd = p.job_data or {}
+        media = jd.get("media", [])
+        thumb = None
+        if media:
+            m0 = media[0]
+            _mime = m0.get("mime_type") or ""
+            if (not _mime or _mime.startswith("image/")) and (
+                m0.get("local_file_id") or m0.get("cache_file_id") or m0.get("drive_file_id")
+            ):
+                thumb = f"/api/posting/my-queue/{p.id}/thumb"
         failed.append({
             "id": p.id,
             "platform": p.platform,
@@ -7588,6 +7599,7 @@ async def api_posting_notifications(request: Request, db: AsyncSession = Depends
             "instagram_id": p.instagram_id,
             "caption": (p.caption or "")[:200],
             "media_type": p.media_type,
+            "thumbnail": thumb,
             "scheduled_time": p.scheduled_time.isoformat() if p.scheduled_time else None,
             "error": (p.error_message or "")[:300],
             "attempts": p.attempts,
