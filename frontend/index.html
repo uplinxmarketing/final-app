@@ -3770,7 +3770,7 @@ function mqOpenPostModal(postId) {
   const hashIdx = fullCap.lastIndexOf('\n\n#');
   const editCap = hashIdx >= 0 ? fullCap.slice(0, hashIdx) : fullCap;
   const editTags = (p.hashtags || []).join(' ');
-  const schedVal = p.scheduled_time ? new Date(p.scheduled_time).toISOString().slice(0,16) : '';
+  const schedVal = _toLocalInputValue(p.scheduled_time);
   const existing = document.getElementById('mq-post-modal');
   if (existing) existing.remove();
   const modal = document.createElement('div');
@@ -4035,6 +4035,18 @@ function _dtpLabel(val) {
   if (!val) return '';
   try { return new Date(val).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
   catch(_) { return val; }
+}
+
+// Convert a UTC/ISO instant (e.g. a backend scheduled_time) into the local
+// wall-clock 'YYYY-MM-DDTHH:MM' the picker expects, so the displayed time
+// matches the rest of the UI and round-trips correctly through
+// new Date(value).toISOString() on save.
+function _toLocalInputValue(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ── Schedule field: a hidden <input> (so existing value reads keep working) +
@@ -9108,7 +9120,7 @@ function uwCalTimeOpen(idx, plat, e) {
     title: `🕒 Post ${idx+1} · ${platLabel}`,
     allowClear: true,
     clearLabel: '⚡ Post now',
-    onApply: val => { if (val !== curSched) { _uwSetPlatSched(p, plat, val); _uwSnap(); } _uwRenderCards(); },
+    onApply: val => { if (val !== (curSched || '').slice(0, 16)) { _uwSetPlatSched(p, plat, val); _uwSnap(); } _uwRenderCards(); },
     onClear: () => { if (curSched) { _uwSetPlatSched(p, plat, null); _uwSnap(); } _uwRenderCards(); },
   });
 }
