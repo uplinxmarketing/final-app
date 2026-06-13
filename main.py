@@ -7477,7 +7477,9 @@ async def api_cancel_meta_fb_scheduled(
     except Exception:
         page_token = token
         used_page_token = False
-    res = await meta_api.delete_scheduled_post(page_token, meta_post_id)
+    # Low retry count: on an ambiguous failure we verify the post's real state
+    # below rather than burning ~30s on transient-error back-off.
+    res = await meta_api.delete_scheduled_post(page_token, meta_post_id, retries=2)
     if res.get("success"):
         return {"success": True}
     err = str(res.get("error", "unknown error"))
@@ -7488,7 +7490,40 @@ async def api_cancel_meta_fb_scheduled(
     # user token) isn't mistaken for a deleted post.
     if used_page_token and ("error 100" in low or "does not exist" in low or "cannot be loaded" in low):
         return {"success": True, "already_gone": True}
+    # Ambiguous failure (e.g. transient "code 1: unknown error", which Meta
+    # often returns even when the delete actually went through). Verify the
+    # post's real state: if it no longer exists, the cancel effectively
+    # succeeded, so report success instead of leaving the card stuck.
+    if used_page_token and not await _fb_scheduled_post_exists(meta_post_id, page_token):
+        return {"success": True, "already_gone": True}
     raise HTTPException(502, f"Meta refused the cancel: {err}")
+
+
+async def _fb_scheduled_post_exists(post_id: str, page_token: str) -> bool:
+    """Return True if the post still exists on Meta, False if it's gone.
+
+    Used to disambiguate a flaky delete: Meta's code-1 "unknown error" can come
+    back even when the post was removed. On any inconclusive result we return
+    True (assume it still exists) so we never falsely report a cancel as done.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"{settings.meta_graph_base_url}/{post_id}",
+                params={"fields": "id", "access_token": page_token},
+            )
+        if r.status_code == 200:
+            return True
+        try:
+            code = (r.json().get("error") or {}).get("code")
+        except Exception:
+            code = None
+        # Code 100 = object does not exist / cannot be loaded → it's gone.
+        if code == 100:
+            return False
+        return True
+    except Exception:
+        return True
 
 
 @app.get("/api/posting/fb-scheduled-posts")
