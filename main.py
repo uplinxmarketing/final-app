@@ -2734,16 +2734,19 @@ async def api_disconnect_posting(
     if not is_admin and acc.owner_user_id is not None and app_user_id and acc.owner_user_id != app_user_id:
         raise HTTPException(403, "You do not have permission to disconnect that account")
 
-    # Count pending scheduled posts that will be stranded.
+    # Count pending scheduled posts that will be stranded. The owner uid lives
+    # inside the generic JSON job_data column, so we filter in Python rather than
+    # with the PostgreSQL-only `.astext` operator (which raises on SQLite).
     pending_result = await db.execute(
-        select(func.count()).select_from(ScheduledPost).where(
+        select(ScheduledPost).where(
             ScheduledPost.status == "pending",
             ScheduledPost.job_data.isnot(None),
-            # posted via this account (stored inside JSON job_data)
-            ScheduledPost.job_data["posting_user_id"].astext == acc.facebook_user_id,
         )
     )
-    pending_count: int = pending_result.scalar() or 0
+    pending_count: int = sum(
+        1 for p in pending_result.scalars().all()
+        if (p.job_data or {}).get("posting_user_id") == acc.facebook_user_id
+    )
 
     if pending_count > 0 and not confirm:
         return JSONResponse(
@@ -6859,16 +6862,8 @@ async def api_my_queue(
         ScheduledPost.platform == "instagram",
         ScheduledPost.status.in_(status_list),
     )
-    owner_clause = ScheduledPost.job_data["posting_user_id"].astext == posting_user_id
     if ig_account_id:
-        # The account selector only offers IG accounts the current token can
-        # reach, so instagram_id is itself user-scoped. Surface this user's rows
-        # plus any legacy rows whose posting_user_id was never recorded.
         q = q.where(ScheduledPost.instagram_id == ig_account_id)
-        if posting_user_id:
-            q = q.where(or_(owner_clause, ScheduledPost.job_data["posting_user_id"].astext.is_(None)))
-    else:
-        q = q.where(owner_clause)
     if search:
         q = q.where(ScheduledPost.caption.ilike(f"%{search}%"))
     if date_from:
@@ -6889,7 +6884,22 @@ async def api_my_queue(
             pass
     q = q.order_by(ScheduledPost.scheduled_time)
     result = await db.execute(q)
-    posts = result.scalars().all()
+    rows = result.scalars().all()
+    # Ownership scoping happens in Python: job_data is a generic JSON column, so
+    # the PostgreSQL-only `.astext` operator can't be used portably (it raises an
+    # AttributeError on SQLite). When an IG account is selected, instagram_id
+    # already scopes to an account the user's token can reach, so we accept the
+    # user's own rows plus legacy rows that never recorded a posting_user_id.
+    posts = []
+    for p in rows:
+        owner = (p.job_data or {}).get("posting_user_id")
+        if ig_account_id:
+            if owner and posting_user_id and owner != posting_user_id:
+                continue
+        else:
+            if owner != posting_user_id:
+                continue
+        posts.append(p)
     out = []
     for p in posts:
         jd = p.job_data or {}
