@@ -6307,6 +6307,9 @@ function _uwChatOpen(id) {
   const chats = _uwChatsLoad();
   const entry = chats.find(c => c.id === id);
   if (!entry || !entry.session) return;
+  // If the user is already viewing THIS chat with a live step-3 preview, do
+  // nothing — the in-memory posts have fresher captions than the saved history.
+  if (_uw._chatId === id && _uw.previewCard) return;
   // Restore session into _uw and re-render
   const d = entry.session;
   _uw.posts = d.posts || [];
@@ -6465,9 +6468,15 @@ async function startUploadWizard() {
   if (!pm || pm.style.display === 'none') enterInterface('posts');
   _postTab = 'chat';
   switchPostsTab('chat');
-  // Resume an active session that already has posts
-  if (_uw._chatId && _uw.posts && _uw.posts.length) {
-    if (!_uw.previewCard) { _uwHistReset(); _uwRenderPreview(); }
+  // Resume an active session that already has posts — even if _chatId is
+  // somehow missing, never replace posts from localStorage while they exist
+  // in memory (that would discard captions, hashtags and scheduled times).
+  if (_uw.posts && _uw.posts.length) {
+    if (_uw._chatId && !_uw.previewCard) { _uwHistReset(); _uwRenderPreview(); }
+    else if (!_uw.previewCard && !_uw._chatId) {
+      _uw._chatId = 'chat_' + Date.now();
+      _uwHistReset(); _uwRenderPreview();
+    }
     return;
   }
   // Restore a saved session (e.g. after a page reload or window close)
@@ -7545,6 +7554,12 @@ function _uwStripFileTokens(caption, names) {
 // files, where order-based matching pairs them wrongly. Returns true when an
 // AI assignment was applied; on any failure the heuristic result stands.
 async function _uwAiMatch(posts, captions) {
+  // Never wipe captions when the step-3 preview is already on screen — that
+  // would destroy all the user's manual edits and scheduled times.
+  if (_uw.previewCard) {
+    console.error('[UW] _uwAiMatch blocked — step-3 preview is active');
+    return false;
+  }
   if (!(posts||[]).length || !(captions||[]).length) return false;
   // Level 1 (label/filename) matches are locked — the AI only decides the rest.
   const cands = posts.map((p,i) => ({p,i})).filter(x => !x.p._matchLocked);
@@ -7765,6 +7780,25 @@ function uwCancel(btn) {
 }
 
 function _uwRenderCards() {
+  // Integrity guard: if the undo history has posts with captions but _uw.posts
+  // somehow has them all blank, restore from the most-recent non-empty snapshot
+  // before rendering — this catches any wipe regardless of origin.
+  if (_uwHist && _uwHist.stack && _uwHist.stack.length) {
+    const hasAnyCap = (_uw.posts || []).some(p => (p.caption || '').trim() || (p.hashtags || []).length);
+    if (!hasAnyCap && (_uw.posts || []).length) {
+      for (let si = _uwHist.pos; si >= 0; si--) {
+        try {
+          const snap = JSON.parse(_uwHist.stack[si]);
+          if (snap && snap.some(p => (p.caption || '').trim() || (p.hashtags || []).length)) {
+            console.warn('[UW] Caption wipe detected — restoring from undo snapshot #' + si);
+            _uw.posts = snap;
+            _uwHist.pos = si;
+            break;
+          }
+        } catch(_) {}
+      }
+    }
+  }
   const wrap = _uw.previewCard.querySelector('.uw-cards');
   const mode = _uw.viewMode || 'list';
   if (mode === 'calendar') {
