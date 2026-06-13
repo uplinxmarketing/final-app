@@ -7109,6 +7109,31 @@ async def api_scheduled_posts(request: Request, client_id: Optional[int] = None,
     ]
 
 
+@app.delete("/api/posting/facebook-scheduled/{meta_post_id:path}")
+async def api_cancel_meta_fb_scheduled(
+    meta_post_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a Meta-native Facebook scheduled post (not tracked in our DB).
+
+    Posts scheduled natively via Meta Business Suite appear on the calendar
+    with string IDs like "123456789_987654321". They can't be cancelled via
+    our DB endpoint (which expects integer IDs), so this routes directly to
+    the Meta Graph API delete call.
+    """
+    token = await get_posting_token(request, db)
+    page_id = meta_post_id.split("_")[0]
+    try:
+        page_token = await _get_page_token(token, page_id)
+    except Exception:
+        page_token = token
+    res = await meta_api.delete_scheduled_post(page_token, meta_post_id)
+    if not res.get("success"):
+        raise HTTPException(502, f"Meta refused the cancel: {res.get('error', 'unknown error')}")
+    return {"success": True}
+
+
 @app.delete("/api/posting/published/{post_id}")
 async def api_delete_published_post(
     post_id: str,

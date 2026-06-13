@@ -5497,7 +5497,13 @@ async function calCancelScheduled(idx) {
   const btn = document.querySelector('#cal-post-preview-modal .cal-del-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Cancelling…'; }
   try {
-    const res = await api('DELETE', `/api/scheduled-posts/${post.id}`);
+    // DB-tracked posts (created by this app) have numeric IDs.
+    // Meta-native FB scheduled posts (created in Meta Business Suite) have string IDs.
+    const isDbPost = typeof post.id === 'number';
+    const endpoint = isDbPost
+      ? `/api/scheduled-posts/${post.id}`
+      : `/api/posting/facebook-scheduled/${encodeURIComponent(String(post.id))}`;
+    const res = await api('DELETE', endpoint);
     if (res === null) throw new Error('Session expired — please sign in again');
     toast('Scheduled post cancelled');
     const modal = document.getElementById('cal-post-preview-modal');
@@ -5512,9 +5518,11 @@ async function calCancelScheduled(idx) {
       renderCalendarGrid(_calData.days);
     }
   } catch(e) {
-    _logAdd('error', 'Cancel scheduled post failed', String(e.message || e));
+    let msg = e.message || String(e);
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    _logAdd('error', 'Cancel scheduled post failed', msg);
     if (btn) { btn.disabled = false; btn.textContent = '🗑 Cancel Scheduled Post'; }
-    alert('Could not cancel the post: ' + (e.message || e));
+    alert('Could not cancel the post: ' + msg);
   }
 }
 
@@ -8128,8 +8136,8 @@ function _uwBuildCalendarHtml() {
       <span class="chip-cap" style="font-size:9px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${escHtml(firstLine)}</span>
       <button class="chip-time" onclick="uwCalTimeOpen(${idx},'${plat}',event)" title="Set posting time (or double-click the card)"
         style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:${time ? 'var(--text-secondary)' : 'var(--accent)'};font-size:10px;font-weight:700;cursor:pointer;padding:1px 5px;flex-shrink:0;white-space:nowrap;min-height:16px">${time ? '🕒' + _uw12h(time) : '⚡'}</button>
-      <button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
-        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;flex-shrink:0">✕</button>
+      ${_uw.published ? '' : `<button class="cal-chip-del" onclick="uwCalDeletePost(${idx});event.stopPropagation()" title="Remove this post"
+        style="position:absolute;top:0;right:0;bottom:0;width:17px;background:rgba(220,38,38,.85);border:none;color:#fff;font-size:9px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .1s;flex-shrink:0">✕</button>`}
     </div>`;
   };
   const uwCpf = _uw.calPlatFilter || 'both';
@@ -8198,7 +8206,8 @@ function _uwBuildCalendarHtml() {
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:3px;flex-shrink:0">${dayNames}</div>
     <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(84px,auto);gap:4px;width:100%;box-sizing:border-box">${cells}</div>
-    <div style=”font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center”>Drag cards between days to reschedule · click 🕒 on a card to edit its time · ⚡ = posts immediately when you hit Publish<br>💬 Or type below — e.g. “move post 2 to Friday 6 PM” or “schedule all posts 1 hour apart starting tomorrow 9 AM”</div>
+    ${_uw.published ? `<div style=”margin-top:8px;padding:10px 14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;color:var(--text-secondary);text-align:center;line-height:1.5”>✅ <b>Posts submitted.</b> To cancel a scheduled post, open the <b>Calendar</b> tab and click on it there.</div>`
+    : `<div style=”font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center”>Drag cards between days to reschedule · click 🕒 on a card to edit its time · ⚡ = posts immediately when you hit Publish<br>💬 Or type below — e.g. “move post 2 to Friday 6 PM” or “schedule all posts 1 hour apart starting tomorrow 9 AM”</div>`}
   </div>`;
 }
 
@@ -8341,6 +8350,10 @@ function uwCalTimeOpen(idx, plat, e) {
 
 // Delete a post from the calendar (undo restores it).
 function uwCalDeletePost(idx) {
+  if (_uw.published) {
+    toast('These posts are already submitted — use the Calendar tab to cancel scheduled posts.', 'error');
+    return;
+  }
   if (!_uw.posts[idx]) return;
   _uw.posts.splice(idx, 1);
   if (_uwFeed.open) {
@@ -8696,6 +8709,10 @@ function _uwAddPostMediaMenu(i) {
 // Remove a whole post from the upload (its files stay in the pool, so they
 // can be re-added to another post via ＋).
 function uwRemovePost(i) {
+  if (_uw.published) {
+    toast('These posts are already submitted — use the Calendar tab to cancel scheduled posts.', 'error');
+    return;
+  }
   if (!_uw.posts[i]) return;
   _uw.posts.splice(i, 1);
   _uwSnap();
@@ -9192,6 +9209,7 @@ async function uwPollJob() {
     }
     else if (job.status==='done'){
       status.textContent=''; _uw.jobId=null; _uw._pollProg=null;
+      _uw.published = true; // Lock wizard calendar — posts are in the DB now
       if (job.failed) _logAdd('warn', `Job done with ${job.failed} failure(s)`, `published:${job.published_count} scheduled:${job.scheduled_count} failed:${job.failed}`);
       // Surface per-post errors in the chat itself, not just the admin log panel.
       let failHtml = '';
