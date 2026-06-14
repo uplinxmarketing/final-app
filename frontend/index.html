@@ -3847,10 +3847,32 @@ async function mqFetchPosts() {
   }
 }
 
-// FB posts deleted in this session. Meta's scheduled_posts edge can keep
-// returning a post for a short while after deletion, so we filter these out of
-// every fetch to stop "cancelled" posts from reappearing on refresh.
-let _mqDeletedFB = new Set();
+// FB post ids the user has removed. Meta's scheduled_posts edge keeps returning
+// a post for a while after it's deleted (and rate limits / transient errors can
+// stop us confirming a delete), so we filter these out of every fetch. Persisted
+// to localStorage so a force-removed post stays gone across reloads until Meta
+// stops returning it.
+const _MQ_DELETED_FB_KEY = 'uplinx_mq_deleted_fb';
+function _mqLoadDeletedFB() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_MQ_DELETED_FB_KEY) || '{}');
+    const now = Date.now();
+    const out = new Set();
+    // Entries auto-expire after 30 days so the list can't grow forever.
+    Object.keys(raw).forEach(id => { if (now - raw[id] < 30*24*3600*1000) out.add(id); });
+    return out;
+  } catch(_) { return new Set(); }
+}
+let _mqDeletedFB = _mqLoadDeletedFB();
+function _mqHideFB(id) {
+  id = String(id);
+  _mqDeletedFB.add(id);
+  try {
+    const raw = JSON.parse(localStorage.getItem(_MQ_DELETED_FB_KEY) || '{}');
+    raw[id] = Date.now();
+    localStorage.setItem(_MQ_DELETED_FB_KEY, JSON.stringify(raw));
+  } catch(_) {}
+}
 
 // Debounce caption/hashtag search: the FB and IG queries run server-side
 // (and the FB one fans out across pages), so fetching on every keystroke
@@ -4038,7 +4060,7 @@ async function mqBulkDelete() {
   if (!posts.length) return;
   if (!confirm(`Delete ${posts.length} scheduled post(s)? This cannot be undone.`)) return;
   const status = document.getElementById('mq-bulk-status');
-  let ok = 0; const errors = [];
+  let ok = 0; const errors = []; const failedFB = [];
   for (let i = 0; i < posts.length; i++) {
     const p = posts[i];
     if (status) status.textContent = `Deleting ${i+1}/${posts.length}…`;
@@ -4047,7 +4069,7 @@ async function mqBulkDelete() {
         const pageQ = p.page_id ? `?page_id=${encodeURIComponent(p.page_id)}` : '';
         const r = await api('DELETE', `/api/posting/facebook-scheduled/${encodeURIComponent(p.id)}${pageQ}`);
         if (r === null) throw new Error('Session expired');
-        _mqDeletedFB.add(String(p.id));
+        _mqHideFB(String(p.id));
       } else {
         const r = await api('DELETE', `/api/scheduled-posts/${p.id}`);
         if (r === null) throw new Error('Session expired');
@@ -4056,6 +4078,7 @@ async function mqBulkDelete() {
     } catch(e) {
       let m = e.message || String(e); try { const j = JSON.parse(m); if (j.detail) m = j.detail; } catch(_) {}
       errors.push(`• ${(p.caption||'(no caption)').slice(0,30)}: ${m.slice(0,90)}`);
+      if (p._source === 'facebook') failedFB.push(String(p.id));
     }
   }
   _mq.selected.clear();
@@ -4064,7 +4087,19 @@ async function mqBulkDelete() {
   toast(`Deleted ${ok} post${ok===1?'':'s'}${errors.length?`, ${errors.length} failed`:''}`, errors.length?'error':'success');
   await mqFetchPosts();
   refreshQueueStats(false);
-  if (errors.length) alert(`${errors.length} post(s) could not be deleted:\n\n` + errors.join('\n'));
+  if (errors.length) {
+    // Offer to force-remove the Facebook posts Meta wouldn't confirm (already
+    // deleted in Business Suite / rate-limited) so they stop cluttering the list.
+    const extra = failedFB.length ? `\n\n${failedFB.length} of these are Facebook posts. If you already deleted them in Business Suite, remove them from this list?` : '';
+    if (failedFB.length && confirm(`${errors.length} post(s) could not be deleted:\n\n${errors.join('\n')}${extra}`)) {
+      failedFB.forEach(id => _mqHideFB(id));
+      _mq.fbPosts = _mq.fbPosts.filter(x => !_mqDeletedFB.has(String(x.id)));
+      mqRenderPosts();
+      toast(`Removed ${failedFB.length} from list`);
+    } else if (!failedFB.length) {
+      alert(`${errors.length} post(s) could not be deleted:\n\n` + errors.join('\n'));
+    }
+  }
 }
 
 async function mqBulkReschedule() {
@@ -4354,7 +4389,7 @@ async function mqCancelFBPost(fbPostId) {
     if (res === null) throw new Error('Session expired');
     // Remember it as deleted and drop it locally now, so it disappears
     // immediately and won't reappear if Meta's edge is slow to update.
-    _mqDeletedFB.add(String(fbPostId));
+    _mqHideFB(fbPostId);
     _mq.fbPosts = _mq.fbPosts.filter(x => String(x.id) !== String(fbPostId));
     toast(res && res.already_gone ? 'Post was already removed from Meta' : 'Facebook post cancelled');
     document.getElementById('mq-fb-modal')?.remove();
@@ -4363,8 +4398,30 @@ async function mqCancelFBPost(fbPostId) {
   } catch(e) {
     let msg = e.message || String(e);
     try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
-    alert('Could not cancel: ' + msg);
+    // Meta wouldn't confirm the delete (rate limit, transient code 1, or the
+    // post was already removed in Business Suite and the edge is lagging).
+    // Offer to force-remove it from this list so the user isn't stuck.
+    if (confirm(`Meta couldn't confirm the cancel:\n\n${msg}\n\nIf you already deleted this post in Meta Business Suite (or it keeps erroring), remove it from this list? It won't come back.`)) {
+      mqForceRemoveFBPost(fbPostId);
+    }
   }
+}
+
+// Force-remove a Facebook post from this list without requiring Meta to confirm
+// the delete. For posts already removed in Business Suite whose deletion Meta
+// won't acknowledge (edge lag, rate limits, transient errors). It still attempts
+// a best-effort Meta delete first, then hides it locally regardless.
+function mqForceRemoveFBPost(fbPostId) {
+  const p = _mq.fbPosts.find(x => String(x.id) === String(fbPostId));
+  const pageQ = p && p.page_id ? `?page_id=${encodeURIComponent(p.page_id)}` : '';
+  // Hide immediately — the user wants it gone now, no waiting on Meta.
+  _mqHideFB(fbPostId);
+  _mq.fbPosts = _mq.fbPosts.filter(x => String(x.id) !== String(fbPostId));
+  document.getElementById('mq-fb-modal')?.remove();
+  mqRenderPosts();
+  toast('Removed from list');
+  // Best-effort delete in the background in case Meta can still process it.
+  api('DELETE', `/api/posting/facebook-scheduled/${encodeURIComponent(fbPostId)}${pageQ}`).catch(() => {});
 }
 
 function mqOpenFBPostModal(fbPostId) {
@@ -4424,6 +4481,7 @@ function mqOpenFBPostModal(fbPostId) {
     <!-- Footer buttons -->
     <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
       <button onclick="mqCancelFBPost('${escHtml(String(p.id))}')" style="padding:8px 14px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">✕ Cancel post</button>
+      <button onclick="mqForceRemoveFBPost('${escHtml(String(p.id))}')" title="Remove this from the list without calling Meta — use for posts you already deleted in Business Suite" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;font-weight:700;cursor:pointer">🚫 Force remove</button>
       <div style="flex:1"></div>
       <button onclick="document.getElementById('mq-fb-modal').remove()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">Close</button>
       <button onclick="mqSaveFBPost('${escHtml(String(p.id))}','${escHtml(p.page_id)}')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">💾 Save changes</button>
