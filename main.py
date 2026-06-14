@@ -4406,44 +4406,66 @@ def _effective_base_url() -> str:
 async def _get_page_token(user_token: str, page_id: str) -> str:
     """Exchange the user posting token for a page-scoped token.
 
-    Tries the direct page-node lookup first, then falls back to scanning
-    ``/me/accounts`` — the direct lookup fails for some page/permission
-    combinations where the page (with its token) is still present in the
-    accounts list. Surfaces Meta's real error so failures are diagnosable.
+    Resolution order, cheapest first, to stay off Meta's app-level rate limit:
+      1. in-memory page-token cache (10 min)
+      2. the shared 5-minute-cached ``/me/accounts`` list, which already carries
+         each page's ``access_token`` — no extra Graph call when it's warm, so a
+         bulk publish doesn't make a per-page ``/{page-id}`` call for every post
+      3. a direct ``/{page-id}`` lookup as a last resort
 
-    Resolved tokens are cached for a few minutes to keep repeated calls off the
-    Meta rate limit.
+    On a rate-limit failure (code 4/17/32) the raised error says so, instead of
+    wrongly blaming permissions and suggesting a reconnect (which won't help).
     """
     ck = f"{page_id}:{hashlib.sha256(user_token.encode()).hexdigest()[:16]}"
     cached = _page_token_cache.get(ck)
     if cached and time.time() - cached[0] < _PAGE_TOKEN_CACHE_TTL:
         return cached[1]
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            f"{settings.meta_graph_base_url}/{page_id}",
-            params={"fields": "access_token", "access_token": user_token},
-        )
+
+    # 2. Prefer the shared cached pages list (its access_token field is exactly
+    #    what we need) over a direct per-page lookup.
+    pages_key = hashlib.sha256(user_token.encode()).hexdigest()[:16]
+    try:
+        pages_res = await _get_pages_cached(user_token, pages_key)
+        if pages_res.get("success"):
+            raw = pages_res["data"]
+            for pg in (raw["data"] if isinstance(raw, dict) else raw):
+                if pg.get("id") == page_id and pg.get("access_token"):
+                    _page_token_cache[ck] = (time.time(), pg["access_token"])
+                    return pg["access_token"]
+    except Exception:
+        pass
+
+    # 3. Direct page-node lookup (covers pages absent from the accounts list).
+    direct_err = "unknown error"
+    rate_limited = False
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"{settings.meta_graph_base_url}/{page_id}",
+                params={"fields": "access_token", "access_token": user_token},
+            )
         if r.status_code == 200:
             tok = r.json().get("access_token")
             if tok:
                 _page_token_cache[ck] = (time.time(), tok)
                 return tok
-        # Capture the direct-lookup error before trying the fallback.
         try:
             err = r.json().get("error", {})
-            direct_err = f"{err.get('message', r.text[:200])} (code {err.get('code')}/{err.get('error_subcode', 0)})"
+            code = err.get("code")
+            direct_err = f"{err.get('message', r.text[:200])} (code {code}/{err.get('error_subcode', 0)})"
+            rate_limited = code in (4, 17, 32, 613)
         except Exception:
             direct_err = f"HTTP {r.status_code}: {r.text[:200]}"
-        # Fallback: the page token is usually available via /me/accounts.
-        fr = await client.get(
-            f"{settings.meta_graph_base_url}/me/accounts",
-            params={"fields": "id,access_token", "limit": 100, "access_token": user_token},
+    except Exception as exc:
+        direct_err = str(exc)
+
+    if rate_limited:
+        raise HTTPException(
+            429,
+            f"Meta app rate limit reached while preparing page {page_id}. This is "
+            "temporary — wait a few minutes and try again. Reconnecting won't help; "
+            "the app has simply made too many Graph API calls this hour.",
         )
-        if fr.status_code == 200:
-            for pg in fr.json().get("data", []):
-                if pg.get("id") == page_id and pg.get("access_token"):
-                    _page_token_cache[ck] = (time.time(), pg["access_token"])
-                    return pg["access_token"]
     raise HTTPException(
         502,
         f"Could not retrieve page token for page {page_id}: {direct_err}. "
