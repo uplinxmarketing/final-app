@@ -379,11 +379,27 @@ async def _token_refresh_loop() -> None:
                                 logger.info("Refreshed Google token for %s", gacc.user_email or gacc.google_user_id)
                             else:
                                 _g_err = refresh.get("error", "unknown error")
-                                logger.warning("Google token refresh failed for %s: %s",
-                                               gacc.user_email or gacc.google_user_id, _g_err)
-                                await log_posting_event(db, "token_error",
-                                    f"Google token refresh failed for {gacc.user_email or gacc.google_user_id}",
-                                    level="warning", platform="google", detail=str(_g_err)[:500])
+                                _g_err_s = str(_g_err).lower()
+                                # "invalid_grant" / "expired or revoked" means the
+                                # refresh token itself is dead — retrying every hour
+                                # is futile and just spams the log. Deactivate the
+                                # account so the loop stops and the Drive status flips
+                                # to "Not connected", prompting the user to reconnect.
+                                if "invalid_grant" in _g_err_s or "expired or revoked" in _g_err_s:
+                                    gacc.is_active = False
+                                    await db.commit()
+                                    logger.warning("Google account %s deactivated — refresh token revoked; reconnect required",
+                                                   gacc.user_email or gacc.google_user_id)
+                                    await log_posting_event(db, "token_error",
+                                        f"Google Drive disconnected for {gacc.user_email or gacc.google_user_id} — reconnect required",
+                                        level="error", platform="google",
+                                        detail="Refresh token expired or revoked; auto-deactivated to stop hourly retries. Reconnect Google Drive to resume Drive-based posts.")
+                                else:
+                                    logger.warning("Google token refresh failed for %s: %s",
+                                                   gacc.user_email or gacc.google_user_id, _g_err)
+                                    await log_posting_event(db, "token_error",
+                                        f"Google token refresh failed for {gacc.user_email or gacc.google_user_id}",
+                                        level="warning", platform="google", detail=str(_g_err)[:500])
                         except Exception as g_exc:
                             logger.warning("Google token refresh error for %s: %s",
                                            gacc.user_email or gacc.google_user_id, g_exc)
