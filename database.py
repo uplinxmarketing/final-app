@@ -1078,6 +1078,17 @@ async def init_db() -> None:
                 await conn.execute(_text(_stmt))
             except Exception:
                 pass
+        # Data migration: assign legacy NULL-owner posting accounts to the first
+        # admin user so they are not visible to or switchable by other users.
+        try:
+            await conn.execute(_text(
+                "UPDATE connected_posting_accounts "
+                "SET owner_user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1) "
+                "WHERE owner_user_id IS NULL "
+                "AND (SELECT COUNT(*) FROM users WHERE role = 'admin') > 0"
+            ))
+        except Exception:
+            pass
     logger.info("Database tables initialised.")
 
 
