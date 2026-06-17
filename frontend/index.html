@@ -5906,15 +5906,41 @@ async function loadPostingInterface() {
     const nameEl = document.getElementById('posting-switcher-name');
     if (nameEl) nameEl.textContent = acctName;
     await loadPostingPagesAndIG();
+    const fbPages = _postingPages || [];
+    const igAccts = _postingIgAccounts || [];
+    const allTargets = fbPages.concat(igAccts);
     // Always auto-select the first available page after pages load (clears stale
     // selection from a previous account and avoids blank calendar/feed on switch).
-    if (!_selectedPostPage || !(_postingPages||[]).concat(_postingIgAccounts||[]).some(p => p.id === _selectedPostPage.id)) {
-      if (_postingPages && _postingPages.length) {
-        selectPostPage({ ..._postingPages[0], platform: 'facebook' });
-      } else if (_postingIgAccounts && _postingIgAccounts.length) {
-        const ig = _postingIgAccounts[0];
+    if (!_selectedPostPage || !allTargets.some(p => p.id === _selectedPostPage.id)) {
+      if (fbPages.length) {
+        selectPostPage({ ...fbPages[0], platform: 'facebook' });
+      } else if (igAccts.length) {
+        const ig = igAccts[0];
         selectPostPage({ ...ig, platform: 'instagram', name: '@' + (ig.username || ig.name || ig.id) });
       }
+    }
+    // Seed the calendar + feed page pickers too, so those tabs render the new
+    // account's first page right after a switch instead of an empty picker.
+    // Only fill when empty or pointing at a page the new account can't access.
+    const fbStale = _calFbPage && !fbPages.some(p => p.id === _calFbPage.id);
+    const igStale = _calIgPage && !igAccts.some(a => a.id === _calIgPage.id);
+    if ((!_calFbPage || fbStale) && (!_calIgPage || igStale)) {
+      if (fbPages.length) _calFbPage = fbPages[0];
+      else if (igAccts.length) _calIgPage = igAccts[0];
+      else { _calFbPage = null; _calIgPage = null; }
+    } else {
+      if (fbStale) _calFbPage = fbPages.length ? fbPages[0] : null;
+      if (igStale) _calIgPage = null;
+    }
+    const fFbStale = _feedFbPage && !fbPages.some(p => p.id === _feedFbPage.id);
+    const fIgStale = _feedIgPage && !igAccts.some(a => a.id === _feedIgPage.id);
+    if ((!_feedFbPage || fFbStale) && (!_feedIgPage || fIgStale)) {
+      if (fbPages.length) _feedFbPage = fbPages[0];
+      else if (igAccts.length) _feedIgPage = igAccts[0];
+      else { _feedFbPage = null; _feedIgPage = null; }
+    } else {
+      if (fFbStale) _feedFbPage = fbPages.length ? fbPages[0] : null;
+      if (fIgStale) _feedIgPage = null;
     }
     showPostsWorkspace(_selectedPostPage ? 'content' : 'no-page');
   } catch(e) {
@@ -11235,11 +11261,19 @@ async function switchPostingAccount(uid) {
       body: JSON.stringify({facebook_user_id: uid}),
     });
     if (!r.ok) { const d = await r.json().catch(()=>{}); throw new Error((d&&d.detail)||'Switch failed'); }
-    // Clear stale per-account state so loadPostingInterface starts clean.
+    // Clear ALL per-account state so loadPostingInterface starts clean and the
+    // currently-open tab (calendar / feed / scheduled / portfolios) re-renders
+    // against the new account — no full window reload required.
     _selectedPostPage = null;
     _postingPages = [];
     _postingIgAccounts = [];
+    _calFbPage = null; _calIgPage = null; _calData = {};
+    _feedFbPage = null; _feedIgPage = null;
     _mq.fbPageId = null; _mq.fbShowAll = false; _mq.fbPosts = []; _mq.posts = [];
+    _mq.igId = null; _mq.ig = null;
+    // Force portfolios + clients to refetch for the new account instead of
+    // reusing the previous account's cached lists.
+    _postingPortfolios = []; _portfoliosLoaded = false; _postingClients = [];
     toast('Switched to ' + newName);
     await loadPostingInterface();
   } catch(e) {
