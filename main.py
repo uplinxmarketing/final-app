@@ -672,6 +672,12 @@ async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
     immediately rather than falling back to a different account — that would
     silently publish a post from the wrong Facebook account.
 
+    Since multiple app-users may connect the SAME Facebook account (each gets
+    its own row, per r274), there can be several active rows for one
+    facebook_user_id.  We pick the row with the freshest non-expired token so a
+    scheduled post never fails just because one user's token expired while
+    another user's copy of the same account is still valid.
+
     The any-active-account fallback is kept only for legacy jobs that have
     no uid recorded at all (pre-r194 null posting_user_id rows).
     """
@@ -683,12 +689,16 @@ async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
                 ConnectedPostingAccount.is_active == True,
             )
         )
-        acc = result.scalar_one_or_none()
-        if not acc:
+        # .scalars().all() — NOT scalar_one_or_none() — because two users sharing
+        # one FB account produce two rows; the latter would raise MultipleResultsFound
+        # and break the scheduled post entirely.
+        rows = result.scalars().all()
+        if not rows:
             raise RuntimeError(
                 f"the Facebook account that placed this post ({uid}) is logged out — "
                 "reconnect it to resume scheduled posts"
             )
+        acc = _pick_freshest_token_row(rows)
     else:
         # Legacy job with no uid: fall back to most recent active account.
         result = await db.execute(
@@ -706,6 +716,37 @@ async def _posting_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
         if exp < datetime.now(timezone.utc):
             raise RuntimeError("posting token expired — reconnect to resume scheduled posts")
     return encryption.decrypt(acc.encrypted_long_token)
+
+
+def _pick_freshest_token_row(rows: list) -> "ConnectedPostingAccount":
+    """From multiple ConnectedPostingAccount rows for the same FB account, pick the
+    best one to publish with: prefer a non-expired token, then the one expiring
+    latest (None expiry = never-expires = best), then the most recently used."""
+    now = datetime.now(timezone.utc)
+
+    def _exp_aware(a):
+        e = a.token_expiry
+        if e is not None and e.tzinfo is None:
+            e = e.replace(tzinfo=timezone.utc)
+        return e
+
+    def _not_expired(a):
+        e = _exp_aware(a)
+        return e is None or e >= now
+
+    valid = [a for a in rows if _not_expired(a)]
+    pool = valid or rows
+    # Sort: never-expiring (None) first, else latest expiry; tie-break by last_used.
+    def _sort_key(a):
+        e = _exp_aware(a)
+        # datetime.max for None so it sorts as "best"; use timestamp for comparison
+        exp_ts = e.timestamp() if e is not None else float("inf")
+        lu = a.last_used_at
+        if lu is not None and lu.tzinfo is None:
+            lu = lu.replace(tzinfo=timezone.utc)
+        lu_ts = lu.timestamp() if lu is not None else 0.0
+        return (exp_ts, lu_ts)
+    return sorted(pool, key=_sort_key, reverse=True)[0]
 
 
 async def _google_token_for_uid(uid: Optional[str], db: AsyncSession) -> str:
