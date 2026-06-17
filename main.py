@@ -1281,14 +1281,14 @@ async def get_google_token(request: Request, db: AsyncSession) -> str:
 async def get_posting_token(request: Request, db: AsyncSession) -> str:
     """Decrypt and return the active Posting Meta access token.
 
-    Prefers the posting account tied to the current session. If the session
-    doesn't carry a posting_user_id (e.g. connected in a popup/other tab, or a
-    fresh login after the account was already stored), fall back to the most
-    recently used active posting account — consistent with the app-wide,
-    non-session-scoped posting account listing.
+    Prefers the posting account tied to the current session. Fallback is
+    scoped to accounts owned by the current user so that multi-user setups
+    never bleed one user's token into another user's session.
     """
     session = get_session(request)
     uid = session.get("posting_user_id")
+    is_admin = session.get("user_role") == "admin"
+    app_user_id: Optional[int] = session.get("user_id")
     acc = None
     if uid:
         result = await db.execute(
@@ -1299,12 +1299,12 @@ async def get_posting_token(request: Request, db: AsyncSession) -> str:
         )
         acc = result.scalar_one_or_none()
     if acc is None:
-        # Fallback: any active posting account (most recently created first).
-        result = await db.execute(
-            select(ConnectedPostingAccount)
-            .where(ConnectedPostingAccount.is_active == True)
-            .order_by(ConnectedPostingAccount.id.desc())
-        )
+        # Fallback: most recent account owned by this user (admins see all).
+        q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+        if not is_admin and app_user_id:
+            q = q.where(ConnectedPostingAccount.owner_user_id == app_user_id)
+        q = q.order_by(ConnectedPostingAccount.id.desc())
+        result = await db.execute(q)
         acc = result.scalars().first()
     if not acc:
         raise HTTPException(401, "Posting account not connected")
@@ -2643,10 +2643,8 @@ class MetaAppUpdateRequest(BaseModel):
 async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_db)):
     """List connected Posting app Meta accounts (no tokens exposed).
 
-    Non-admin users only see accounts they connected themselves (owner_user_id
-    matches their user_id).  Admins see all connected accounts.  Legacy accounts
-    with no owner (owner_user_id IS NULL) are visible to everyone so nothing
-    breaks for existing deployments.
+    Non-admin users only see accounts they own (owner_user_id matches their
+    user_id).  Admins see all connected accounts.
     """
     session = get_session(request)
     is_admin = session.get("user_role") == "admin"
@@ -2654,13 +2652,8 @@ async def api_posting_accounts(request: Request, db: AsyncSession = Depends(get_
 
     q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
     if not is_admin and app_user_id:
-        # Show accounts owned by this user OR legacy accounts with no owner.
-        q = q.where(
-            or_(
-                ConnectedPostingAccount.owner_user_id == app_user_id,
-                ConnectedPostingAccount.owner_user_id.is_(None),
-            )
-        )
+        # Non-admins only see accounts they explicitly own.
+        q = q.where(ConnectedPostingAccount.owner_user_id == app_user_id)
     result = await db.execute(q)
     accounts = result.scalars().all()
     return [
@@ -2707,8 +2700,8 @@ async def api_switch_posting_account(
     if not acc:
         raise HTTPException(404, "Account not found or disconnected")
 
-    # Ownership check: block non-admin users from switching to someone else's account.
-    if not is_admin and acc.owner_user_id is not None and app_user_id and acc.owner_user_id != app_user_id:
+    # Ownership check: non-admins can only switch to accounts they own.
+    if not is_admin and (app_user_id is None or acc.owner_user_id != app_user_id):
         raise HTTPException(403, "You do not have access to that account")
     existing = get_session(request)
     session_data = {**dict(existing), "posting_user_id": acc.facebook_user_id}
@@ -2746,8 +2739,8 @@ async def api_disconnect_posting(
     if not acc:
         raise HTTPException(404, "Account not found")
 
-    # Ownership guard.
-    if not is_admin and acc.owner_user_id is not None and app_user_id and acc.owner_user_id != app_user_id:
+    # Ownership guard: non-admins can only disconnect their own accounts.
+    if not is_admin and (app_user_id is None or acc.owner_user_id != app_user_id):
         raise HTTPException(403, "You do not have permission to disconnect that account")
 
     # Count pending scheduled posts that will be stranded. The owner uid lives
