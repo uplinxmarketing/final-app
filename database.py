@@ -154,12 +154,18 @@ class ConnectedPostingAccount(Base):
     """Stores OAuth credentials for a Meta account connected via the Posting app.
 
     Used exclusively for FB Page and Instagram posting — separate from the Ads app.
+    Multiple app-users may connect the same Facebook account independently — each
+    gets their own row so they can disconnect without affecting others.
     """
     __tablename__ = "connected_posting_accounts"
+    # Composite uniqueness: one row per (fb_user, app_user) pair.
+    __table_args__ = (
+        UniqueConstraint("facebook_user_id", "owner_user_id", name="uq_posting_acct_owner"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     facebook_user_id: Mapped[str] = mapped_column(
-        String, unique=True, nullable=False, index=True
+        String, nullable=False, index=True
     )
     user_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -1089,6 +1095,24 @@ async def init_db() -> None:
             ))
         except Exception:
             pass
+        # Schema migration: replace the single-column unique constraint on
+        # facebook_user_id with a composite (facebook_user_id, owner_user_id)
+        # so multiple app-users can share the same FB account independently.
+        if not _is_sqlite:
+            try:
+                await conn.execute(_text(
+                    "ALTER TABLE connected_posting_accounts "
+                    "DROP CONSTRAINT IF EXISTS connected_posting_accounts_facebook_user_id_key"
+                ))
+            except Exception:
+                pass
+            try:
+                await conn.execute(_text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_posting_acct_owner "
+                    "ON connected_posting_accounts(facebook_user_id, owner_user_id)"
+                ))
+            except Exception:
+                pass
     logger.info("Database tables initialised.")
 
 

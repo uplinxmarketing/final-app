@@ -1291,13 +1291,25 @@ async def get_posting_token(request: Request, db: AsyncSession) -> str:
     app_user_id: Optional[int] = session.get("user_id")
     acc = None
     if uid:
-        result = await db.execute(
-            select(ConnectedPostingAccount).where(
-                ConnectedPostingAccount.facebook_user_id == uid,
-                ConnectedPostingAccount.is_active == True,
-            )
+        # Prefer this user's own row for the FB account (multiple users may share
+        # the same FB account, each with their own row and independent token).
+        _q = select(ConnectedPostingAccount).where(
+            ConnectedPostingAccount.facebook_user_id == uid,
+            ConnectedPostingAccount.is_active == True,
         )
-        acc = result.scalar_one_or_none()
+        if not is_admin and app_user_id:
+            _q = _q.where(ConnectedPostingAccount.owner_user_id == app_user_id)
+        result = await db.execute(_q)
+        acc = result.scalars().first()
+        if acc is None and app_user_id:
+            # Fall back to any active row for that FB ID (legacy / admin switching)
+            result = await db.execute(
+                select(ConnectedPostingAccount).where(
+                    ConnectedPostingAccount.facebook_user_id == uid,
+                    ConnectedPostingAccount.is_active == True,
+                )
+            )
+            acc = result.scalars().first()
     if acc is None:
         # Fallback: most recent account owned by this user (admins see all).
         q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
@@ -2690,13 +2702,16 @@ async def api_switch_posting_account(
     is_admin = session.get("user_role") == "admin"
     app_user_id: Optional[int] = session.get("user_id")
 
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(
-            ConnectedPostingAccount.facebook_user_id == req.facebook_user_id,
-            ConnectedPostingAccount.is_active == True,
-        )
+    # Find the user's own row for this FB account; multiple users may share the same
+    # FB account with separate rows.
+    _sw_q = select(ConnectedPostingAccount).where(
+        ConnectedPostingAccount.facebook_user_id == req.facebook_user_id,
+        ConnectedPostingAccount.is_active == True,
     )
-    acc = result.scalar_one_or_none()
+    if not is_admin and app_user_id:
+        _sw_q = _sw_q.where(ConnectedPostingAccount.owner_user_id == app_user_id)
+    result = await db.execute(_sw_q)
+    acc = result.scalars().first()
     if not acc:
         raise HTTPException(404, "Account not found or disconnected")
 
@@ -2804,14 +2819,17 @@ async def api_posting_direct_token(
     if not user_id:
         raise HTTPException(400, "Could not retrieve user ID from Meta")
 
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == user_id)
-    )
-    acc = result.scalar_one_or_none()
     encrypted = encryption.encrypt(token)
-
     session = get_session(request)
     connecting_user_id: Optional[int] = session.get("user_id")
+
+    # Find this specific user's row for the FB account (composite key).
+    # Multiple app-users can share the same FB account with separate rows.
+    q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == user_id)
+    if connecting_user_id:
+        q = q.where(ConnectedPostingAccount.owner_user_id == connecting_user_id)
+    result = await db.execute(q)
+    acc = result.scalars().first()
 
     if acc:
         acc.encrypted_short_token = encrypted
@@ -3083,15 +3101,19 @@ async def auth_meta_posting_callback(
     name = user["data"].get("name", "")
     email = user["data"].get("email", "")
 
-    result = await db.execute(
-        select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == uid)
-    )
-    acc = result.scalar_one_or_none()
     now = datetime.utcnow()
     # Resolve the app-user performing this OAuth so we can link the account.
     existing_token = request.cookies.get(SESSION_COOKIE)
     existing_session = (verify_session_token(existing_token) if existing_token else None) or {}
     connecting_user_id: Optional[int] = existing_session.get("user_id")
+
+    # Find this specific user's row for the FB account (composite key).
+    # Multiple app-users can share the same FB account with separate rows.
+    _q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.facebook_user_id == uid)
+    if connecting_user_id:
+        _q = _q.where(ConnectedPostingAccount.owner_user_id == connecting_user_id)
+    result = await db.execute(_q)
+    acc = result.scalars().first()
     try:
         _posting_app_db_id = int(_papp_db_id_cookie) if _papp_db_id_cookie else None
     except (TypeError, ValueError):
@@ -4914,18 +4936,18 @@ async def api_bulk_publish_drive(
     base_url = _public_base_url(request)
 
     # Resolve the posting account UID. Session has it when the user connected
-    # Meta in this browser tab; fall back to the most recent active account
-    # (same logic as get_posting_token) so scheduled jobs always have it.
+    # Meta in this browser tab; fall back to this user's most recent active account.
     posting_user_id = session.get("posting_user_id")
     if not posting_user_id:
-        result = await db.execute(
-            select(ConnectedPostingAccount)
-            .where(ConnectedPostingAccount.is_active == True)
-            .order_by(ConnectedPostingAccount.id.desc())
-        )
-        acc = result.scalars().first()
-        if acc:
-            posting_user_id = acc.facebook_user_id
+        _uid_q = select(ConnectedPostingAccount).where(ConnectedPostingAccount.is_active == True)
+        _uid_ow = session.get("user_id")
+        if _uid_ow:
+            _uid_q = _uid_q.where(ConnectedPostingAccount.owner_user_id == _uid_ow)
+        _uid_q = _uid_q.order_by(ConnectedPostingAccount.id.desc())
+        result = await db.execute(_uid_q)
+        _uid_acc = result.scalars().first()
+        if _uid_acc:
+            posting_user_id = _uid_acc.facebook_user_id
 
     # Same app-wide fallback for Google Drive: the session may have lost its
     # google_user_id (expired cookie), but the connected account in the DB is
