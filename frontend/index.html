@@ -5899,14 +5899,16 @@ async function loadPostingInterface() {
     const acctName = current.user_name || current.facebook_user_id || 'Connected';
     const label = document.getElementById('posts-account-label');
     if (label) label.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--success);margin-right:5px;vertical-align:middle"></span>Connected as ${escHtml(acctName)}`;
-    // Right panel title mirrors the connected account name.
     const ctxTitle = document.getElementById('context-panel-title');
     if (ctxTitle) ctxTitle.textContent = acctName;
     updatePostingAccountStatus(current);
+    // Also update the switcher button label immediately to reflect the active account
+    const nameEl = document.getElementById('posting-switcher-name');
+    if (nameEl) nameEl.textContent = acctName;
     await loadPostingPagesAndIG();
-    // Auto-select a default page so Calendar/Feed have something to show
-    // (the posting flow itself lets you pick explicitly in the chat wizard).
-    if (!_selectedPostPage) {
+    // Always auto-select the first available page after pages load (clears stale
+    // selection from a previous account and avoids blank calendar/feed on switch).
+    if (!_selectedPostPage || !(_postingPages||[]).concat(_postingIgAccounts||[]).some(p => p.id === _selectedPostPage.id)) {
       if (_postingPages && _postingPages.length) {
         selectPostPage({ ..._postingPages[0], platform: 'facebook' });
       } else if (_postingIgAccounts && _postingIgAccounts.length) {
@@ -11181,10 +11183,11 @@ function updatePostingConnectBtn(accounts) {
     if (menu) {
       menu.innerHTML = accounts.map(ac => {
         const isCur = ac.is_current || (accounts.length === 1);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:background .12s;${isCur ? 'background:var(--bg-hover)' : ''}"
+        const acName = ac.user_name || ac.facebook_user_id;
+        return `<div data-fb-uid="${escHtml(ac.facebook_user_id)}" data-fb-name="${escHtml(acName)}" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:background .12s;${isCur ? 'background:var(--bg-hover)' : ''}"
           onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='${isCur ? 'var(--bg-hover)' : ''}'">
           ${fbIcon(13)}
-          <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(ac.user_name||ac.facebook_user_id)}</span>
+          <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(acName)}</span>
           ${isCur
             ? '<span style="font-size:10px;font-weight:700;color:#22c55e;background:rgba(34,197,94,.12);padding:1px 7px;border-radius:10px;flex-shrink:0">● Active</span>'
             : `<button onclick="switchPostingAccount('${escJs(ac.facebook_user_id)}');_postingSwDropClose()" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">Switch</button>`}
@@ -11218,15 +11221,31 @@ function _postingSwDropClose() {
 }
 
 async function switchPostingAccount(uid) {
+  // Immediately reflect the switch in the UI — find the account name from the
+  // already-rendered dropdown so there's no flicker waiting for the network.
+  const nameEl = document.getElementById('posting-switcher-name');
+  const prevName = nameEl ? nameEl.textContent : '';
+  const menuItems = document.querySelectorAll('#posting-switcher-menu [data-fb-uid]');
+  let newName = uid;
+  menuItems.forEach(el => { if (el.dataset.fbUid === uid) newName = el.dataset.fbName || uid; });
+  if (nameEl) nameEl.textContent = newName + ' …';
   try {
     const r = await fetch('/api/accounts/posting/switch', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({facebook_user_id: uid}),
     });
     if (!r.ok) { const d = await r.json().catch(()=>{}); throw new Error((d&&d.detail)||'Switch failed'); }
-    toast('Switched posting account');
-    loadPostingInterface();
-  } catch(e) { toast('Could not switch account: ' + (e.message||e), 'error'); }
+    // Clear stale per-account state so loadPostingInterface starts clean.
+    _selectedPostPage = null;
+    _postingPages = [];
+    _postingIgAccounts = [];
+    _mq.fbPageId = null; _mq.fbShowAll = false; _mq.fbPosts = []; _mq.posts = [];
+    toast('Switched to ' + newName);
+    await loadPostingInterface();
+  } catch(e) {
+    if (nameEl) nameEl.textContent = prevName; // restore on failure
+    toast('Could not switch account: ' + (e.message||e), 'error');
+  }
 }
 
 async function loadPostingAccountsList() {
