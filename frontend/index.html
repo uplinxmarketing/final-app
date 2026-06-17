@@ -702,7 +702,7 @@ a{color:inherit;text-decoration:none}
       <div id="system-health-banner" style="display:none;margin:4px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.5;flex-shrink:0"></div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
-        <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
+        <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startFreshUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
         <button id="ptab-btn-calendar" class="ptab-nav-btn" onclick="switchPostsTab('calendar')" style="border-color:var(--accent);background:var(--accent);color:#fff" onmouseout="if(_postTab!=='calendar'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📅 <span>Calendar</span></button>
         <button id="ptab-btn-feed" class="ptab-nav-btn" onclick="switchPostsTab('feed')" onmouseout="if(_postTab!=='feed'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📰 <span>Feed</span></button>
         <button id="ptab-btn-chat" class="ptab-nav-btn" onclick="uwNewChat()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">💬 <span>AI Chat</span></button>
@@ -7848,6 +7848,26 @@ function _uwWelcomeHtml() {
     </button>
     <p style="font-size:12px;color:var(--text-dim);margin-top:14px">…or just type below to ask me anything about your posts.</p>
   </div>`;
+}
+
+// Nav-bar "Upload/Schedule Posts" button: always starts a fresh upload at step 1
+// (pick portfolio/page), regardless of any active or saved session. This avoids the
+// glitch where the button landed inside an old finished chat.
+async function startFreshUploadWizard() {
+  _uwClearSession();
+  if (_uw && _uw.pollTimer) clearTimeout(_uw.pollTimer);
+  _uw = { target: null, targets: null, posts: [], jobId: null, pollTimer: null,
+           previewCard: null, instructions: '', _chatId: null, _chatName: null,
+           submitKey: null, published: false };
+  _postsConvId = null;
+  const fp = document.getElementById('uw-feed-panel');
+  if (fp) fp.style.display = 'none';
+  const pm = document.getElementById('posts-main');
+  if (!pm || pm.style.display === 'none') enterInterface('posts');
+  _postTab = 'chat'; switchPostsTab('chat');
+  const msgs = document.getElementById('posts-chat-messages');
+  if (msgs) msgs.innerHTML = '';
+  await _uwStart();
 }
 
 // Open a brand-new empty chat showing the welcome screen with the big

@@ -7067,40 +7067,59 @@ async def api_queue_stats(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Per-user counts of their Instagram scheduled posts: how many are still
-    on the queue, how many published successfully, and how many failed.
+    """Counts of posting activity for the current user.
 
-    Ownership is scoped to the current posting account exactly like
-    /api/posting/my-queue (the 'All accounts' branch — strict ownership, no
-    legacy null-owner leakage), so the numbers reflect only the posts this
-    user scheduled.
+    - posted: every post successfully submitted via the wizard (FB + IG, immediate + scheduled)
+    - scheduled: IG posts still waiting in this app's queue to be published
+    - failed: wizard failures + IG scheduled-post failures
     """
     sess = get_session(request)
     posting_user_id = sess.get("posting_user_id")
     if not posting_user_id:
-        res = await db.execute(
+        _uid_q = (
             select(ConnectedPostingAccount.facebook_user_id)
             .where(ConnectedPostingAccount.is_active == True)
-            .order_by(ConnectedPostingAccount.id.desc())
         )
+        _uid_ow = sess.get("user_id")
+        if _uid_ow:
+            _uid_q = _uid_q.where(ConnectedPostingAccount.owner_user_id == _uid_ow)
+        _uid_q = _uid_q.order_by(ConnectedPostingAccount.id.desc())
+        res = await db.execute(_uid_q)
         posting_user_id = res.scalars().first()
     stats = {"scheduled": 0, "posted": 0, "failed": 0}
     if not posting_user_id:
         return stats
-    result = await db.execute(
-        select(ScheduledPost.status, ScheduledPost.job_data).where(
-            ScheduledPost.platform == "instagram",
-            ScheduledPost.status.in_(("pending", "processing", "published", "failed")),
+
+    # Primary count: all successfully submitted posts from completed publish jobs.
+    # This captures FB posts (immediate + native scheduled) and IG posts, which
+    # the old ScheduledPost-only count completely missed.
+    jobs_res = await db.execute(
+        select(
+            func.coalesce(func.sum(PublishJob.succeeded), 0),
+            func.coalesce(func.sum(PublishJob.failed), 0),
+        ).where(
+            PublishJob.posting_user_id == posting_user_id,
+            PublishJob.status == "done",
         )
     )
-    for status, jd in result.all():
+    row = jobs_res.one_or_none()
+    if row:
+        stats["posted"] = int(row[0] or 0)
+        stats["failed"] = int(row[1] or 0)
+
+    # IG posts still in the app's scheduling queue (not yet published by the worker)
+    ig_res = await db.execute(
+        select(ScheduledPost.status, ScheduledPost.job_data).where(
+            ScheduledPost.platform == "instagram",
+            ScheduledPost.status.in_(("pending", "processing", "failed")),
+        )
+    )
+    for status, jd in ig_res.all():
         owner = (jd or {}).get("posting_user_id")
         if owner != posting_user_id:
             continue
         if status in ("pending", "processing"):
             stats["scheduled"] += 1
-        elif status == "published":
-            stats["posted"] += 1
         elif status == "failed":
             stats["failed"] += 1
     return stats
