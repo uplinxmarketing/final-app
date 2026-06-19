@@ -66,6 +66,7 @@ from skills_manager import (
 from claude_agent import ClaudeAgent, invalidate_account_cache, invalidate_system_prompt, _system_prompt_cache
 from rate_limiter import api_tracker
 from admin_router import router as admin_router, init_admin_db
+from leadsales_router import router as leadsales_router, init_leadsales_db
 
 logger = setup_logging()
 encryption = FernetEncryption()
@@ -189,6 +190,10 @@ async def _deferred_startup() -> None:
         await init_admin_db(async_engine)
     except Exception as _e:
         logger.error(f"CRM admin DB init error: {_e}")
+    try:
+        await init_leadsales_db(async_engine)
+    except Exception as _e:
+        logger.error(f"Leads & Sales DB init error: {_e}")
     logger.info("Deferred startup complete.")
 
 
@@ -1135,6 +1140,7 @@ async def _process_publish_job(job: PublishJob, db: AsyncSession) -> None:
 
 app = FastAPI(title="Uplinx Meta Manager", version="1.0.0", lifespan=lifespan)
 app.include_router(admin_router)
+app.include_router(leadsales_router)
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter

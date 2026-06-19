@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leads & Sales — Uplinx</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-primary:#ffffff;--bg-secondary:#fff5f5;--bg-tertiary:#fef2f2;--bg-hover:#fee2e2;--bg-deep:#fecaca;
+  --border:#fca5a5;--accent:#dc2626;--accent-hover:#b91c1c;--accent-soft:rgba(220,38,38,0.08);
+  --success:#16a34a;--warning:#d97706;--error:#b91c1c;
+  --text-primary:#1a1a1a;--text-secondary:#6b7280;--text-dim:#9ca3af;
+  --font-ui:'DM Sans',sans-serif;--font-heading:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;
+  --radius:8px;--radius-lg:12px;--transition:150ms ease;
+  --prospect-bg:#fffbeb;--prospect-border:#fcd34d;--prospect-text:#92400e;--prospect-badge:#f59e0b;
+  --followup-bg:#eff6ff;--followup-border:#93c5fd;--followup-text:#1e40af;--followup-badge:#3b82f6;
+  --won-bg:#f0fdf4;--won-border:#86efac;--won-text:#166534;--won-badge:#16a34a;
+  --lost-bg:#fef2f2;--lost-border:#fca5a5;--lost-text:#991b1b;--lost-badge:#ef4444;
+}
+body{font-family:var(--font-ui);font-size:14px;color:var(--text-primary);background:var(--bg-primary);min-height:100vh}
+button{cursor:pointer;border:none;background:none;color:inherit;font:inherit}
+input,textarea,select{font:inherit;color:inherit;background:none;border:none;outline:none}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* ── Top Bar ── */
+#top-bar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:100}
+#top-bar h1{font-family:var(--font-heading);font-size:18px;font-weight:700;color:var(--accent);flex:1}
+.back-link{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition)}
+.back-link:hover{border-color:var(--accent);color:var(--accent)}
+.btn-primary{background:var(--accent);color:#fff;padding:7px 14px;border-radius:var(--radius);font-size:13px;font-weight:600;transition:var(--transition)}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-ghost{padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-danger{padding:5px 10px;border-radius:6px;border:1px solid #fca5a5;color:#b91c1c;font-size:12px;transition:var(--transition)}
+.btn-danger:hover{background:#fee2e2}
+
+/* ── Stats Bar ── */
+#stats-bar{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg-primary)}
+.stat-item{flex:1;padding:14px 20px;text-align:center;border-right:1px solid var(--border)}
+.stat-item:last-child{border-right:none}
+.stat-value{font-family:var(--font-heading);font-size:22px;font-weight:700;color:var(--text-primary)}
+.stat-label{font-size:11px;color:var(--text-dim);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── Filter Tabs ── */
+#filter-bar{display:flex;align-items:center;gap:4px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);flex-wrap:wrap}
+.filter-tab{padding:5px 14px;border-radius:100px;font-size:13px;font-weight:500;border:1px solid transparent;color:var(--text-secondary);transition:var(--transition);cursor:pointer}
+.filter-tab:hover{background:var(--bg-hover);color:var(--text-primary)}
+.filter-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.filter-sep{width:1px;height:20px;background:var(--border);margin:0 6px}
+
+/* ── Pipeline Grid ── */
+#pipeline-grid{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;align-content:start;overflow-y:auto;flex:1}
+.lead-card{border-radius:var(--radius-lg);border:1px solid;padding:16px;cursor:pointer;transition:transform .15s,box-shadow .15s;position:relative}
+.lead-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.lead-card.prospect{background:var(--prospect-bg);border-color:var(--prospect-border)}
+.lead-card.follow_up{background:var(--followup-bg);border-color:var(--followup-border)}
+.lead-card.won{background:var(--won-bg);border-color:var(--won-border)}
+.lead-card.lost{background:var(--lost-bg);border-color:var(--lost-border);opacity:.8}
+.card-name{font-family:var(--font-heading);font-size:15px;font-weight:700;margin-bottom:4px}
+.card-company{font-size:12px;color:var(--text-secondary);margin-bottom:10px}
+.card-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:600;margin-bottom:8px}
+.card-badge.prospect{background:#fef3c7;color:var(--prospect-text)}
+.card-badge.follow_up{background:#dbeafe;color:var(--followup-text)}
+.card-badge.won{background:#dcfce7;color:var(--won-text)}
+.card-badge.lost{background:#fee2e2;color:var(--lost-text)}
+.card-followup{font-size:11px;color:var(--followup-text);margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.card-value{font-size:12px;color:var(--text-secondary);font-family:var(--font-mono)}
+.card-empty{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-dim);font-size:14px}
+
+/* ── Deal Room ── */
+#deal-room{display:none;flex-direction:column;height:calc(100vh - 57px);overflow-y:auto}
+#deal-room.visible{display:flex}
+#deal-body{max-width:860px;width:100%;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:24px}
+.deal-top-bar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:10}
+
+.deal-section{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px}
+.deal-section-title{font-family:var(--font-heading);font-size:13px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:16px}
+
+/* Editable fields */
+.field-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.field-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px}
+.field-label{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px}
+.field-input{border:1px solid transparent;border-radius:var(--radius);padding:6px 10px;background:var(--bg-tertiary);font-size:14px;transition:var(--transition);width:100%}
+.field-input:focus{border-color:var(--accent);background:#fff;outline:none}
+.field-input:hover:not(:focus){border-color:var(--border)}
+
+/* Status buttons */
+.status-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.status-btn{padding:8px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;border:2px solid transparent;transition:var(--transition)}
+.status-btn.prospect{border-color:var(--prospect-border);color:var(--prospect-text);background:var(--prospect-bg)}
+.status-btn.prospect:hover,.status-btn.prospect.active{background:var(--prospect-badge);color:#fff;border-color:var(--prospect-badge)}
+.status-btn.follow_up{border-color:var(--followup-border);color:var(--followup-text);background:var(--followup-bg)}
+.status-btn.follow_up:hover,.status-btn.follow_up.active{background:var(--followup-badge);color:#fff;border-color:var(--followup-badge)}
+.status-btn.won{border-color:var(--won-border);color:var(--won-text);background:var(--won-bg)}
+.status-btn.won:hover,.status-btn.won.active{background:var(--won-badge);color:#fff;border-color:var(--won-badge)}
+.status-btn.lost{border-color:var(--lost-border);color:var(--lost-text);background:var(--lost-bg)}
+.status-btn.lost:hover,.status-btn.lost.active{background:var(--lost-badge);color:#fff;border-color:var(--lost-badge)}
+#followup-picker{display:none;margin-top:8px;align-items:center;gap:8px}
+#followup-picker.visible{display:flex}
+#followup-picker input{padding:7px 10px;border:1px solid var(--followup-border);border-radius:var(--radius);background:var(--followup-bg);color:var(--followup-text);font-size:13px}
+
+/* Proposal / Package builder */
+.pkg-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.catalog-dropdown{position:relative}
+.catalog-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 4px 20px rgba(0,0,0,.12);min-width:260px;z-index:50;max-height:260px;overflow-y:auto}
+.catalog-menu.open{display:block}
+.catalog-item{padding:10px 14px;cursor:pointer;transition:var(--transition)}
+.catalog-item:hover{background:var(--bg-hover)}
+.catalog-item-name{font-size:13px;font-weight:500}
+.catalog-item-meta{font-size:11px;color:var(--text-dim);margin-top:2px}
+.catalog-empty{padding:16px;text-align:center;color:var(--text-dim);font-size:13px}
+.pkg-table{width:100%;border-collapse:collapse;margin-bottom:16px}
+.pkg-table th{font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}
+.pkg-table td{padding:4px 4px;vertical-align:middle}
+.pkg-table .pkg-name{width:35%}
+.pkg-table input[type=text],.pkg-table input[type=number]{width:100%;padding:5px 8px;border:1px solid transparent;border-radius:6px;background:var(--bg-tertiary);font-size:13px;transition:var(--transition)}
+.pkg-table input:focus{border-color:var(--accent);background:#fff;outline:none}
+.pkg-table input:hover:not(:focus){border-color:var(--border)}
+.billing-toggle{display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
+.billing-toggle button{padding:4px 10px;font-size:11px;font-weight:600;color:var(--text-secondary);border:none;background:transparent;transition:var(--transition);cursor:pointer}
+.billing-toggle button.active{background:var(--accent);color:#fff}
+.del-item-btn{padding:4px 8px;border-radius:6px;color:var(--text-dim);font-size:14px;transition:var(--transition)}
+.del-item-btn:hover{background:#fee2e2;color:#b91c1c}
+
+/* Profit summary */
+.profit-summary{background:var(--bg-secondary);border-radius:var(--radius);padding:14px 16px;font-size:13px}
+.profit-row{display:flex;gap:20px;padding:5px 0;flex-wrap:wrap}
+.profit-row+.profit-row{border-top:1px solid var(--border)}
+.profit-label{font-weight:600;color:var(--text-secondary);min-width:80px}
+.profit-cell{color:var(--text-primary)}
+.profit-cell.pos{color:var(--success);font-weight:600}
+.profit-cell.neg{color:var(--error);font-weight:600}
+.profit-margin{font-family:var(--font-mono);font-size:12px;padding:3px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.profit-total{font-weight:700}
+
+/* Notes */
+#notes-area{width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);font-size:14px;line-height:1.6;resize:vertical;transition:var(--transition)}
+#notes-area:focus{border-color:var(--accent);background:#fff;outline:none}
+.autosave-hint{font-size:11px;color:var(--text-dim);margin-top:6px}
+
+/* Service catalog view */
+#services-view{display:none;flex-direction:column;flex:1;overflow-y:auto}
+#services-view.visible{display:flex}
+.svc-table{width:100%;border-collapse:collapse}
+.svc-table th{font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;padding:10px 14px;border-bottom:2px solid var(--border);text-align:left}
+.svc-table td{padding:8px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+.svc-table tr:hover td{background:var(--bg-hover)}
+.svc-table input{width:100%;padding:4px 6px;border:1px solid transparent;border-radius:6px;background:transparent;font-size:13px;transition:var(--transition)}
+.svc-table input:focus{border-color:var(--accent);background:#fff;outline:none}
+.svc-table input:hover:not(:focus){border-color:var(--border)}
+.svc-table select{padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);font-size:13px}
+.active-badge{display:inline-block;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
+.active-badge.on{background:#dcfce7;color:#166534}
+.active-badge.off{background:#f3f4f6;color:var(--text-dim)}
+
+/* New lead modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:#fff;border-radius:var(--radius-lg);padding:28px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal-title{font-family:var(--font-heading);font-size:18px;font-weight:700;margin-bottom:16px}
+.modal-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-bottom:12px;background:var(--bg-tertiary);transition:var(--transition)}
+.modal-input:focus{border-color:var(--accent);background:#fff;outline:none}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+
+/* Toast */
+#toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.show{opacity:1}
+#toast.success{background:#16a34a;color:#fff}
+#toast.error{background:#b91c1c;color:#fff}
+
+/* Calendly embed */
+.calendly-container{min-height:600px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
+.calendly-placeholder{padding:30px;text-align:center;color:var(--text-dim);font-size:13px;background:var(--bg-secondary);border-radius:var(--radius)}
+
+/* Layout wrapper */
+#crm-app{display:flex;flex-direction:column;min-height:100vh}
+#pipeline-view{display:flex;flex-direction:column;flex:1}
+#pipeline-content{display:flex;flex:1;flex-direction:column;overflow:auto}
+
+/* Mobile */
+@media(max-width:600px){
+  #stats-bar{flex-wrap:wrap}
+  .stat-item{min-width:50%;border-right:none;border-bottom:1px solid var(--border)}
+  #pipeline-grid{grid-template-columns:1fr;padding:12px}
+  .field-row{flex-direction:column}
+  .status-btns{gap:6px}
+  .status-btn{padding:7px 12px;font-size:12px}
+  #deal-body{padding:16px 12px}
+}
+</style>
+</head>
+<body>
+<div id="crm-app">
+  <div id="top-bar">
+    <h1 id="top-title">📊 Leads &amp; Sales</h1>
+    <a href="/" class="back-link" id="back-btn">← Uplinx</a>
+    <button class="btn-primary" id="new-lead-btn" onclick="openNewLead()">+ New Lead</button>
+  </div>
+
+  <!-- Pipeline view -->
+  <div id="pipeline-view">
+    <div id="stats-bar">
+      <div class="stat-item"><div class="stat-value" id="s-active">—</div><div class="stat-label">Active Leads</div></div>
+      <div class="stat-item"><div class="stat-value" id="s-pipeline">—</div><div class="stat-label">Pipeline Value</div></div>
+      <div class="stat-item"><div class="stat-value" id="s-mrr">—</div><div class="stat-label">Monthly Revenue</div></div>
+      <div class="stat-item"><div class="stat-value" id="s-win">—</div><div class="stat-label">Win Rate</div></div>
+    </div>
+    <div id="filter-bar">
+      <button class="filter-tab active" data-filter="all" onclick="setFilter('all')">All</button>
+      <button class="filter-tab" data-filter="prospect" onclick="setFilter('prospect')">🟡 Prospect</button>
+      <button class="filter-tab" data-filter="follow_up" onclick="setFilter('follow_up')">🔵 Follow-up</button>
+      <button class="filter-tab" data-filter="won" onclick="setFilter('won')">🟢 Won</button>
+      <button class="filter-tab" data-filter="customers" onclick="setFilter('customers')">👥 Customers</button>
+      <button class="filter-tab" data-filter="lost" onclick="setFilter('lost')">🔴 Lost</button>
+      <div class="filter-sep"></div>
+      <button class="filter-tab" data-filter="services" onclick="showServices()">🛠 Services</button>
+    </div>
+    <div id="pipeline-content">
+      <div id="pipeline-grid"></div>
+    </div>
+  </div>
+
+  <!-- Deal Room -->
+  <div id="deal-room">
+    <div class="deal-top-bar">
+      <button class="back-link" onclick="closeDeal()">← Pipeline</button>
+      <span id="deal-breadcrumb" style="font-size:13px;color:var(--text-dim);flex:1"></span>
+      <button class="btn-danger" onclick="confirmDeleteLead()">Delete Lead</button>
+    </div>
+    <div id="deal-body">
+      <!-- Info -->
+      <div class="deal-section">
+        <div class="deal-section-title">Lead Info</div>
+        <div class="field-row">
+          <div class="field-group" style="flex:2">
+            <label class="field-label">Name *</label>
+            <input class="field-input" id="d-name" placeholder="e.g. john_doe_fiverr" onblur="saveField('name',this.value)">
+          </div>
+          <div class="field-group" style="flex:2">
+            <label class="field-label">Company</label>
+            <input class="field-input" id="d-company" placeholder="Acme Corp" onblur="saveField('company',this.value)">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Website</label>
+            <input class="field-input" id="d-website" placeholder="https://..." onblur="saveField('website',this.value)">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Fiverr Link</label>
+            <input class="field-input" id="d-fiverr" placeholder="https://fiverr.com/..." onblur="saveField('fiverr_link',this.value)">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group" style="flex:2">
+            <label class="field-label">Social Links (one per line)</label>
+            <textarea class="field-input" id="d-social" rows="2" placeholder="https://instagram.com/..." onblur="saveField('social_links',this.value)" style="resize:vertical"></textarea>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Source</label>
+            <input class="field-input" id="d-source" placeholder="Fiverr" onblur="saveField('source',this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div class="deal-section">
+        <div class="deal-section-title">Status</div>
+        <div class="status-btns">
+          <button class="status-btn prospect" onclick="setStatus('prospect')">🟡 Prospect</button>
+          <button class="status-btn follow_up" onclick="setStatus('follow_up')">🔵 Follow-up</button>
+          <button class="status-btn won" onclick="setStatus('won')">🟢 Won</button>
+          <button class="status-btn lost" onclick="setStatus('lost')">🔴 Lost</button>
+        </div>
+        <div id="followup-picker">
+          <label class="field-label" style="white-space:nowrap">Follow-up date &amp; time:</label>
+          <input type="datetime-local" id="d-followup-at" onchange="saveFollowup(this.value)">
+        </div>
+      </div>
+
+      <!-- Package & Pricing -->
+      <div class="deal-section">
+        <div class="deal-section-title">Package &amp; Pricing</div>
+        <div class="pkg-actions">
+          <div class="catalog-dropdown">
+            <button class="btn-ghost" onclick="toggleCatalog()" id="catalog-btn">📋 Add from Catalog ▾</button>
+            <div class="catalog-menu" id="catalog-menu"></div>
+          </div>
+          <button class="btn-ghost" onclick="addCustomLine()">+ Custom Line</button>
+        </div>
+        <table class="pkg-table" id="pkg-table">
+          <thead>
+            <tr>
+              <th class="pkg-name">Service</th>
+              <th>Price ($)</th>
+              <th>Cost ($)</th>
+              <th>Qty</th>
+              <th>Type</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="pkg-rows"></tbody>
+        </table>
+        <div class="profit-summary" id="profit-summary"></div>
+      </div>
+
+      <!-- Notes -->
+      <div class="deal-section">
+        <div class="deal-section-title">Notes</div>
+        <textarea id="notes-area" placeholder="Add any notes about this lead…" oninput="scheduleNoteSave()"></textarea>
+        <div class="autosave-hint" id="notes-hint">Autosaves as you type</div>
+      </div>
+
+      <!-- Calendly + Call -->
+      <div class="deal-section">
+        <div class="deal-section-title">Schedule</div>
+        <div id="calendly-section"></div>
+        <div style="margin-top:16px">
+          <label class="field-label">Call date &amp; time (manual)</label>
+          <input type="datetime-local" id="d-call-dt" style="margin-top:6px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);font-size:13px" onchange="saveCallDate(this.value)">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Services view -->
+  <div id="services-view">
+    <div style="padding:0 20px 20px">
+      <div style="display:flex;align-items:center;gap:12px;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:16px">
+        <button class="back-link" onclick="showPipeline()">← Pipeline</button>
+        <h2 style="font-family:var(--font-heading);font-size:16px;font-weight:700;flex:1">Service Catalog</h2>
+        <button class="btn-primary" onclick="showAddServiceForm()">+ Add Service</button>
+      </div>
+      <div id="add-service-form" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px">
+        <div style="font-weight:600;margin-bottom:12px;font-size:13px">New Service</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field-group"><label class="field-label">Name *</label><input class="field-input" id="ns-name" placeholder="Meta Ads Management"></div>
+          <div class="field-group" style="max-width:130px"><label class="field-label">Price ($)</label><input class="field-input" id="ns-price" type="number" min="0" step="0.01" placeholder="0"></div>
+          <div class="field-group" style="max-width:130px"><label class="field-label">Cost ($)</label><input class="field-input" id="ns-cost" type="number" min="0" step="0.01" placeholder="0"></div>
+          <div class="field-group" style="max-width:140px"><label class="field-label">Billing</label>
+            <select id="ns-billing" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:#fff;font-size:13px;width:100%">
+              <option value="one_time">One-time</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <button class="btn-primary" onclick="submitNewService()" style="height:36px">Save</button>
+          <button class="btn-ghost" onclick="hideAddServiceForm()" style="height:36px">Cancel</button>
+        </div>
+      </div>
+      <table class="svc-table" id="svc-table">
+        <thead><tr>
+          <th>Name</th><th>Price</th><th>Cost</th><th>Billing</th><th>Active</th><th></th>
+        </tr></thead>
+        <tbody id="svc-rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- New Lead Modal -->
+<div class="modal-overlay" id="new-lead-modal">
+  <div class="modal-box">
+    <div class="modal-title">New Lead</div>
+    <input class="modal-input" id="nl-name" placeholder="Name / Fiverr handle (required)" onkeydown="if(event.key==='Enter')submitNewLead()">
+    <input class="modal-input" id="nl-company" placeholder="Company (optional)">
+    <div class="modal-btns">
+      <button class="btn-ghost" onclick="closeNewLead()">Cancel</button>
+      <button class="btn-primary" onclick="submitNewLead()">Create Lead →</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  view: 'pipeline',
+  filter: 'all',
+  leads: [],
+  services: [],
+  currentLead: null,
+  noteSaveTimer: null,
+  catalogOpen: false,
+  calendlyUrl: '',
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const fmt = n => '$' + (parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+const fmtDec = n => '$' + (parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const t = await r.text().catch(()=>'');
+    throw new Error(t || r.statusText);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+function toast(msg, type='success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 2500);
+}
+
+function fmtDateShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
+         d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+
+function toLocalDT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+(async () => {
+  await loadStats();
+  await loadLeads();
+  await loadCalendlyUrl();
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#catalog-btn') && !e.target.closest('#catalog-menu')) {
+      closeCatalog();
+    }
+  });
+})();
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const s = await api('GET', '/api/crm/stats');
+    document.getElementById('s-active').textContent   = s.active_leads;
+    document.getElementById('s-pipeline').textContent = fmt(s.pipeline_value);
+    document.getElementById('s-mrr').textContent      = fmt(s.mrr) + '/mo';
+    document.getElementById('s-win').textContent      = s.win_rate + '%';
+  } catch(e) { console.warn('stats:', e); }
+}
+
+// ── Pipeline ───────────────────────────────────────────────────────────────
+async function loadLeads() {
+  const param = state.filter === 'all' ? '' : `?status=${state.filter}`;
+  try {
+    state.leads = await api('GET', '/api/crm/leads' + param);
+    renderCards();
+  } catch(e) { toast('Could not load leads: '+e.message, 'error'); }
+}
+
+function renderCards() {
+  const grid = document.getElementById('pipeline-grid');
+  if (!state.leads.length) {
+    grid.innerHTML = `<div class="card-empty">No leads here yet. <button class="btn-primary" onclick="openNewLead()" style="margin-left:8px;display:inline-block">+ New Lead</button></div>`;
+    return;
+  }
+  grid.innerHTML = state.leads.map(l => {
+    const fuStr = l.follow_up_at ? `<div class="card-followup">⏰ ${esc(fmtDateShort(l.follow_up_at))}</div>` : '';
+    const valStr = l.proposal_value > 0 ? `<div class="card-value">${fmt(l.proposal_value)}${l.monthly_value>0?' + '+fmt(l.monthly_value)+'/mo':''}</div>` : '';
+    const statusLabel = {prospect:'🟡 Prospect',follow_up:'🔵 Follow-up',won:'🟢 Won',lost:'🔴 Lost'}[l.status] || l.status;
+    return `<div class="lead-card ${l.status}" onclick="openDeal(${l.id})">
+      <div class="card-name">${esc(l.name)}</div>
+      <div class="card-company">${esc(l.company||'')}</div>
+      <div class="card-badge ${l.status}">${statusLabel}</div>
+      ${fuStr}${valStr}
+    </div>`;
+  }).join('');
+}
+
+function setFilter(f) {
+  state.filter = f;
+  document.querySelectorAll('.filter-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.filter === f);
+  });
+  showPipeline();
+  loadLeads();
+}
+
+// ── Deal Room ──────────────────────────────────────────────────────────────
+async function openDeal(id) {
+  try {
+    state.currentLead = await api('GET', `/api/crm/leads/${id}`);
+    populateDeal(state.currentLead);
+    document.getElementById('pipeline-view').style.display = 'none';
+    document.getElementById('services-view').classList.remove('visible');
+    const dr = document.getElementById('deal-room');
+    dr.classList.add('visible');
+    document.getElementById('top-title').textContent = '📊 Leads & Sales';
+    document.getElementById('new-lead-btn').style.display = 'none';
+    document.getElementById('back-btn').style.display = 'none';
+    state.view = 'deal';
+  } catch(e) { toast('Could not load lead: '+e.message,'error'); }
+}
+
+function closeDeal() {
+  document.getElementById('deal-room').classList.remove('visible');
+  document.getElementById('pipeline-view').style.display = '';
+  document.getElementById('new-lead-btn').style.display = '';
+  document.getElementById('back-btn').style.display = '';
+  state.currentLead = null;
+  state.view = 'pipeline';
+  loadStats();
+  loadLeads();
+}
+
+function populateDeal(lead) {
+  document.getElementById('d-name').value      = lead.name || '';
+  document.getElementById('d-company').value   = lead.company || '';
+  document.getElementById('d-website').value   = lead.website || '';
+  document.getElementById('d-fiverr').value    = lead.fiverr_link || '';
+  document.getElementById('d-social').value    = lead.social_links || '';
+  document.getElementById('d-source').value    = lead.source || 'Fiverr';
+  document.getElementById('notes-area').value  = lead.notes || '';
+  document.getElementById('deal-breadcrumb').textContent = lead.name + (lead.company ? ' · ' + lead.company : '');
+
+  // Status buttons
+  document.querySelectorAll('.status-btn').forEach(b => {
+    b.classList.toggle('active', b.classList.contains(lead.status));
+  });
+  const fup = document.getElementById('followup-picker');
+  if (lead.status === 'follow_up') {
+    fup.classList.add('visible');
+    document.getElementById('d-followup-at').value = toLocalDT(lead.follow_up_at);
+  } else {
+    fup.classList.remove('visible');
+  }
+
+  renderPkgRows(lead.items || []);
+  recalcTotals(lead.items || []);
+  loadCatalogForDeal();
+
+  // Load calendly
+  const el = document.getElementById('calendly-section');
+  if (state.calendlyUrl) {
+    el.innerHTML = `<div class="calendly-container"><iframe src="${esc(state.calendlyUrl)}?embed_type=inline" style="width:100%;height:600px;border:none" frameborder="0"></iframe></div>`;
+  } else {
+    el.innerHTML = `<div class="calendly-placeholder">📅 Set the <strong>CALENDLY_URL</strong> environment variable to embed your Calendly scheduling widget here.</div>`;
+  }
+}
+
+// ── Field autosave ─────────────────────────────────────────────────────────
+async function saveField(field, value) {
+  if (!state.currentLead) return;
+  const body = {};
+  body[field] = value || null;
+  try {
+    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, body);
+    state.currentLead = { ...updated, items: state.currentLead.items };
+    document.getElementById('deal-breadcrumb').textContent =
+      state.currentLead.name + (state.currentLead.company ? ' · ' + state.currentLead.company : '');
+  } catch(e) { toast('Save failed: '+e.message,'error'); }
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+async function setStatus(s) {
+  if (!state.currentLead) return;
+  const body = { status: s };
+  if (s === 'follow_up') {
+    const existing = document.getElementById('d-followup-at').value;
+    if (existing) body.follow_up_at = new Date(existing).toISOString();
+  }
+  try {
+    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, body);
+    state.currentLead = { ...updated, items: state.currentLead.items };
+    document.querySelectorAll('.status-btn').forEach(b => {
+      b.classList.toggle('active', b.classList.contains(s));
+    });
+    const fup = document.getElementById('followup-picker');
+    if (s === 'follow_up') {
+      fup.classList.add('visible');
+    } else {
+      fup.classList.remove('visible');
+    }
+    toast(s === 'won' ? '🎉 Marked as Won!' : 'Status updated', 'success');
+  } catch(e) { toast('Save failed: '+e.message,'error'); }
+}
+
+async function saveFollowup(val) {
+  if (!state.currentLead) return;
+  try {
+    const iso = val ? new Date(val).toISOString() : null;
+    await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, { follow_up_at: iso, status: 'follow_up' });
+    document.querySelectorAll('.status-btn').forEach(b => {
+      b.classList.toggle('active', b.classList.contains('follow_up'));
+    });
+    document.getElementById('followup-picker').classList.add('visible');
+  } catch(e) { toast('Save failed: '+e.message,'error'); }
+}
+
+// ── Notes ──────────────────────────────────────────────────────────────────
+function scheduleNoteSave() {
+  const hint = document.getElementById('notes-hint');
+  hint.textContent = 'Saving…';
+  clearTimeout(state.noteSaveTimer);
+  state.noteSaveTimer = setTimeout(async () => {
+    if (!state.currentLead) return;
+    try {
+      await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, {
+        notes: document.getElementById('notes-area').value || null
+      });
+      hint.textContent = 'Saved ✓';
+      setTimeout(() => { hint.textContent = 'Autosaves as you type'; }, 1500);
+    } catch(e) { hint.textContent = 'Save failed'; }
+  }, 800);
+}
+
+async function saveCallDate(val) {
+  if (!state.currentLead) return;
+  const label = val ? '\n[Call: ' + new Date(val).toLocaleString() + ']' : '';
+  const notesEl = document.getElementById('notes-area');
+  let notes = notesEl.value.replace(/\n?\[Call:[^\]]+\]/g, '');
+  if (label) notes = (notes.trimEnd() + label).trim();
+  notesEl.value = notes;
+  scheduleNoteSave();
+}
+
+// ── Package builder ────────────────────────────────────────────────────────
+function renderPkgRows(items) {
+  const tbody = document.getElementById('pkg-rows');
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">No items yet — add from catalog or add a custom line</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(item => `
+    <tr data-item-id="${item.id}">
+      <td class="pkg-name"><input type="text" value="${esc(item.service_name)}" placeholder="Service name"
+        oninput="patchItemLocal(${item.id},'service_name',this.value)"
+        onblur="patchItem(${item.id},'service_name',this.value)"></td>
+      <td><input type="number" value="${parseFloat(item.price).toFixed(2)}" min="0" step="0.01"
+        oninput="patchItemLocal(${item.id},'price',parseFloat(this.value)||0)"
+        onblur="patchItem(${item.id},'price',parseFloat(this.value)||0)"></td>
+      <td><input type="number" value="${parseFloat(item.cost).toFixed(2)}" min="0" step="0.01"
+        oninput="patchItemLocal(${item.id},'cost',parseFloat(this.value)||0)"
+        onblur="patchItem(${item.id},'cost',parseFloat(this.value)||0)"></td>
+      <td><input type="number" value="${item.qty}" min="1" step="1" style="width:60px"
+        oninput="patchItemLocal(${item.id},'qty',parseInt(this.value)||1)"
+        onblur="patchItem(${item.id},'qty',parseInt(this.value)||1)"></td>
+      <td>
+        <div class="billing-toggle">
+          <button class="${item.billing_type==='one_time'?'active':''}" onclick="setBilling(${item.id},'one_time',this)">One-time</button>
+          <button class="${item.billing_type==='monthly'?'active':''}" onclick="setBilling(${item.id},'monthly',this)">Monthly</button>
+        </div>
+      </td>
+      <td><button class="del-item-btn" onclick="removeItem(${item.id})" title="Remove">×</button></td>
+    </tr>`).join('');
+}
+
+function patchItemLocal(itemId, field, value) {
+  if (!state.currentLead) return;
+  const item = state.currentLead.items.find(i => i.id === itemId);
+  if (item) {
+    item[field] = value;
+    recalcTotals(state.currentLead.items);
+  }
+}
+
+async function patchItem(itemId, field, value) {
+  if (!state.currentLead) return;
+  const body = {};
+  body[field] = value;
+  try {
+    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}/items/${itemId}`, body);
+    const idx = state.currentLead.items.findIndex(i => i.id === itemId);
+    if (idx >= 0) state.currentLead.items[idx] = updated;
+    recalcTotals(state.currentLead.items);
+  } catch(e) { toast('Item save failed: '+e.message,'error'); }
+}
+
+async function setBilling(itemId, type, btn) {
+  const row = btn.closest('tr');
+  row.querySelectorAll('.billing-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  patchItemLocal(itemId, 'billing_type', type);
+  await patchItem(itemId, 'billing_type', type);
+}
+
+async function removeItem(itemId) {
+  if (!confirm('Remove this line item?')) return;
+  try {
+    await api('DELETE', `/api/crm/leads/${state.currentLead.id}/items/${itemId}`);
+    state.currentLead.items = state.currentLead.items.filter(i => i.id !== itemId);
+    renderPkgRows(state.currentLead.items);
+    recalcTotals(state.currentLead.items);
+    toast('Item removed');
+  } catch(e) { toast('Delete failed: '+e.message,'error'); }
+}
+
+async function addCustomLine() {
+  if (!state.currentLead) return;
+  try {
+    const item = await api('POST', `/api/crm/leads/${state.currentLead.id}/items`, {
+      service_name: 'New Service', price: 0, cost: 0, qty: 1, billing_type: 'one_time'
+    });
+    state.currentLead.items.push(item);
+    renderPkgRows(state.currentLead.items);
+    recalcTotals(state.currentLead.items);
+    const rows = document.querySelectorAll('#pkg-rows tr[data-item-id]');
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector('input[type=text]')?.focus();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+async function addFromCatalog(svcJson) {
+  if (!state.currentLead) return;
+  closeCatalog();
+  const svc = typeof svcJson === 'string' ? JSON.parse(svcJson) : svcJson;
+  try {
+    const item = await api('POST', `/api/crm/leads/${state.currentLead.id}/items`, {
+      service_name: svc.name,
+      price: svc.default_price,
+      cost: svc.default_cost,
+      qty: 1,
+      billing_type: svc.billing_type,
+    });
+    state.currentLead.items.push(item);
+    renderPkgRows(state.currentLead.items);
+    recalcTotals(state.currentLead.items);
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+function recalcTotals(items) {
+  const ot = items.filter(i => i.billing_type === 'one_time');
+  const mo = items.filter(i => i.billing_type === 'monthly');
+  const sum = arr => ({
+    rev: arr.reduce((s,i) => s + (parseFloat(i.price)||0)*(parseInt(i.qty)||1), 0),
+    cost: arr.reduce((s,i) => s + (parseFloat(i.cost)||0)*(parseInt(i.qty)||1), 0),
+  });
+  const otS = sum(ot), moS = sum(mo);
+  const totRev  = otS.rev + moS.rev;
+  const totCost = otS.cost + moS.cost;
+  const profit  = totRev - totCost;
+  const margin  = totRev > 0 ? (profit / totRev * 100).toFixed(1) : '0.0';
+
+  const pRow = (label, s) => {
+    if (s.rev === 0 && s.cost === 0) return '';
+    const p = s.rev - s.cost;
+    const cls = p >= 0 ? 'pos' : 'neg';
+    return `<div class="profit-row">
+      <span class="profit-label">${label}</span>
+      <span class="profit-cell">Revenue <strong>${fmtDec(s.rev)}</strong></span>
+      <span class="profit-cell">Cost <strong>${fmtDec(s.cost)}</strong></span>
+      <span class="profit-cell ${cls}">Profit ${fmtDec(p)}</span>
+    </div>`;
+  };
+
+  const totContent = totRev === 0 && totCost === 0
+    ? '<div style="color:var(--text-dim);font-size:13px;padding:8px 0">Add items above to see profit summary</div>'
+    : `${pRow('One-time', otS)}${pRow('Monthly', moS)}
+      <div class="profit-row profit-total" style="border-top:2px solid var(--border);margin-top:4px;padding-top:8px">
+        <span class="profit-label">Total</span>
+        <span class="profit-cell">Revenue <strong>${fmtDec(totRev)}</strong></span>
+        <span class="profit-cell">Cost <strong>${fmtDec(totCost)}</strong></span>
+        <span class="profit-cell ${profit>=0?'pos':'neg'}">Profit ${fmtDec(profit)}</span>
+        <span class="profit-margin">${margin}% margin</span>
+      </div>`;
+
+  document.getElementById('profit-summary').innerHTML = totContent;
+}
+
+// ── Catalog dropdown ───────────────────────────────────────────────────────
+async function loadCatalogForDeal() {
+  try {
+    state.services = await api('GET', '/api/crm/services');
+  } catch(e) { state.services = []; }
+}
+
+function toggleCatalog() {
+  const menu = document.getElementById('catalog-menu');
+  if (menu.classList.contains('open')) { closeCatalog(); return; }
+  if (!state.services.length) {
+    menu.innerHTML = '<div class="catalog-empty">No services in catalog yet.<br><a href="#" onclick="showServices();event.preventDefault()" style="color:var(--accent)">Add services →</a></div>';
+  } else {
+    menu.innerHTML = state.services.map(s => {
+      const svcData = esc(JSON.stringify(s));
+      return `<div class="catalog-item" onclick="addFromCatalog('${svcData}')">
+        <div class="catalog-item-name">${esc(s.name)}</div>
+        <div class="catalog-item-meta">${fmtDec(s.default_price)} ${s.billing_type==='monthly'?'/mo':'one-time'} · Cost ${fmtDec(s.default_cost)}</div>
+      </div>`;
+    }).join('');
+  }
+  menu.classList.add('open');
+}
+
+function closeCatalog() {
+  document.getElementById('catalog-menu').classList.remove('open');
+}
+
+// ── Delete Lead ─────────────────────────────────────────────────────────────
+async function confirmDeleteLead() {
+  if (!state.currentLead) return;
+  if (!confirm(`Delete "${state.currentLead.name}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/crm/leads/${state.currentLead.id}`);
+    toast('Lead deleted');
+    closeDeal();
+  } catch(e) { toast('Delete failed: '+e.message,'error'); }
+}
+
+// ── New Lead Modal ─────────────────────────────────────────────────────────
+function openNewLead() {
+  document.getElementById('nl-name').value = '';
+  document.getElementById('nl-company').value = '';
+  document.getElementById('new-lead-modal').classList.add('open');
+  setTimeout(() => document.getElementById('nl-name').focus(), 50);
+}
+function closeNewLead() {
+  document.getElementById('new-lead-modal').classList.remove('open');
+}
+async function submitNewLead() {
+  const name = document.getElementById('nl-name').value.trim();
+  if (!name) { document.getElementById('nl-name').focus(); return; }
+  try {
+    const lead = await api('POST', '/api/crm/leads', {
+      name,
+      company: document.getElementById('nl-company').value.trim() || null,
+    });
+    closeNewLead();
+    toast('Lead created!');
+    await loadLeads();
+    openDeal(lead.id);
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ── Services ───────────────────────────────────────────────────────────────
+function showPipeline() {
+  document.getElementById('pipeline-view').style.display = '';
+  document.getElementById('deal-room').classList.remove('visible');
+  document.getElementById('services-view').classList.remove('visible');
+  document.getElementById('new-lead-btn').style.display = '';
+  document.getElementById('back-btn').style.display = '';
+  document.getElementById('top-title').textContent = '📊 Leads & Sales';
+  state.view = 'pipeline';
+  loadStats();
+  loadLeads();
+}
+
+async function showServices() {
+  document.getElementById('pipeline-view').style.display = 'none';
+  document.getElementById('deal-room').classList.remove('visible');
+  document.getElementById('new-lead-btn').style.display = 'none';
+  document.getElementById('back-btn').style.display = 'none';
+  document.getElementById('top-title').textContent = '🛠 Service Catalog';
+  const sv = document.getElementById('services-view');
+  sv.classList.add('visible');
+  state.view = 'services';
+  await loadServices();
+}
+
+async function loadServices() {
+  try {
+    state.services = await api('GET', '/api/crm/services/all');
+    renderServiceTable();
+  } catch(e) { toast('Could not load services','error'); }
+}
+
+function renderServiceTable() {
+  const tbody = document.getElementById('svc-rows');
+  if (!state.services.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text-dim)">No services yet. Click "+ Add Service" to create one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.services.map(s => `
+    <tr data-svc-id="${s.id}">
+      <td><input type="text" value="${esc(s.name)}" onblur="patchService(${s.id},'name',this.value)" style="min-width:150px"></td>
+      <td><input type="number" value="${parseFloat(s.default_price).toFixed(2)}" min="0" step="0.01" style="width:90px" onblur="patchService(${s.id},'default_price',parseFloat(this.value)||0)"></td>
+      <td><input type="number" value="${parseFloat(s.default_cost).toFixed(2)}" min="0" step="0.01" style="width:90px" onblur="patchService(${s.id},'default_cost',parseFloat(this.value)||0)"></td>
+      <td><select onchange="patchService(${s.id},'billing_type',this.value)">
+        <option value="one_time" ${s.billing_type==='one_time'?'selected':''}>One-time</option>
+        <option value="monthly" ${s.billing_type==='monthly'?'selected':''}>Monthly</option>
+      </select></td>
+      <td><button onclick="toggleActive(${s.id},${!s.active})" class="active-badge ${s.active?'on':'off'}">${s.active?'Active':'Inactive'}</button></td>
+      <td><button class="btn-danger" onclick="deleteService(${s.id})">Delete</button></td>
+    </tr>`).join('');
+}
+
+function showAddServiceForm() {
+  document.getElementById('add-service-form').style.display = '';
+  document.getElementById('ns-name').focus();
+}
+function hideAddServiceForm() {
+  document.getElementById('add-service-form').style.display = 'none';
+  ['ns-name','ns-price','ns-cost'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('ns-billing').value = 'one_time';
+}
+async function submitNewService() {
+  const name = document.getElementById('ns-name').value.trim();
+  if (!name) { document.getElementById('ns-name').focus(); return; }
+  try {
+    await api('POST', '/api/crm/services', {
+      name,
+      default_price: parseFloat(document.getElementById('ns-price').value) || 0,
+      default_cost:  parseFloat(document.getElementById('ns-cost').value)  || 0,
+      billing_type:  document.getElementById('ns-billing').value,
+      active: true,
+    });
+    hideAddServiceForm();
+    toast('Service added!');
+    await loadServices();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+async function patchService(id, field, value) {
+  try {
+    const body = {}; body[field] = value;
+    await api('PATCH', `/api/crm/services/${id}`, body);
+    const s = state.services.find(x => x.id === id);
+    if (s) s[field] = value;
+  } catch(e) { toast('Save failed: '+e.message,'error'); }
+}
+
+async function toggleActive(id, active) {
+  await patchService(id, 'active', active);
+  await loadServices();
+}
+
+async function deleteService(id) {
+  const svc = state.services.find(s => s.id === id);
+  if (!confirm(`Delete service "${svc?.name || id}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/crm/services/${id}`);
+    toast('Service deleted');
+    await loadServices();
+  } catch(e) { toast('Delete failed: '+e.message,'error'); }
+}
+
+// ── Calendly ───────────────────────────────────────────────────────────────
+async function loadCalendlyUrl() {
+  try {
+    const data = await api('GET', '/api/crm/calendly-url');
+    state.calendlyUrl = data.url || '';
+  } catch(e) {
+    state.calendlyUrl = '';
+  }
+}
+</script>
+</body>
+</html>
