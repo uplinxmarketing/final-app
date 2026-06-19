@@ -5911,12 +5911,16 @@ async def api_posting_drive_scan(
     folder_id = google_api.extract_folder_id_from_url(folder_raw)
     if not folder_id and folder_raw and folder_raw != req.text_url.strip():
         folder_id = folder_raw
-    if folder_id:
-        media = await _list_folder_media(folder_id, google_token)
-
     captions: list[dict] = []
     if req.text_url.strip():
         captions = await _read_captions_from_drive(req.text_url.strip(), google_token)
+
+    if folder_id:
+        # When a content calendar is supplied, EVERY subfolder is treated as a
+        # post/carousel grouped by its folder name (the plan decides which rows
+        # use them; unreferenced ones are dropped). Without a plan we stay
+        # conservative and only auto-import carousel-named subfolders.
+        media = await _list_folder_media(folder_id, google_token, group_all=bool(captions))
 
     return {"media": media, "captions": captions}
 
@@ -5939,14 +5943,25 @@ def _media_entry(f: dict, group: str = "") -> dict:
 _CAROUSEL_NAME_RE = re.compile(r"carr?ou?sell?", re.I)
 
 
-async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
+async def _list_folder_media(
+    folder_id: str, google_token: str, group_all: bool = False
+) -> list[dict]:
     """List a folder's media including carousel subfolders one level down.
 
-    Only subfolders that follow the carousel convention are auto-imported:
-    the folder name contains "carousel" (any spelling), or at least half of
-    the files inside do. Their files carry ``group: <subfolder name>`` so the
-    frontend bundles them into one multi-image post ordered by filename.
-    Other subfolders (other clients' materials, asset archives) are left
+    Files in a subfolder carry ``group: <subfolder name>`` so the frontend
+    bundles them into one multi-image post ordered by filename, and matches
+    that group to the calendar row whose name/file-reference equals the folder.
+
+    When ``group_all`` is True (a content calendar is present), EVERY subfolder
+    containing media is imported and grouped by its folder name — the user
+    organises each post/carousel as its own folder named after the calendar
+    row. Plan-driven building drops any group no row references, so this never
+    creates stray posts.
+
+    When ``group_all`` is False (no plan), we stay conservative and only
+    auto-import subfolders that follow the carousel convention: the folder name
+    contains "carousel" (any spelling), or at least half of the files inside
+    do. Other subfolders (other clients' materials, asset archives) are left
     alone — select them explicitly if needed.
     """
     listing = await google_api.list_drive_folder(folder_id, google_token)
@@ -5974,7 +5989,7 @@ async def _list_folder_media(folder_id: str, google_token: str) -> list[dict]:
         sub_name = sf.get("name", "")
         named_caro = bool(_CAROUSEL_NAME_RE.search(sub_name))
         files_caro = sum(1 for f in items if _CAROUSEL_NAME_RE.search(f.get("name", "")))
-        if not named_caro and files_caro < max(1, len(items) / 2):
+        if not group_all and not named_caro and files_caro < max(1, len(items) / 2):
             continue  # not carousel-named — don't swallow unrelated materials
         group = (sub_name or "carousel") if len(items) > 1 else ""
         entries = [_media_entry(f, group=group) for f in items]

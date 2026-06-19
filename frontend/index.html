@@ -9187,6 +9187,15 @@ async function _uwBuildPlanPosts(media, captions) {
   const avail = () => items.filter(x => !used.has(x.idx));
   const take = arr => { arr.forEach(x => used.add(x.idx)); return arr; };
 
+  // Files that belong to a multi-image subfolder/carousel group must only ever
+  // be assigned together (Phases A–D), never pulled out one-by-one to fill a
+  // single-image row. Without this guard a carousel folder named like the row
+  // (e.g. 1.png, 2.png) gets scattered across unrelated posts. Count members
+  // per group up front; an image is "grouped" only when its group has >1 file.
+  const groupCount = {};
+  items.forEach(x => { if (x.group) groupCount[x.group] = (groupCount[x.group] || 0) + 1; });
+  const isGrouped = x => !!(x.group && groupCount[x.group] > 1);
+
   // One slot per plan row. _capIdx keeps the slot's row index so the preview
   // sorts posts in the plan's own order.
   const slots = caps.map((c, k) => {
@@ -9224,6 +9233,22 @@ async function _uwBuildPlanPosts(media, captions) {
         take(grab); s.items.push(...grab);
       }
     });
+  });
+
+  // Phase A2 — a subfolder carousel whose folder name appears in the row's
+  // caption/title (when the plan names the folder in the text rather than a
+  // dedicated file column). The whole group is claimed atomically so a carousel
+  // folder named after its calendar row lands on exactly that row.
+  slots.forEach(s => {
+    if (s.items.length) return;
+    const groups = {};
+    avail().forEach(x => { if (isGrouped(x)) (groups[x.group] = groups[x.group] || []).push(x); });
+    for (const [gname, gitems] of Object.entries(groups)) {
+      if (_uwCapMentionsFile(s.text, gname) || s.refs.some(r => _uwNamesMatch(r, gname))) {
+        gitems.sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx));
+        take(gitems); s.items.push(...gitems); break;
+      }
+    }
   });
 
   // Phase B — "carousel N" rows claim the whole carousel: every slide sharing
@@ -9268,7 +9293,7 @@ async function _uwBuildPlanPosts(media, captions) {
   // still-empty row it belongs to (by content, filename, type). Carousels are
   // not placed here — they need the grouping signals handled above.
   const singleSlots = slots.filter(s => !s.items.length && s.type !== 'carousel');
-  const leftover = avail();
+  const leftover = avail().filter(x => !isGrouped(x));
   if (singleSlots.length && leftover.length) {
     try {
       const placed = await _uwAiPlaceImages(leftover, singleSlots);
@@ -9291,7 +9316,15 @@ async function _uwBuildPlanPosts(media, captions) {
   // scrambling. No planned post is left unpublishable.
   slots.forEach(s => {
     if (s.items.length) return;
-    const next = avail().sort(_uwNatCmp)[0];
+    // Only loose (ungrouped) images fill single rows — never break a carousel
+    // group apart. A carousel-type row may take a whole leftover group instead.
+    if (s.type === 'carousel') {
+      const groups = {};
+      avail().forEach(x => { if (isGrouped(x)) (groups[x.group] = groups[x.group] || []).push(x); });
+      const grp = Object.values(groups)[0];
+      if (grp) { grp.sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx)); take(grp); s.items.push(...grp); return; }
+    }
+    const next = avail().filter(x => !isGrouped(x)).sort(_uwNatCmp)[0];
     if (next) { take([next]); s.items.push(next); }
   });
 
