@@ -9193,12 +9193,27 @@ async function _uwBuildPlanPosts(media, captions) {
 
   // Phase A — explicit file references from the sheet's image/file column.
   // Most authoritative: the plan literally names the file(s) for this row.
+  // Resolution order per reference, so a row can never steal a neighbour's file:
+  //   1. an EXACT filename match (one file),
+  //   2. an EXACT subfolder-group name (all slides in that carousel folder),
+  //   3. a boundary-aware prefix (a series/folder stem) — all slides for a
+  //      carousel row, otherwise just the first match.
   slots.forEach(s => {
     if (!s.refs.length) return;
     s.refs.forEach(ref => {
-      const hit = avail().find(x =>
-        _uwNamesMatch(ref, x.m.name || '') || (x.group && _uwNamesMatch(ref, x.group)));
-      if (hit) { take([hit]); s.items.push(hit); }
+      const pool = avail();
+      const exact = pool.find(x => _uwNamesEqual(ref, x.m.name || ''));
+      if (exact) { take([exact]); s.items.push(exact); return; }
+      const grp = pool.filter(x => x.group && _uwNamesEqual(ref, x.group))
+                      .sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx));
+      if (grp.length) { take(grp); s.items.push(...grp); return; }
+      const pre = pool.filter(x =>
+        _uwNamesMatch(ref, x.m.name || '') || (x.group && _uwNamesMatch(ref, x.group)))
+        .sort((a, b) => (a.info.order - b.info.order) || (a.idx - b.idx));
+      if (pre.length) {
+        const grab = (s.type === 'carousel' || pre.length === 1) ? pre : [pre[0]];
+        take(grab); s.items.push(...grab);
+      }
     });
   });
 
@@ -9261,10 +9276,13 @@ async function _uwBuildPlanPosts(media, captions) {
   }
 
   // Phase F — ordered fill: any row still without an image takes the next
-  // available file in folder order, so no planned post is left unpublishable.
+  // available file in NATURAL filename order (post1, post2, …, post10 — not the
+  // lexicographic post1, post10, post2 the folder returns), so an unlabelled
+  // plan in numeric order lines up with numerically-named files instead of
+  // scrambling. No planned post is left unpublishable.
   slots.forEach(s => {
     if (s.items.length) return;
-    const next = avail()[0];
+    const next = avail().sort(_uwNatCmp)[0];
     if (next) { take([next]); s.items.push(next); }
   });
 
@@ -9329,13 +9347,45 @@ function _uwCapMentionsFile(caption, fname) {
   const rx = _uwFileTokenRegex(fname);
   return rx ? rx.test(caption) : false;
 }
-// Loose filename equality for a sheet's image column vs the actual file:
-// case/extension/separator-insensitive, allowing one to contain the other.
+// Normalised filename (lowercase, no extension, no separators) — used only for
+// the minimum-length guard so we never match on a 1-2 char fragment.
+function _uwNameNorm(s) {
+  return String(s || '').toLowerCase().replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, '');
+}
+// Split a filename into word/number tokens so comparisons respect digit
+// boundaries. "Carousel 1 - 3.png" → ["carousel","1","3"]; "post10" → ["post","10"].
+// Numbers are normalised ("01" → "1") so leading zeros don't break equality.
+function _uwNameTokens(s) {
+  const base = String(s || '').toLowerCase().replace(/\.[a-z0-9]{2,4}$/, '');
+  return (base.match(/[a-z]+|\d+/g) || []).map(t => /^\d+$/.test(t) ? String(parseInt(t, 10)) : t);
+}
+// Exact filename equality (token-for-token). "Post 1.png" === "post_1" but
+// "post 1" !== "post 10".
+function _uwNamesEqual(a, b) {
+  if (_uwNameNorm(a).length < 3 || _uwNameNorm(b).length < 3) return false;
+  const ta = _uwNameTokens(a), tb = _uwNameTokens(b);
+  return ta.length === tb.length && ta.every((t, i) => t === tb[i]);
+}
+// Boundary-aware filename match for a sheet's image column vs the actual file.
+// Equal token sequences match; a shorter sequence may be a LEADING prefix of a
+// longer one (so a folder/series stem like "Carousel 1" matches its slides
+// "Carousel 1 - 3") — but because tokens compare digit-for-digit, "post 1"
+// never matches "post 10"/"post 11" the way naive substring containment did.
 function _uwNamesMatch(a, b) {
-  const norm = s => String(s || '').toLowerCase().replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, '');
-  const na = norm(a), nb = norm(b);
-  if (na.length < 3 || nb.length < 3) return false;
-  return na === nb || na.includes(nb) || nb.includes(na);
+  if (_uwNameNorm(a).length < 3 || _uwNameNorm(b).length < 3) return false;
+  const ta = _uwNameTokens(a), tb = _uwNameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.length === tb.length) return ta.every((t, i) => t === tb[i]);
+  const short = ta.length < tb.length ? ta : tb;
+  const long  = ta.length < tb.length ? tb : ta;
+  return short.every((t, i) => t === long[i]);
+}
+// Natural (numeric-aware) filename comparator so ordered fallbacks line images
+// up the way a human numbered them: post1, post2, …, post10 — not the
+// lexicographic post1, post10, post2 the folder listing returns.
+function _uwNatCmp(a, b) {
+  return String(a && a.m ? a.m.name || '' : '')
+    .localeCompare(String(b && b.m ? b.m.name || '' : ''), undefined, { numeric: true, sensitivity: 'base' });
 }
 // Remove matched filename tokens from a caption (a sheet's "image name" column
 // shouldn't be published as part of the text).
