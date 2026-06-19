@@ -5338,17 +5338,40 @@ _INLINE_SCHED = re.compile(
     r"(?:[T ,]+(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?))?",
     re.I,
 )
+# Date patterns capture the date numbers plus a trailing remainder (everything
+# after the date); the time, in any form, is parsed from that remainder by
+# _extract_time. This keeps every date format sharing one robust time parser
+# (24h "14:00", "1:00 PM", bare "2pm"/"2 a.m.") instead of repeating it.
+_TAIL = r"(?:[\sT,@]+(.*))?$"
 _SCHED_TOKEN_PATTERNS = [
-    # 2026-06-10 13:00 / 2026/06/10 / 2026.06.10 / 2026-06-10T13:00:00
-    (re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "ymd"),
-    # 06/10/2026 01:00 PM (or 06-10-2026 13:00); day-first assumed when first number > 12
-    (re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "mdy"),
-    # 10.06.2026 13:00 (day first)
-    (re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dmy"),
-    # 14/05 — short date with no year (content calendars). Day-first by default;
-    # month-first when only that is valid. Year resolved to the nearest future-ish one.
-    (re.compile(r"^(\d{1,2})[/.\-](\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dm_short"),
+    # 2026-06-15 / 2026/06/15 / 2026.06.15 (+ optional time)
+    (re.compile(rf"^(\d{{4}})[-/.](\d{{1,2}})[-/.](\d{{1,2}}){_TAIL}", re.I), "ymd"),
+    # 15/06/2026 or 06-15-2026 (slash/dash, 4-digit year, day/month order resolved)
+    (re.compile(rf"^(\d{{1,2}})[/-](\d{{1,2}})[/-](\d{{4}}){_TAIL}", re.I), "mdy4"),
+    # 15/06/26 or 06-15-26 (slash/dash, 2-digit year → 20YY)
+    (re.compile(rf"^(\d{{1,2}})[/-](\d{{1,2}})[/-](\d{{2}}){_TAIL}", re.I), "mdy2"),
+    # 10.06.2026 / 10.06.26 (dot, European → day-first)
+    (re.compile(rf"^(\d{{1,2}})\.(\d{{1,2}})\.(\d{{2,4}}){_TAIL}", re.I), "dmy_dot"),
+    # 14/05 / 06/15 — short date, no year (content calendars). Year resolved to
+    # the nearest future-ish one.
+    (re.compile(rf"^(\d{{1,2}})[/.\-](\d{{1,2}}){_TAIL}", re.I), "dm_short"),
 ]
+
+
+def _resolve_dm(a: int, b: int, day_first: bool) -> Optional[tuple[int, int]]:
+    """Resolve two numbers from a slash/dash date into ``(month, day)``.
+
+    A value > 12 fixes that field as the day; when both are ≤ 12 the order is
+    ambiguous and ``day_first`` decides (calendar callers detect the convention
+    from the whole column). Returns None when both are > 12 (impossible).
+    """
+    if a > 12 and b > 12:
+        return None
+    if a > 12:
+        return (b, a)   # a is the day
+    if b > 12:
+        return (a, b)   # b is the day, a the month
+    return (b, a) if day_first else (a, b)
 
 # Month names → number, matching full or abbreviated forms (incl. "sept").
 _MONTH_NUM = {
@@ -5379,6 +5402,11 @@ _MONTHNAME_MDY = re.compile(rf"^{_MONTH_RE}[\s.\-]+(\d{{1,2}})(?:st|nd|rd|th)?\b
 _MONTHNAME_DMY = re.compile(rf"^(\d{{1,2}})(?:st|nd|rd|th)?[\s.\-/]+{_MONTH_RE}\b(.*)$", re.I)
 
 
+# Filler words that may sit between a date and its time ("June 5 at 3pm",
+# "14:00 hrs", "3 o'clock") — ignored when checking the remainder is clean.
+_TIME_CONNECTOR_RE = re.compile(r"\b(?:at|by|kl|klo|uhr|hrs?|h|o'?clock)\b", re.I)
+
+
 def _extract_time(text: str) -> Optional[tuple[int, int]]:
     """Parse the first clock time in ``text`` → ``(hour, minute)`` or None."""
     m = _TIME_RE.search(text or "")
@@ -5394,6 +5422,27 @@ def _extract_time(text: str) -> Optional[tuple[int, int]]:
     else:  # 24h colon form
         hh, mm = int(m.group(4)), int(m.group(5))
     return (hh, mm) if 0 <= hh <= 23 and 0 <= mm <= 59 else None
+
+
+def _time_from_remainder(remainder: str) -> tuple[bool, int, int]:
+    """Interpret the text after a date as its time.
+
+    Returns ``(ok, hour, minute)``. An empty remainder is a date-only value →
+    ``(True, 9, 0)``. A remainder that is a clean time (optionally with a filler
+    word like "at") yields that time. Anything else → ``(False, 0, 0)`` so the
+    caller can reject the match (a caption that merely starts with numbers must
+    never be read as a date).
+    """
+    r = (remainder or "").strip()
+    if not r:
+        return (True, 9, 0)
+    tt = _extract_time(r)
+    if tt is None:
+        return (False, 0, 0)
+    leftover = _TIME_CONNECTOR_RE.sub(" ", _TIME_RE.sub(" ", r, count=1)).strip(" :,.\t-@T")
+    if re.search(r"[a-z0-9]", leftover, re.I):
+        return (False, 0, 0)
+    return (True, tt[0], tt[1])
 
 
 def _parse_monthname_token(s: str) -> Optional[str]:
@@ -5423,15 +5472,9 @@ def _parse_monthname_token(s: str) -> Optional[str]:
             rest = (rest[:ym.start()] + " " + rest[ym.end():]).strip(" ,@\tT-/.")
         # Whatever is left must be a clean time (or nothing); any other leftover
         # text means this wasn't really a date cell — reject so captions survive.
-        hh, mm = 9, 0
-        if rest:
-            tt = _extract_time(rest)
-            if tt is None:
-                return None
-            leftover = _TIME_RE.sub(" ", rest, count=1).strip(" :,.\-@T")
-            if re.search(r"[a-z0-9]", leftover, re.I):
-                return None
-            hh, mm = tt
+        ok, hh, mm = _time_from_remainder(rest)
+        if not ok:
+            return None
         if y is None:
             now = datetime.now()
             y = now.year
@@ -5463,42 +5506,46 @@ def _parse_schedule_token(s: str, day_first: bool = False) -> Optional[str]:
             continue
         g = m.groups()
         if order == "ymd":
-            y, mo, d = int(g[0]), int(g[1]), int(g[2])
-        elif order == "mdy":
-            a, b, y = int(g[0]), int(g[1]), int(g[2])
-            if a > 12:
-                d, mo = a, b
-            elif b > 12:
-                mo, d = a, b
-            elif day_first:
-                d, mo = a, b
-            else:
-                mo, d = a, b
-        elif order == "dm_short":
-            a, b = int(g[0]), int(g[1])
-            d, mo = (a, b) if a > 12 or b <= 12 else (b, a)
+            y, mo, d, tail = int(g[0]), int(g[1]), int(g[2]), g[3]
+        elif order == "dmy_dot":
+            res = _resolve_dm(int(g[0]), int(g[1]), True)  # dotted dates are day-first
+            if res is None:
+                continue
+            mo, d = res
+            yy = int(g[2])
+            y = yy if yy >= 100 else 2000 + yy
+            tail = g[3]
+        elif order in ("mdy4", "mdy2"):
+            res = _resolve_dm(int(g[0]), int(g[1]), day_first)
+            if res is None:
+                continue
+            mo, d = res
+            yy = int(g[2])
+            y = yy if order == "mdy4" else 2000 + yy
+            tail = g[3]
+        else:  # dm_short — no year, resolve to the nearest future-ish one
+            res = _resolve_dm(int(g[0]), int(g[1]), day_first)
+            if res is None:
+                continue
+            mo, d = res
+            tail = g[2]
             now = datetime.now()
             y = now.year
             try:
-                # If the date is far in the past, the calendar means next year.
                 if datetime(y, mo, d) < now - timedelta(days=90):
                     y += 1
             except ValueError:
                 return None
-        else:
-            d, mo, y = int(g[0]), int(g[1]), int(g[2])
-        th, tm, tap = (g[2], g[3], g[4]) if order == "dm_short" else (g[3], g[4], g[5])
-        hh = int(th) if th else 9
-        mm = int(tm) if tm else 0
-        ampm = (tap or "").lower().replace(".", "")
-        if ampm.startswith("p") and hh < 12:
-            hh += 12
-        elif ampm.startswith("a") and hh == 12:
-            hh = 0
+        # Parse the time from the trailing remainder (if any). A remainder that
+        # isn't a clean time means the string wasn't really a date (e.g. a
+        # caption that happens to start with numbers) — reject so it isn't eaten.
+        ok, hh, mm = _time_from_remainder(tail)
+        if not ok:
+            continue
         try:
             datetime(y, mo, d, hh, mm)
         except ValueError:
-            return None
+            continue
         return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
     # No numeric pattern matched — try a month-name date ("June 19, 2026").
     return _parse_monthname_token(s)
