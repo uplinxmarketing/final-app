@@ -10290,18 +10290,32 @@ async function _uwDriveAddToPost(postIdx, files, folders) {
   if (pool) pool.style.display = '';
   if (statusEl) statusEl.textContent = '⏳ Loading from Drive…';
   try {
-    const seen = new Set((_uw.mediaPool||[]).map(m => m.id || m.local_file_id));
+    const post = _uw.posts[postIdx];
+    // Deduplicate only against THIS post's existing images so that files already
+    // in the global pool (from the initial folder scan) can still be added to a
+    // specific post card — the previous global-pool check caused every image from
+    // the original upload to be silently skipped, leaving the card unchanged.
+    const postSeen = new Set((post ? post.mediaList : []).map(m => m.id || m.local_file_id));
+    const poolSeen = new Set((_uw.mediaPool||[]).map(m => m.id || m.local_file_id));
     const newMedia = [];
     for (const folder of folders) {
       const res = await api('POST', '/api/posting/drive/scan', { folder_url: folder.id, text_url: '' });
-      (res.media || []).forEach(m => { if (!seen.has(m.id)) { seen.add(m.id); newMedia.push(m); } });
+      (res.media || []).forEach(m => {
+        if (!postSeen.has(m.id)) {
+          postSeen.add(m.id);
+          newMedia.push(m);
+          if (!poolSeen.has(m.id)) { poolSeen.add(m.id); (_uw.mediaPool = _uw.mediaPool || []).push(m); }
+        }
+      });
     }
     files.forEach(f => {
       const m = { id:f.id, name:f.name, mime_type:f.mimeType, is_video:!!f.is_video||!!f.isVideo };
-      if (!seen.has(m.id)) { seen.add(m.id); newMedia.push(m); }
+      if (!postSeen.has(m.id)) {
+        postSeen.add(m.id);
+        newMedia.push(m);
+        if (!poolSeen.has(m.id)) { poolSeen.add(m.id); (_uw.mediaPool = _uw.mediaPool || []).push(m); }
+      }
     });
-    _uw.mediaPool = (_uw.mediaPool || []).concat(newMedia);
-    const post = _uw.posts[postIdx];
     if (post) { post.mediaList = post.mediaList.concat(newMedia); _uwRecountType(); _uwSnap(); }
     _uwRenderCards();
   } catch(e) {
