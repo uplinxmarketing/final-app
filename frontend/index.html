@@ -9042,6 +9042,15 @@ function _uwParseName(name) {
   return { carousel:false, postNum: pm ? Number(pm[1]) : null };
 }
 
+// Convert a parsed schedule string into a safe ISO instant. Returns null for
+// empty/unparseable values instead of throwing — a single bad date must never
+// abort the whole preview build (which would leave the tool blank).
+function _uwSchedIso(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d) ? null : d.toISOString();
+}
+
 // Detect a leading "post N" / "carousel N" label in a caption block.
 function _uwCaptionLabel(text) {
   const first = String(text||'').trim().split('\n')[0].toLowerCase();
@@ -9099,7 +9108,7 @@ function _uwGroupPosts(media, captions) {
     p.hashtags = st.tags;
     p._capIdx = k;
     if (lock) p._matchLocked = true;
-    if (c.schedule) { p._schedLocal = c.schedule; p._sched = new Date(c.schedule).toISOString(); }
+    if (c.schedule) { p._schedLocal = c.schedule; p._sched = _uwSchedIso(c.schedule); }
   };
   posts.forEach(p => {
     if (!p._label) return;
@@ -9295,7 +9304,7 @@ async function _uwBuildPlanPosts(media, captions) {
       mediaList,
       media_type: isReel ? 'REELS' : 'IMAGE',
       caption: s.text, hashtags: s.tags.slice(),
-      _sched: s.cap.schedule ? new Date(s.cap.schedule).toISOString() : null,
+      _sched: _uwSchedIso(s.cap.schedule),
       _schedLocal: s.cap.schedule || null,
       _capIdx: s.k,
     };

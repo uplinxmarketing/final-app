@@ -5339,8 +5339,8 @@ _INLINE_SCHED = re.compile(
     re.I,
 )
 _SCHED_TOKEN_PATTERNS = [
-    # 2026-06-10 13:00 / 2026-06-10T13:00:00
-    (re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "ymd"),
+    # 2026-06-10 13:00 / 2026/06/10 / 2026.06.10 / 2026-06-10T13:00:00
+    (re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "ymd"),
     # 06/10/2026 01:00 PM (or 06-10-2026 13:00); day-first assumed when first number > 12
     (re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "mdy"),
     # 10.06.2026 13:00 (day first)
@@ -5349,6 +5349,103 @@ _SCHED_TOKEN_PATTERNS = [
     # month-first when only that is valid. Year resolved to the nearest future-ish one.
     (re.compile(r"^(\d{1,2})[/.\-](\d{1,2})(?:[T ,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?)?$", re.I), "dm_short"),
 ]
+
+# Month names → number, matching full or abbreviated forms (incl. "sept").
+_MONTH_NUM = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_MONTH_RE = (
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+# A leading weekday name to strip: "Monday, June 19" / "Mon - 19 Jun".
+_WEEKDAY_PREFIX_RE = re.compile(
+    r"^\s*(?:mon|tue(?:s)?|wed(?:s)?|thu(?:r|rs)?|fri|sat|sun)(?:day)?\.?\s*[,\-–]?\s*",
+    re.I,
+)
+# A clock time: "13:00", "1:00 PM", "1pm", "1 p.m.", "13:00:00". The am/pm branch
+# allows a bare hour; the 24h branch requires a colon so a day number isn't read
+# as a time.
+_TIME_RE = re.compile(
+    r"\b(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*([ap]\.?m\.?)|\b(\d{1,2}):(\d{2})(?::\d{2})?",
+    re.I,
+)
+# Month-name dates, anchored at the day so a caption that merely starts with a
+# month word ("June deals are here") is never mistaken for a date. The trailing
+# remainder is captured and must reduce to (optional year) + (optional time);
+# any other leftover text rejects the match so captions are never eaten.
+_MONTHNAME_MDY = re.compile(rf"^{_MONTH_RE}[\s.\-]+(\d{{1,2}})(?:st|nd|rd|th)?\b(.*)$", re.I)
+_MONTHNAME_DMY = re.compile(rf"^(\d{{1,2}})(?:st|nd|rd|th)?[\s.\-/]+{_MONTH_RE}\b(.*)$", re.I)
+
+
+def _extract_time(text: str) -> Optional[tuple[int, int]]:
+    """Parse the first clock time in ``text`` → ``(hour, minute)`` or None."""
+    m = _TIME_RE.search(text or "")
+    if not m:
+        return None
+    if m.group(3):  # am/pm form: hour, optional minutes
+        hh, mm = int(m.group(1)), int(m.group(2) or 0)
+        ap = m.group(3).lower().replace(".", "")
+        if ap.startswith("p") and hh < 12:
+            hh += 12
+        elif ap.startswith("a") and hh == 12:
+            hh = 0
+    else:  # 24h colon form
+        hh, mm = int(m.group(4)), int(m.group(5))
+    return (hh, mm) if 0 <= hh <= 23 and 0 <= mm <= 59 else None
+
+
+def _parse_monthname_token(s: str) -> Optional[str]:
+    """Parse a month-name date ("June 19, 2026 1pm", "19 June", "19-Jun-2026").
+
+    Returns naive local ``YYYY-MM-DDTHH:MM`` or None. A year-less date resolves
+    to the nearest future-ish year; a date-only value defaults to 09:00.
+    """
+    s2 = _WEEKDAY_PREFIX_RE.sub("", (s or "")).strip().rstrip(".,")
+    for rx, day_first in ((_MONTHNAME_MDY, False), (_MONTHNAME_DMY, True)):
+        m = rx.match(s2)
+        if not m:
+            continue
+        if day_first:
+            d, mon_word, rest = int(m.group(1)), m.group(2), m.group(3) or ""
+        else:
+            mon_word, d, rest = m.group(1), int(m.group(2)), m.group(3) or ""
+        mo = _MONTH_NUM.get(mon_word[:3].lower())
+        if mo is None:
+            return None
+        rest = rest.strip(" ,@\tT-/.")
+        # Pull an optional 4-digit year out of the remainder.
+        y = None
+        ym = re.search(r"\b(\d{4})\b", rest)
+        if ym:
+            y = int(ym.group(1))
+            rest = (rest[:ym.start()] + " " + rest[ym.end():]).strip(" ,@\tT-/.")
+        # Whatever is left must be a clean time (or nothing); any other leftover
+        # text means this wasn't really a date cell — reject so captions survive.
+        hh, mm = 9, 0
+        if rest:
+            tt = _extract_time(rest)
+            if tt is None:
+                return None
+            leftover = _TIME_RE.sub(" ", rest, count=1).strip(" :,.\-@T")
+            if re.search(r"[a-z0-9]", leftover, re.I):
+                return None
+            hh, mm = tt
+        if y is None:
+            now = datetime.now()
+            y = now.year
+            try:
+                if datetime(y, mo, d) < now - timedelta(days=90):
+                    y += 1
+            except ValueError:
+                return None
+        try:
+            datetime(y, mo, d, hh, mm)
+        except ValueError:
+            return None
+        return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
+    return None
 
 
 def _parse_schedule_token(s: str, day_first: bool = False) -> Optional[str]:
@@ -5403,7 +5500,8 @@ def _parse_schedule_token(s: str, day_first: bool = False) -> Optional[str]:
         except ValueError:
             return None
         return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
-    return None
+    # No numeric pattern matched — try a month-name date ("June 19, 2026").
+    return _parse_monthname_token(s)
 
 
 # Column-header synonyms for content-calendar sheets. Matched per header cell
@@ -5412,7 +5510,7 @@ def _parse_schedule_token(s: str, day_first: bool = False) -> Optional[str]:
 # the caption: only the caption column is published.
 _COL_SYNONYMS: list[tuple[str, list[str]]] = [
     ("caption", ["caption", "copy", "post text", "body", "content", "text", "description"]),
-    ("date", ["posting date", "publish date", "date", "day", "when", "schedule"]),
+    ("date", ["posting date", "publish date", "date", "day", "when", "schedule", "scheduled", "go live", "live date"]),
     ("time", ["posting time", "publish time", "time", "hour"]),
     ("file", ["file name", "filename", "image name", "image", "file", "visual", "creative", "asset", "design", "graphic", "media"]),
     ("type", ["post type", "content type", "format", "type", "post format"]),
