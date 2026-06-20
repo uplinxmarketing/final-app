@@ -65,6 +65,19 @@ services:
       - key: GOOGLE_REDIRECT_URI
         sync: false
 
+      # ── Leads & Sales CRM (separate module — does not affect the posting app) ─
+      # Optional: a separate Postgres for CRM data. If unset, the CRM uses
+      # DATABASE_URL inside its own isolated `leadsales` schema.
+      - key: CRM_DATABASE_URL
+        sync: false
+      # Dedicated Google OAuth client for the CRM's read-only Google Calendar.
+      # Authorized redirect URI: https://YOUR-HOST/api/crm/google/callback
+      # Scope: calendar.events.readonly  (consent screen in Testing mode is fine).
+      - key: CRM_GOOGLE_CLIENT_ID
+        sync: false
+      - key: CRM_GOOGLE_CLIENT_SECRET
+        sync: false
+
       # ── App settings ────────────────────────────────────────────────────────
       - key: BASE_URL
         sync: false

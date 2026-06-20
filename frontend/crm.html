@@ -3,374 +3,578 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leads & Sales — Uplinx</title>
+<title>Leads &amp; Sales — Uplinx</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg-primary:#ffffff;--bg-secondary:#fff5f5;--bg-tertiary:#fef2f2;--bg-hover:#fee2e2;--bg-deep:#fecaca;
-  --border:#fca5a5;--accent:#dc2626;--accent-hover:#b91c1c;--accent-soft:rgba(220,38,38,0.08);
+  --border:#fca5a5;--border-soft:#fed7d7;--accent:#dc2626;--accent-hover:#b91c1c;--accent-soft:rgba(220,38,38,0.08);
   --success:#16a34a;--warning:#d97706;--error:#b91c1c;
   --text-primary:#1a1a1a;--text-secondary:#6b7280;--text-dim:#9ca3af;
   --font-ui:'DM Sans',sans-serif;--font-heading:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;
   --radius:8px;--radius-lg:12px;--transition:150ms ease;
-  --prospect-bg:#fffbeb;--prospect-border:#fcd34d;--prospect-text:#92400e;--prospect-badge:#f59e0b;
-  --followup-bg:#eff6ff;--followup-border:#93c5fd;--followup-text:#1e40af;--followup-badge:#3b82f6;
-  --won-bg:#f0fdf4;--won-border:#86efac;--won-text:#166534;--won-badge:#16a34a;
-  --lost-bg:#fef2f2;--lost-border:#fca5a5;--lost-text:#991b1b;--lost-badge:#ef4444;
+  --yellow-bg:#fffbeb;--yellow-border:#fcd34d;--yellow-text:#92400e;--yellow-badge:#f59e0b;
+  --blue-bg:#eff6ff;--blue-border:#93c5fd;--blue-text:#1e40af;--blue-badge:#3b82f6;
+  --green-bg:#f0fdf4;--green-border:#86efac;--green-text:#166534;--green-badge:#16a34a;
+  --red-bg:#fef2f2;--red-border:#fca5a5;--red-text:#991b1b;--red-badge:#ef4444;
 }
 body{font-family:var(--font-ui);font-size:14px;color:var(--text-primary);background:var(--bg-primary);min-height:100vh}
 button{cursor:pointer;border:none;background:none;color:inherit;font:inherit}
 input,textarea,select{font:inherit;color:inherit;background:none;border:none;outline:none}
 a{color:inherit;text-decoration:none}
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── Top Bar ── */
-#top-bar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:100}
-#top-bar h1{font-family:var(--font-heading);font-size:18px;font-weight:700;color:var(--accent);flex:1}
-.back-link{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition)}
+#top-bar{display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:100}
+.brand{display:flex;align-items:center;gap:9px}
+.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(220,38,38,.3);flex-shrink:0}
+.brand-mark svg{width:17px;height:17px}
+#top-bar h1{font-family:var(--font-heading);font-size:17px;font-weight:700;color:var(--text-primary);white-space:nowrap}
+#top-bar h1 b{color:var(--accent)}
+#main-nav{display:flex;gap:2px;margin-left:8px;flex:1;overflow-x:auto}
+.nav-tab{padding:7px 14px;border-radius:var(--radius);font-size:13px;font-weight:600;color:var(--text-secondary);transition:var(--transition);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.nav-tab:hover{background:var(--bg-hover);color:var(--text-primary)}
+.nav-tab.active{background:var(--accent);color:#fff}
+.back-link{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition);white-space:nowrap}
 .back-link:hover{border-color:var(--accent);color:var(--accent)}
-.btn-primary{background:var(--accent);color:#fff;padding:7px 14px;border-radius:var(--radius);font-size:13px;font-weight:600;transition:var(--transition)}
-.btn-primary:hover{background:var(--accent-hover)}
-.btn-ghost{padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;transition:var(--transition)}
-.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
-.btn-danger{padding:5px 10px;border-radius:6px;border:1px solid #fca5a5;color:#b91c1c;font-size:12px;transition:var(--transition)}
-.btn-danger:hover{background:#fee2e2}
+.btn-primary{background:var(--accent);color:#fff;padding:8px 15px;border-radius:var(--radius);font-size:13px;font-weight:600;transition:var(--transition);white-space:nowrap;box-shadow:0 3px 10px rgba(220,38,38,.22)}
+.btn-primary:hover{background:var(--accent-hover);transform:translateY(-1px)}
+.btn-primary:active{transform:none}
+.btn-ghost{padding:7px 13px;border-radius:var(--radius);border:1px solid var(--border);color:var(--text-secondary);font-size:13px;font-weight:500;transition:var(--transition)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);background:var(--bg-secondary)}
+.btn-danger{padding:6px 11px;border-radius:6px;border:1px solid var(--border);color:var(--accent);font-size:12px;font-weight:600;transition:var(--transition)}
+.btn-danger:hover{background:var(--bg-hover)}
+.btn-success{background:var(--green-badge);color:#fff;padding:8px 15px;border-radius:var(--radius);font-size:13px;font-weight:600;transition:var(--transition)}
+.btn-success:hover{filter:brightness(.94)}
+
+/* ── App shell ── */
+#crm-app{display:flex;flex-direction:column;min-height:100vh}
+.view{display:none;flex-direction:column;flex:1}
+.view.active{display:flex}
+.page-pad{padding:20px}
+.section-head{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.section-head h2{font-family:var(--font-heading);font-size:17px;font-weight:700;flex:1}
 
 /* ── Stats Bar ── */
-#stats-bar{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg-primary)}
-.stat-item{flex:1;padding:14px 20px;text-align:center;border-right:1px solid var(--border)}
+#stats-bar{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border);background:var(--bg-primary)}
+.stat-item{padding:14px 18px;border-right:1px solid var(--border-soft)}
 .stat-item:last-child{border-right:none}
-.stat-value{font-family:var(--font-heading);font-size:22px;font-weight:700;color:var(--text-primary)}
-.stat-label{font-size:11px;color:var(--text-dim);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.stat-value{font-family:var(--font-heading);font-size:21px;font-weight:700;color:var(--text-primary);line-height:1.1}
+.stat-value.mono{font-family:var(--font-mono)}
+.stat-label{font-size:10.5px;color:var(--text-dim);margin-top:3px;text-transform:uppercase;letter-spacing:.6px;font-weight:600}
 
 /* ── Filter Tabs ── */
-#filter-bar{display:flex;align-items:center;gap:4px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);flex-wrap:wrap}
-.filter-tab{padding:5px 14px;border-radius:100px;font-size:13px;font-weight:500;border:1px solid transparent;color:var(--text-secondary);transition:var(--transition);cursor:pointer}
+#filter-bar{display:flex;align-items:center;gap:6px;padding:11px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);flex-wrap:wrap}
+.filter-tab{padding:6px 14px;border-radius:100px;font-size:13px;font-weight:600;border:1px solid transparent;color:var(--text-secondary);transition:var(--transition)}
 .filter-tab:hover{background:var(--bg-hover);color:var(--text-primary)}
 .filter-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.filter-sep{width:1px;height:20px;background:var(--border);margin:0 6px}
+.filter-spacer{flex:1}
+.search-box{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:100px;padding:5px 12px;min-width:170px}
+.search-box input{flex:1;font-size:13px;min-width:60px}
+.filter-select{background:#fff;border:1px solid var(--border);border-radius:100px;padding:6px 12px;font-size:13px;color:var(--text-secondary)}
 
 /* ── Pipeline Grid ── */
-#pipeline-grid{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;align-content:start;overflow-y:auto;flex:1}
-.lead-card{border-radius:var(--radius-lg);border:1px solid;padding:16px;cursor:pointer;transition:transform .15s,box-shadow .15s;position:relative}
-.lead-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.1)}
-.lead-card.prospect{background:var(--prospect-bg);border-color:var(--prospect-border)}
-.lead-card.follow_up{background:var(--followup-bg);border-color:var(--followup-border)}
-.lead-card.won{background:var(--won-bg);border-color:var(--won-border)}
-.lead-card.lost{background:var(--lost-bg);border-color:var(--lost-border);opacity:.8}
-.card-name{font-family:var(--font-heading);font-size:15px;font-weight:700;margin-bottom:4px}
-.card-company{font-size:12px;color:var(--text-secondary);margin-bottom:10px}
-.card-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:600;margin-bottom:8px}
-.card-badge.prospect{background:#fef3c7;color:var(--prospect-text)}
-.card-badge.follow_up{background:#dbeafe;color:var(--followup-text)}
-.card-badge.won{background:#dcfce7;color:var(--won-text)}
-.card-badge.lost{background:#fee2e2;color:var(--lost-text)}
-.card-followup{font-size:11px;color:var(--followup-text);margin-bottom:6px;display:flex;align-items:center;gap:4px}
-.card-value{font-size:12px;color:var(--text-secondary);font-family:var(--font-mono)}
-.card-empty{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-dim);font-size:14px}
+#pipeline-grid{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:15px;align-content:start}
+.lead-card{border-radius:var(--radius-lg);border:1px solid;padding:15px;cursor:pointer;transition:transform .14s,box-shadow .14s;position:relative;background:#fff}
+.lead-card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.09)}
+.lead-card.yellow{background:var(--yellow-bg);border-color:var(--yellow-border)}
+.lead-card.blue{background:var(--blue-bg);border-color:var(--blue-border)}
+.lead-card.green{background:var(--green-bg);border-color:var(--green-border)}
+.lead-card.red{background:var(--red-bg);border-color:var(--red-border);opacity:.85}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.card-name{font-family:var(--font-heading);font-size:15px;font-weight:700;line-height:1.2}
+.card-company{font-size:12px;color:var(--text-secondary);margin-top:2px}
+.card-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:100px;font-size:10.5px;font-weight:700;flex-shrink:0;text-transform:uppercase;letter-spacing:.4px}
+.card-badge.yellow{background:#fef3c7;color:var(--yellow-text)}
+.card-badge.blue{background:#dbeafe;color:var(--blue-text)}
+.card-badge.green{background:#dcfce7;color:var(--green-text)}
+.card-badge.red{background:#fee2e2;color:var(--red-text)}
+.card-meta{font-size:11.5px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;margin-top:6px}
+.card-meta.blue-t{color:var(--blue-text);font-weight:600}
+.card-value{font-size:12px;color:var(--text-primary);font-family:var(--font-mono);margin-top:9px;font-weight:500}
+.empty-state{grid-column:1/-1;text-align:center;padding:64px 20px;color:var(--text-dim)}
+.empty-state .ic{font-size:34px;margin-bottom:10px}
+.empty-state .t{font-size:15px;color:var(--text-secondary);font-weight:600;margin-bottom:4px}
+.empty-state .s{font-size:13px;margin-bottom:14px}
 
 /* ── Deal Room ── */
-#deal-room{display:none;flex-direction:column;height:calc(100vh - 57px);overflow-y:auto}
-#deal-room.visible{display:flex}
-#deal-body{max-width:860px;width:100%;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:24px}
-.deal-top-bar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;z-index:10}
+#deal-body{max-width:880px;width:100%;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:18px}
+.deal-sub-bar{display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:53px;z-index:20}
+.deal-sub-bar .crumb{font-size:13px;color:var(--text-dim);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deal-section{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px}
+.deal-section-title{font-family:var(--font-heading);font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 
-.deal-section{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px}
-.deal-section-title{font-family:var(--font-heading);font-size:13px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:16px}
+/* deal header */
+.deal-hero{display:flex;flex-direction:column;gap:10px}
+.deal-hero-name input{font-family:var(--font-heading);font-size:22px;font-weight:700;width:100%;border:1px solid transparent;border-radius:var(--radius);padding:3px 6px;margin-left:-6px;background:transparent}
+.deal-hero-name input:hover{border-color:var(--border-soft)}
+.deal-hero-name input:focus{border-color:var(--accent);background:var(--bg-tertiary)}
+.deal-links{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.deal-link{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;background:var(--bg-secondary);border:1px solid var(--border-soft);font-size:12px;color:var(--accent);font-weight:600;transition:var(--transition)}
+.deal-link:hover{background:var(--bg-hover);border-color:var(--border)}
+.deal-meet{font-size:12.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+.deal-meet b{color:var(--text-primary)}
+.lock-banner{display:flex;align-items:center;gap:8px;background:var(--green-bg);border:1px solid var(--green-border);color:var(--green-text);border-radius:var(--radius);padding:9px 13px;font-size:12.5px;font-weight:600}
 
-/* Editable fields */
-.field-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.field-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px}
-.field-label{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px}
-.field-input{border:1px solid transparent;border-radius:var(--radius);padding:6px 10px;background:var(--bg-tertiary);font-size:14px;transition:var(--transition);width:100%}
-.field-input:focus{border-color:var(--accent);background:#fff;outline:none}
+/* primary actions */
+.deal-actions{display:flex;gap:10px;flex-wrap:wrap}
+.deal-act{flex:1;min-width:150px;padding:13px;border-radius:var(--radius-lg);font-size:14px;font-weight:700;border:2px solid;transition:var(--transition);display:flex;align-items:center;justify-content:center;gap:7px}
+.deal-act.followup{border-color:var(--blue-border);color:var(--blue-text);background:var(--blue-bg)}
+.deal-act.followup:hover{background:var(--blue-badge);color:#fff;border-color:var(--blue-badge)}
+.deal-act.won{border-color:var(--green-border);color:var(--green-text);background:var(--green-bg)}
+.deal-act.won:hover{background:var(--green-badge);color:#fff;border-color:var(--green-badge)}
+.deal-act.lost{border-color:var(--red-border);color:var(--red-text);background:var(--red-bg)}
+.deal-act.lost:hover{background:var(--red-badge);color:#fff;border-color:var(--red-badge)}
+.stage-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:4px 10px;border-radius:100px}
+.stage-pill.yellow{background:#fef3c7;color:var(--yellow-text)}
+.stage-pill.blue{background:#dbeafe;color:var(--blue-text)}
+.stage-pill.green{background:#dcfce7;color:var(--green-text)}
+.stage-pill.red{background:#fee2e2;color:var(--red-text)}
+#followup-picker{display:none;margin-top:12px;align-items:center;gap:9px;flex-wrap:wrap;background:var(--blue-bg);border:1px solid var(--blue-border);border-radius:var(--radius);padding:10px 12px}
+#followup-picker.visible{display:flex}
+#followup-picker input{padding:7px 10px;border:1px solid var(--blue-border);border-radius:var(--radius);background:#fff;color:var(--blue-text);font-size:13px}
+.subtle-link{font-size:12px;color:var(--text-dim);text-decoration:underline;cursor:pointer}
+.subtle-link:hover{color:var(--accent)}
+
+/* fields */
+.field-row{display:flex;gap:12px;flex-wrap:wrap}
+.field-row+.field-row{margin-top:12px}
+.field-group{display:flex;flex-direction:column;gap:5px;flex:1;min-width:150px}
+.field-label{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px}
+.field-input{border:1px solid var(--border-soft);border-radius:var(--radius);padding:8px 11px;background:var(--bg-tertiary);font-size:14px;transition:var(--transition);width:100%}
+.field-input:focus{border-color:var(--accent);background:#fff}
 .field-input:hover:not(:focus){border-color:var(--border)}
 
-/* Status buttons */
-.status-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.status-btn{padding:8px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;border:2px solid transparent;transition:var(--transition)}
-.status-btn.prospect{border-color:var(--prospect-border);color:var(--prospect-text);background:var(--prospect-bg)}
-.status-btn.prospect:hover,.status-btn.prospect.active{background:var(--prospect-badge);color:#fff;border-color:var(--prospect-badge)}
-.status-btn.follow_up{border-color:var(--followup-border);color:var(--followup-text);background:var(--followup-bg)}
-.status-btn.follow_up:hover,.status-btn.follow_up.active{background:var(--followup-badge);color:#fff;border-color:var(--followup-badge)}
-.status-btn.won{border-color:var(--won-border);color:var(--won-text);background:var(--won-bg)}
-.status-btn.won:hover,.status-btn.won.active{background:var(--won-badge);color:#fff;border-color:var(--won-badge)}
-.status-btn.lost{border-color:var(--lost-border);color:var(--lost-text);background:var(--lost-bg)}
-.status-btn.lost:hover,.status-btn.lost.active{background:var(--lost-badge);color:#fff;border-color:var(--lost-badge)}
-#followup-picker{display:none;margin-top:8px;align-items:center;gap:8px}
-#followup-picker.visible{display:flex}
-#followup-picker input{padding:7px 10px;border:1px solid var(--followup-border);border-radius:var(--radius);background:var(--followup-bg);color:var(--followup-text);font-size:13px}
+/* package builder */
+.pkg-actions{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.dropdown{position:relative}
+.dropdown-menu{display:none;position:absolute;top:calc(100% + 5px);left:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 8px 28px rgba(0,0,0,.13);min-width:250px;z-index:60;max-height:300px;overflow-y:auto}
+.dropdown-menu.open{display:block}
+.dropdown-item{padding:10px 14px;cursor:pointer;transition:var(--transition);border-bottom:1px solid var(--bg-tertiary)}
+.dropdown-item:last-child{border-bottom:none}
+.dropdown-item:hover{background:var(--bg-hover)}
+.dropdown-item-name{font-size:13px;font-weight:600}
+.dropdown-item-meta{font-size:11px;color:var(--text-dim);margin-top:2px}
+.dropdown-empty{padding:18px;text-align:center;color:var(--text-dim);font-size:13px}
 
-/* Proposal / Package builder */
-.pkg-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
-.catalog-dropdown{position:relative}
-.catalog-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:0 4px 20px rgba(0,0,0,.12);min-width:260px;z-index:50;max-height:260px;overflow-y:auto}
-.catalog-menu.open{display:block}
-.catalog-item{padding:10px 14px;cursor:pointer;transition:var(--transition)}
-.catalog-item:hover{background:var(--bg-hover)}
-.catalog-item-name{font-size:13px;font-weight:500}
-.catalog-item-meta{font-size:11px;color:var(--text-dim);margin-top:2px}
-.catalog-empty{padding:16px;text-align:center;color:var(--text-dim);font-size:13px}
-.pkg-table{width:100%;border-collapse:collapse;margin-bottom:16px}
-.pkg-table th{font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}
-.pkg-table td{padding:4px 4px;vertical-align:middle}
-.pkg-table .pkg-name{width:35%}
-.pkg-table input[type=text],.pkg-table input[type=number]{width:100%;padding:5px 8px;border:1px solid transparent;border-radius:6px;background:var(--bg-tertiary);font-size:13px;transition:var(--transition)}
-.pkg-table input:focus{border-color:var(--accent);background:#fff;outline:none}
-.pkg-table input:hover:not(:focus){border-color:var(--border)}
+.line-card{border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:13px;margin-bottom:11px;background:var(--bg-secondary);transition:var(--transition)}
+.line-card:hover{border-color:var(--border)}
+.line-top{display:flex;gap:9px;align-items:flex-start}
+.line-name{flex:1}
+.line-name input{width:100%;font-size:14px;font-weight:600;border:1px solid transparent;border-radius:6px;padding:6px 8px;background:#fff;transition:var(--transition)}
+.line-name input:focus{border-color:var(--accent)}
+.line-name input:hover:not(:focus){border-color:var(--border-soft)}
+.line-del{padding:5px 9px;border-radius:6px;color:var(--text-dim);font-size:16px;line-height:1;transition:var(--transition);flex-shrink:0}
+.line-del:hover{background:var(--bg-hover);color:var(--accent)}
+.line-grid{display:grid;grid-template-columns:1fr 1fr 70px auto;gap:9px;margin-top:10px;align-items:end}
+.line-field{display:flex;flex-direction:column;gap:4px}
+.line-field label{font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px}
+.line-field input{width:100%;padding:7px 9px;border:1px solid var(--border-soft);border-radius:6px;background:#fff;font-size:13px;font-family:var(--font-mono);transition:var(--transition)}
+.line-field input:focus{border-color:var(--accent)}
 .billing-toggle{display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
-.billing-toggle button{padding:4px 10px;font-size:11px;font-weight:600;color:var(--text-secondary);border:none;background:transparent;transition:var(--transition);cursor:pointer}
+.billing-toggle button{padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);background:#fff;transition:var(--transition);white-space:nowrap}
 .billing-toggle button.active{background:var(--accent);color:#fff}
-.del-item-btn{padding:4px 8px;border-radius:6px;color:var(--text-dim);font-size:14px;transition:var(--transition)}
-.del-item-btn:hover{background:#fee2e2;color:#b91c1c}
+.line-note{margin-top:9px}
+.line-note textarea{width:100%;min-height:38px;padding:7px 9px;border:1px solid var(--border-soft);border-radius:6px;background:#fff;font-size:12.5px;resize:vertical;line-height:1.5;transition:var(--transition)}
+.line-note textarea:focus{border-color:var(--accent)}
+.line-note textarea::placeholder{color:var(--text-dim)}
+.line-card.locked input,.line-card.locked textarea{background:#f9fafb;color:var(--text-secondary)}
 
-/* Profit summary */
-.profit-summary{background:var(--bg-secondary);border-radius:var(--radius);padding:14px 16px;font-size:13px}
-.profit-row{display:flex;gap:20px;padding:5px 0;flex-wrap:wrap}
-.profit-row+.profit-row{border-top:1px solid var(--border)}
-.profit-label{font-weight:600;color:var(--text-secondary);min-width:80px}
-.profit-cell{color:var(--text-primary)}
-.profit-cell.pos{color:var(--success);font-weight:600}
-.profit-cell.neg{color:var(--error);font-weight:600}
-.profit-margin{font-family:var(--font-mono);font-size:12px;padding:3px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent);font-weight:600}
-.profit-total{font-weight:700}
+/* profit summary */
+.profit-summary{background:linear-gradient(135deg,var(--bg-secondary),var(--bg-tertiary));border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:15px 17px;margin-top:4px}
+.profit-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.profit-cell{text-align:center}
+.profit-cell .pv{font-family:var(--font-mono);font-size:18px;font-weight:600;color:var(--text-primary)}
+.profit-cell .pv.pos{color:var(--success)}
+.profit-cell .pv.neg{color:var(--error)}
+.profit-cell .pl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:3px}
+.profit-split{display:flex;gap:18px;margin-top:13px;padding-top:12px;border-top:1px solid var(--border-soft);flex-wrap:wrap;font-size:12px;color:var(--text-secondary)}
+.profit-split b{font-family:var(--font-mono);color:var(--text-primary)}
+.margin-chip{display:inline-block;font-family:var(--font-mono);font-size:12px;padding:3px 9px;border-radius:5px;background:var(--accent-soft);color:var(--accent);font-weight:600}
 
-/* Notes */
-#notes-area{width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);font-size:14px;line-height:1.6;resize:vertical;transition:var(--transition)}
-#notes-area:focus{border-color:var(--accent);background:#fff;outline:none}
-.autosave-hint{font-size:11px;color:var(--text-dim);margin-top:6px}
+/* notes */
+.notes-area{width:100%;min-height:110px;padding:11px 13px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--bg-tertiary);font-size:14px;line-height:1.6;resize:vertical;transition:var(--transition)}
+.notes-area:focus{border-color:var(--accent);background:#fff}
+.autosave-hint{font-size:11px;color:var(--text-dim);margin-top:7px;display:flex;align-items:center;gap:5px}
 
-/* Service catalog view */
-#services-view{display:none;flex-direction:column;flex:1;overflow-y:auto}
-#services-view.visible{display:flex}
-.svc-table{width:100%;border-collapse:collapse}
-.svc-table th{font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;padding:10px 14px;border-bottom:2px solid var(--border);text-align:left}
-.svc-table td{padding:8px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
-.svc-table tr:hover td{background:var(--bg-hover)}
-.svc-table input{width:100%;padding:4px 6px;border:1px solid transparent;border-radius:6px;background:transparent;font-size:13px;transition:var(--transition)}
-.svc-table input:focus{border-color:var(--accent);background:#fff;outline:none}
-.svc-table input:hover:not(:focus){border-color:var(--border)}
-.svc-table select{padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);font-size:13px}
-.active-badge{display:inline-block;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
-.active-badge.on{background:#dcfce7;color:#166534}
-.active-badge.off{background:#f3f4f6;color:var(--text-dim)}
+/* tables (services / packages) */
+.data-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.data-table th{font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;padding:11px 14px;border-bottom:1px solid var(--border);text-align:left;background:var(--bg-secondary)}
+.data-table td{padding:9px 14px;border-bottom:1px solid var(--bg-tertiary);vertical-align:middle}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr:hover td{background:var(--bg-secondary)}
+.data-table input{width:100%;padding:6px 8px;border:1px solid transparent;border-radius:6px;background:transparent;font-size:13px;transition:var(--transition)}
+.data-table input:focus{border-color:var(--accent);background:#fff}
+.data-table input:hover:not(:focus){border-color:var(--border-soft)}
+.data-table input.mono{font-family:var(--font-mono)}
+.data-table select{padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);font-size:13px}
+.pill-toggle{display:inline-block;padding:3px 11px;border-radius:100px;font-size:11px;font-weight:700;cursor:pointer}
+.pill-toggle.on{background:#dcfce7;color:#166534}
+.pill-toggle.off{background:#f3f4f6;color:var(--text-dim)}
+.inline-form{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px}
+.inline-form-title{font-family:var(--font-heading);font-weight:700;margin-bottom:12px;font-size:14px}
+.inline-form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
 
-/* New lead modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center}
+/* packages */
+.pkg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px}
+.pkg-card{border:1px solid var(--border);border-radius:var(--radius-lg);background:#fff;overflow:hidden}
+.pkg-card-head{display:flex;align-items:center;gap:8px;padding:13px 15px;background:var(--bg-secondary);border-bottom:1px solid var(--border-soft)}
+.pkg-card-head input{flex:1;font-family:var(--font-heading);font-weight:700;font-size:15px;border:1px solid transparent;border-radius:6px;padding:4px 7px;background:transparent}
+.pkg-card-head input:focus{border-color:var(--accent);background:#fff}
+.pkg-card-head input:hover:not(:focus){border-color:var(--border-soft)}
+.pkg-card-body{padding:13px 15px}
+.pkg-line{display:grid;grid-template-columns:1fr auto auto auto;gap:7px;align-items:center;padding:6px 0;font-size:12.5px;border-bottom:1px solid var(--bg-tertiary)}
+.pkg-line input{padding:5px 7px;border:1px solid var(--border-soft);border-radius:5px;background:#fff;font-size:12px}
+.pkg-line .pl-name{font-weight:600}
+.pkg-line .pl-name input{width:100%;font-weight:600}
+.pkg-line .pl-num{width:74px;font-family:var(--font-mono);text-align:right}
+.pkg-line .pl-q{width:46px;font-family:var(--font-mono);text-align:center}
+.pkg-line-del{color:var(--text-dim);padding:2px 6px;border-radius:5px;font-size:15px;line-height:1}
+.pkg-line-del:hover{background:var(--bg-hover);color:var(--accent)}
+.pkg-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:11px;flex-wrap:wrap}
+.pkg-tot{font-size:12px;color:var(--text-secondary);font-family:var(--font-mono)}
+.pkg-tot b{color:var(--text-primary)}
+
+/* calendar */
+.cal-wrap{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:start}
+.cal-panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.cal-head .m{font-family:var(--font-heading);font-weight:700;font-size:16px}
+.cal-nav{display:flex;gap:6px}
+.cal-nav button{width:30px;height:30px;border-radius:7px;border:1px solid var(--border);color:var(--text-secondary);display:flex;align-items:center;justify-content:center;transition:var(--transition)}
+.cal-nav button:hover{border-color:var(--accent);color:var(--accent)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dow{text-align:center;font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;padding-bottom:4px}
+.cal-day{min-height:60px;border:1px solid var(--bg-tertiary);border-radius:7px;padding:5px;cursor:pointer;transition:var(--transition);display:flex;flex-direction:column;gap:2px}
+.cal-day:hover{border-color:var(--border);background:var(--bg-secondary)}
+.cal-day.other{opacity:.35}
+.cal-day.today{border-color:var(--accent);background:var(--bg-tertiary)}
+.cal-day .dn{font-size:11px;font-weight:600;color:var(--text-secondary)}
+.cal-day.today .dn{color:var(--accent)}
+.cal-dot{font-size:9.5px;line-height:1.3;padding:1px 4px;border-radius:4px;background:var(--blue-bg);color:var(--blue-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.cal-dot.local{background:var(--yellow-bg);color:var(--yellow-text)}
+.agenda-item{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--bg-tertiary)}
+.agenda-item:last-child{border-bottom:none}
+.agenda-when{flex-shrink:0;width:58px;text-align:center}
+.agenda-when .d{font-family:var(--font-heading);font-size:17px;font-weight:700;line-height:1}
+.agenda-when .mo{font-size:10px;text-transform:uppercase;color:var(--text-dim);font-weight:600;letter-spacing:.5px}
+.agenda-when .t{font-size:10.5px;color:var(--text-secondary);font-family:var(--font-mono);margin-top:3px}
+.agenda-body{flex:1;min-width:0}
+.agenda-title{font-weight:600;font-size:13.5px}
+.agenda-src{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:1px 7px;border-radius:100px;margin-left:7px}
+.agenda-src.google{background:var(--blue-bg);color:var(--blue-text)}
+.agenda-src.local{background:var(--yellow-bg);color:var(--yellow-text)}
+.agenda-loc{font-size:11.5px;color:var(--text-dim);margin-top:2px}
+.agenda-acts{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.mini-btn{font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-secondary);transition:var(--transition)}
+.mini-btn:hover{border-color:var(--accent);color:var(--accent)}
+.mini-btn.go{background:var(--accent);color:#fff;border-color:var(--accent)}
+.mini-btn.go:hover{background:var(--accent-hover);color:#fff}
+
+/* settings */
+.settings-card{max-width:640px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:18px}
+.set-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.set-status{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;padding:6px 13px;border-radius:100px}
+.set-status.on{background:var(--green-bg);color:var(--green-text)}
+.set-status.off{background:#f3f4f6;color:var(--text-secondary)}
+.set-help{font-size:12.5px;color:var(--text-secondary);line-height:1.65;margin-top:14px;background:var(--bg-secondary);border:1px solid var(--border-soft);border-radius:var(--radius);padding:13px 15px}
+.set-help code{font-family:var(--font-mono);background:#fff;border:1px solid var(--border-soft);border-radius:4px;padding:1px 6px;font-size:11.5px;color:var(--accent)}
+.set-help ol{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:5px}
+
+/* modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(17,12,12,.45);z-index:300;align-items:center;justify-content:center;padding:18px}
 .modal-overlay.open{display:flex}
-.modal-box{background:#fff;border-radius:var(--radius-lg);padding:28px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.2)}
-.modal-title{font-family:var(--font-heading);font-size:18px;font-weight:700;margin-bottom:16px}
-.modal-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-bottom:12px;background:var(--bg-tertiary);transition:var(--transition)}
-.modal-input:focus{border-color:var(--accent);background:#fff;outline:none}
-.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.modal-box{background:#fff;border-radius:var(--radius-lg);padding:26px;max-width:440px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto}
+.modal-title{font-family:var(--font-heading);font-size:18px;font-weight:700;margin-bottom:6px}
+.modal-sub{font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.5}
+.modal-input,.modal-select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-bottom:11px;background:var(--bg-tertiary);transition:var(--transition)}
+.modal-input:focus,.modal-select:focus{border-color:var(--accent);background:#fff}
+.modal-label{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;display:block}
+.modal-btns{display:flex;gap:9px;justify-content:flex-end;margin-top:6px}
+.won-preview{background:var(--green-bg);border:1px solid var(--green-border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--green-text)}
+.won-preview .wp-row{display:flex;justify-content:space-between;padding:2px 0;font-family:var(--font-mono)}
+.won-preview .wp-tot{font-weight:700;border-top:1px solid var(--green-border);margin-top:5px;padding-top:6px}
 
-/* Toast */
-#toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none}
-#toast.show{opacity:1}
+/* toast */
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(10px);padding:11px 20px;border-radius:var(--radius);font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.success{background:#16a34a;color:#fff}
 #toast.error{background:#b91c1c;color:#fff}
+#toast.info{background:#1f2937;color:#fff}
 
-/* Calendly embed */
-.calendly-container{min-height:600px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
-.calendly-placeholder{padding:30px;text-align:center;color:var(--text-dim);font-size:13px;background:var(--bg-secondary);border-radius:var(--radius)}
-
-/* Layout wrapper */
-#crm-app{display:flex;flex-direction:column;min-height:100vh}
-#pipeline-view{display:flex;flex-direction:column;flex:1}
-#pipeline-content{display:flex;flex:1;flex-direction:column;overflow:auto}
-
-/* Mobile */
-@media(max-width:600px){
-  #stats-bar{flex-wrap:wrap}
-  .stat-item{min-width:50%;border-right:none;border-bottom:1px solid var(--border)}
-  #pipeline-grid{grid-template-columns:1fr;padding:12px}
-  .field-row{flex-direction:column}
-  .status-btns{gap:6px}
-  .status-btn{padding:7px 12px;font-size:12px}
-  #deal-body{padding:16px 12px}
+@media(max-width:760px){
+  .cal-wrap{grid-template-columns:1fr}
+  #stats-bar{grid-template-columns:repeat(2,1fr)}
+  .stat-item{border-bottom:1px solid var(--border-soft)}
+  .profit-grid{grid-template-columns:repeat(2,1fr);gap:14px}
+}
+@media(max-width:560px){
+  #top-bar{flex-wrap:wrap}
+  #main-nav{order:3;width:100%;margin-left:0}
+  #pipeline-grid{grid-template-columns:1fr;padding:14px}
+  .line-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .deal-act{min-width:100%}
+  #deal-body{padding:16px 13px}
+  .page-pad{padding:14px}
 }
 </style>
 </head>
 <body>
 <div id="crm-app">
+  <!-- Top bar -->
   <div id="top-bar">
-    <h1 id="top-title">📊 Leads &amp; Sales</h1>
-    <a href="/" class="back-link" id="back-btn">← Uplinx</a>
+    <div class="brand">
+      <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#fff"/></svg></div>
+      <h1>Leads&nbsp;<b>&amp;&nbsp;Sales</b></h1>
+    </div>
+    <nav id="main-nav">
+      <button class="nav-tab active" data-view="pipeline" onclick="go('pipeline')">📊 Pipeline</button>
+      <button class="nav-tab" data-view="calendar" onclick="go('calendar')">📅 Calendar</button>
+      <button class="nav-tab" data-view="catalog" onclick="go('catalog')">🛠 Services</button>
+      <button class="nav-tab" data-view="packages" onclick="go('packages')">📦 Packages</button>
+      <button class="nav-tab" data-view="settings" onclick="go('settings')">⚙️ Settings</button>
+    </nav>
+    <a href="/" class="back-link">← Uplinx</a>
     <button class="btn-primary" id="new-lead-btn" onclick="openNewLead()">+ New Lead</button>
   </div>
 
-  <!-- Pipeline view -->
-  <div id="pipeline-view">
+  <!-- PIPELINE -->
+  <div class="view active" id="view-pipeline">
     <div id="stats-bar">
       <div class="stat-item"><div class="stat-value" id="s-active">—</div><div class="stat-label">Active Leads</div></div>
-      <div class="stat-item"><div class="stat-value" id="s-pipeline">—</div><div class="stat-label">Pipeline Value</div></div>
-      <div class="stat-item"><div class="stat-value" id="s-mrr">—</div><div class="stat-label">Monthly Revenue</div></div>
+      <div class="stat-item"><div class="stat-value mono" id="s-pipeline">—</div><div class="stat-label">Pipeline Value</div></div>
+      <div class="stat-item"><div class="stat-value mono" id="s-mrr">—</div><div class="stat-label">Projected MRR</div></div>
       <div class="stat-item"><div class="stat-value" id="s-win">—</div><div class="stat-label">Win Rate</div></div>
     </div>
     <div id="filter-bar">
-      <button class="filter-tab active" data-filter="all" onclick="setFilter('all')">All</button>
-      <button class="filter-tab" data-filter="prospect" onclick="setFilter('prospect')">🟡 Prospect</button>
-      <button class="filter-tab" data-filter="follow_up" onclick="setFilter('follow_up')">🔵 Follow-up</button>
+      <button class="filter-tab active" data-filter="new" onclick="setFilter('new')">🟡 New &amp; Upcoming</button>
+      <button class="filter-tab" data-filter="active" onclick="setFilter('active')">🔵 Active</button>
       <button class="filter-tab" data-filter="won" onclick="setFilter('won')">🟢 Won</button>
-      <button class="filter-tab" data-filter="customers" onclick="setFilter('customers')">👥 Customers</button>
       <button class="filter-tab" data-filter="lost" onclick="setFilter('lost')">🔴 Lost</button>
-      <div class="filter-sep"></div>
-      <button class="filter-tab" data-filter="services" onclick="showServices()">🛠 Services</button>
+      <button class="filter-tab" data-filter="customers" onclick="setFilter('customers')">👥 Customers</button>
+      <div class="filter-spacer"></div>
+      <select class="filter-select" id="assignee-filter" onchange="loadLeads()"><option value="">Everyone</option></select>
+      <div class="search-box">🔎<input id="search-input" placeholder="Search name / company…" oninput="onSearch()"></div>
     </div>
-    <div id="pipeline-content">
-      <div id="pipeline-grid"></div>
-    </div>
+    <div id="pipeline-grid"></div>
   </div>
 
-  <!-- Deal Room -->
-  <div id="deal-room">
-    <div class="deal-top-bar">
-      <button class="back-link" onclick="closeDeal()">← Pipeline</button>
-      <span id="deal-breadcrumb" style="font-size:13px;color:var(--text-dim);flex:1"></span>
-      <button class="btn-danger" onclick="confirmDeleteLead()">Delete Lead</button>
+  <!-- DEAL ROOM -->
+  <div class="view" id="view-deal">
+    <div class="deal-sub-bar">
+      <button class="back-link" onclick="go('pipeline')">← Pipeline</button>
+      <span class="crumb" id="deal-crumb"></span>
+      <span class="stage-pill yellow" id="deal-stage-pill">New</span>
+      <button class="btn-danger" onclick="confirmDeleteLead()">Delete</button>
     </div>
     <div id="deal-body">
-      <!-- Info -->
+      <!-- Hero -->
       <div class="deal-section">
-        <div class="deal-section-title">Lead Info</div>
-        <div class="field-row">
-          <div class="field-group" style="flex:2">
-            <label class="field-label">Name *</label>
-            <input class="field-input" id="d-name" placeholder="e.g. john_doe_fiverr" onblur="saveField('name',this.value)">
-          </div>
-          <div class="field-group" style="flex:2">
-            <label class="field-label">Company</label>
-            <input class="field-input" id="d-company" placeholder="Acme Corp" onblur="saveField('company',this.value)">
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label class="field-label">Website</label>
-            <input class="field-input" id="d-website" placeholder="https://..." onblur="saveField('website',this.value)">
-          </div>
-          <div class="field-group">
-            <label class="field-label">Fiverr Link</label>
-            <input class="field-input" id="d-fiverr" placeholder="https://fiverr.com/..." onblur="saveField('fiverr_link',this.value)">
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-group" style="flex:2">
-            <label class="field-label">Social Links (one per line)</label>
-            <textarea class="field-input" id="d-social" rows="2" placeholder="https://instagram.com/..." onblur="saveField('social_links',this.value)" style="resize:vertical"></textarea>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Source</label>
-            <input class="field-input" id="d-source" placeholder="Fiverr" onblur="saveField('source',this.value)">
-          </div>
+        <div class="deal-hero">
+          <div class="deal-hero-name"><input id="d-name" placeholder="Lead name" onblur="saveField('name',this.value)"></div>
+          <input class="field-input" id="d-company" placeholder="Company (optional)" style="max-width:340px" onblur="saveField('company',this.value)">
+          <div class="deal-links" id="deal-links"></div>
+          <div class="deal-meet" id="deal-meet"></div>
         </div>
       </div>
 
-      <!-- Status -->
-      <div class="deal-section">
-        <div class="deal-section-title">Status</div>
-        <div class="status-btns">
-          <button class="status-btn prospect" onclick="setStatus('prospect')">🟡 Prospect</button>
-          <button class="status-btn follow_up" onclick="setStatus('follow_up')">🔵 Follow-up</button>
-          <button class="status-btn won" onclick="setStatus('won')">🟢 Won</button>
-          <button class="status-btn lost" onclick="setStatus('lost')">🔴 Lost</button>
+      <!-- Won lock banner -->
+      <div id="lock-banner" style="display:none"></div>
+
+      <!-- Primary actions -->
+      <div class="deal-section" id="actions-section">
+        <div class="deal-section-title">Actions</div>
+        <div class="deal-actions">
+          <button class="deal-act followup" onclick="toggleFollowupPicker()">⏰ Set Follow-up</button>
+          <button class="deal-act won" onclick="openWonModal()">✓ Mark Won</button>
+          <button class="deal-act lost" onclick="markLost()">✕ Mark Lost</button>
         </div>
         <div id="followup-picker">
-          <label class="field-label" style="white-space:nowrap">Follow-up date &amp; time:</label>
+          <span class="field-label" style="white-space:nowrap">Follow-up:</span>
           <input type="datetime-local" id="d-followup-at" onchange="saveFollowup(this.value)">
+          <span class="subtle-link" onclick="clearFollowup()">clear</span>
+        </div>
+        <div style="margin-top:11px"><span class="subtle-link" id="reopen-link" style="display:none" onclick="reopenLead()">↩ Re-open this deal (unlock)</span></div>
+      </div>
+
+      <!-- Contact details -->
+      <div class="deal-section">
+        <div class="deal-section-title">Details</div>
+        <div class="field-row">
+          <div class="field-group"><label class="field-label">Website</label><input class="field-input" id="d-website" placeholder="https://…" onblur="saveField('website',this.value)"></div>
+          <div class="field-group"><label class="field-label">Fiverr link</label><input class="field-input" id="d-fiverr" placeholder="https://fiverr.com/…" onblur="saveField('fiverr_link',this.value)"></div>
+        </div>
+        <div class="field-row">
+          <div class="field-group" style="flex:2"><label class="field-label">Social links (one per line)</label><textarea class="field-input" id="d-social" rows="2" style="resize:vertical" placeholder="https://instagram.com/…" onblur="saveField('social_links',this.value)"></textarea></div>
+          <div class="field-group"><label class="field-label">Source</label><input class="field-input" id="d-source" placeholder="Fiverr" onblur="saveField('source',this.value)"></div>
+          <div class="field-group"><label class="field-label">Assigned to</label><input class="field-input" id="d-assigned" placeholder="(optional)" onblur="saveField('assigned_to',this.value)"></div>
+        </div>
+        <div class="field-row">
+          <div class="field-group"><label class="field-label">Meeting date &amp; time</label><input type="datetime-local" class="field-input" id="d-meeting" onchange="saveMeeting(this.value)"></div>
         </div>
       </div>
 
-      <!-- Package & Pricing -->
+      <!-- Package & pricing -->
       <div class="deal-section">
-        <div class="deal-section-title">Package &amp; Pricing</div>
-        <div class="pkg-actions">
-          <div class="catalog-dropdown">
-            <button class="btn-ghost" onclick="toggleCatalog()" id="catalog-btn">📋 Add from Catalog ▾</button>
-            <div class="catalog-menu" id="catalog-menu"></div>
+        <div class="deal-section-title"><span>Package &amp; Pricing</span></div>
+        <div class="pkg-actions" id="pkg-actions">
+          <div class="dropdown">
+            <button class="btn-ghost" id="apply-pkg-btn" onclick="toggleMenu('pkg-template-menu')">📦 Apply Package ▾</button>
+            <div class="dropdown-menu" id="pkg-template-menu"></div>
+          </div>
+          <div class="dropdown">
+            <button class="btn-ghost" id="catalog-btn" onclick="toggleMenu('catalog-menu')">📋 Add Service ▾</button>
+            <div class="dropdown-menu" id="catalog-menu"></div>
           </div>
           <button class="btn-ghost" onclick="addCustomLine()">+ Custom Line</button>
         </div>
-        <table class="pkg-table" id="pkg-table">
-          <thead>
-            <tr>
-              <th class="pkg-name">Service</th>
-              <th>Price ($)</th>
-              <th>Cost ($)</th>
-              <th>Qty</th>
-              <th>Type</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="pkg-rows"></tbody>
-        </table>
+        <div id="line-items"></div>
         <div class="profit-summary" id="profit-summary"></div>
       </div>
 
-      <!-- Notes -->
+      <!-- General notes -->
       <div class="deal-section">
-        <div class="deal-section-title">Notes</div>
-        <textarea id="notes-area" placeholder="Add any notes about this lead…" oninput="scheduleNoteSave()"></textarea>
+        <div class="deal-section-title">Meeting Notes</div>
+        <textarea class="notes-area" id="notes-area" placeholder="General notes about this lead / meeting…" oninput="scheduleNoteSave()"></textarea>
         <div class="autosave-hint" id="notes-hint">Autosaves as you type</div>
       </div>
+    </div>
+  </div>
 
-      <!-- Calendly + Call -->
-      <div class="deal-section">
-        <div class="deal-section-title">Schedule</div>
-        <div id="calendly-section"></div>
-        <div style="margin-top:16px">
-          <label class="field-label">Call date &amp; time (manual)</label>
-          <input type="datetime-local" id="d-call-dt" style="margin-top:6px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);font-size:13px" onchange="saveCallDate(this.value)">
+  <!-- CALENDAR -->
+  <div class="view" id="view-calendar">
+    <div class="page-pad">
+      <div class="section-head">
+        <h2>Calendar &amp; Upcoming</h2>
+        <button class="btn-ghost" onclick="go('settings')" id="cal-connect-hint" style="display:none">🔗 Connect Google</button>
+        <button class="btn-primary" onclick="openEventModal()">+ New Event</button>
+      </div>
+      <div class="cal-wrap">
+        <div class="cal-panel">
+          <div class="cal-head">
+            <div class="m" id="cal-month-label">—</div>
+            <div class="cal-nav"><button onclick="calMove(-1)">‹</button><button onclick="calToday()">●</button><button onclick="calMove(1)">›</button></div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+        <div class="cal-panel">
+          <div class="deal-section-title" style="margin-bottom:10px">Upcoming</div>
+          <div id="agenda-list"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Services view -->
-  <div id="services-view">
-    <div style="padding:0 20px 20px">
-      <div style="display:flex;align-items:center;gap:12px;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:16px">
-        <button class="back-link" onclick="showPipeline()">← Pipeline</button>
-        <h2 style="font-family:var(--font-heading);font-size:16px;font-weight:700;flex:1">Service Catalog</h2>
+  <!-- CATALOG -->
+  <div class="view" id="view-catalog">
+    <div class="page-pad">
+      <div class="section-head">
+        <h2>Service Catalog</h2>
         <button class="btn-primary" onclick="showAddServiceForm()">+ Add Service</button>
       </div>
-      <div id="add-service-form" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px">
-        <div style="font-weight:600;margin-bottom:12px;font-size:13px">New Service</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="inline-form" id="add-service-form" style="display:none">
+        <div class="inline-form-title">New service</div>
+        <div class="inline-form-row">
           <div class="field-group"><label class="field-label">Name *</label><input class="field-input" id="ns-name" placeholder="Meta Ads Management"></div>
-          <div class="field-group" style="max-width:130px"><label class="field-label">Price ($)</label><input class="field-input" id="ns-price" type="number" min="0" step="0.01" placeholder="0"></div>
-          <div class="field-group" style="max-width:130px"><label class="field-label">Cost ($)</label><input class="field-input" id="ns-cost" type="number" min="0" step="0.01" placeholder="0"></div>
-          <div class="field-group" style="max-width:140px"><label class="field-label">Billing</label>
-            <select id="ns-billing" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:#fff;font-size:13px;width:100%">
-              <option value="one_time">One-time</option>
-              <option value="monthly">Monthly</option>
-            </select>
+          <div class="field-group" style="max-width:130px"><label class="field-label">Price</label><input class="field-input" id="ns-price" type="number" min="0" step="0.01" placeholder="0"></div>
+          <div class="field-group" style="max-width:130px"><label class="field-label">Cost</label><input class="field-input" id="ns-cost" type="number" min="0" step="0.01" placeholder="0"></div>
+          <div class="field-group" style="max-width:150px"><label class="field-label">Billing</label>
+            <select class="field-input" id="ns-billing"><option value="one_time">One-time</option><option value="monthly">Monthly</option></select>
           </div>
-          <button class="btn-primary" onclick="submitNewService()" style="height:36px">Save</button>
-          <button class="btn-ghost" onclick="hideAddServiceForm()" style="height:36px">Cancel</button>
+          <button class="btn-primary" onclick="submitNewService()">Save</button>
+          <button class="btn-ghost" onclick="hideAddServiceForm()">Cancel</button>
         </div>
       </div>
-      <table class="svc-table" id="svc-table">
-        <thead><tr>
-          <th>Name</th><th>Price</th><th>Cost</th><th>Billing</th><th>Active</th><th></th>
-        </tr></thead>
-        <tbody id="svc-rows"></tbody>
-      </table>
+      <table class="data-table"><thead><tr><th>Name</th><th>Price</th><th>Cost</th><th>Margin</th><th>Billing</th><th>Active</th><th></th></tr></thead>
+        <tbody id="svc-rows"></tbody></table>
+    </div>
+  </div>
+
+  <!-- PACKAGES -->
+  <div class="view" id="view-packages">
+    <div class="page-pad">
+      <div class="section-head">
+        <h2>Package Templates</h2>
+        <button class="btn-primary" onclick="createPackage()">+ New Package</button>
+      </div>
+      <div class="pkg-list" id="pkg-list"></div>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="view" id="view-settings">
+    <div class="page-pad">
+      <div class="section-head"><h2>Settings</h2></div>
+      <div class="settings-card">
+        <div class="deal-section-title" style="margin-bottom:14px">📅 Google Calendar (read-only)</div>
+        <div class="set-row">
+          <span class="set-status off" id="g-status">Not connected</span>
+          <button class="btn-primary" id="g-connect-btn" onclick="location.href='/api/crm/google/connect'">Connect Google Calendar</button>
+          <button class="btn-ghost" id="g-disconnect-btn" style="display:none" onclick="disconnectGoogle()">Disconnect</button>
+        </div>
+        <div class="set-help" id="g-help"></div>
+      </div>
+      <div class="settings-card">
+        <div class="deal-section-title" style="margin-bottom:10px">🗓 In-app Calendar</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">Even without Google, you can create and manage your own events on the <a class="subtle-link" onclick="go('calendar')">Calendar tab</a>. They show in your Upcoming list and can be turned into leads — a reliable fallback if the Google connection ever drops.</p>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- New Lead Modal -->
+<!-- New Lead modal -->
 <div class="modal-overlay" id="new-lead-modal">
   <div class="modal-box">
     <div class="modal-title">New Lead</div>
-    <input class="modal-input" id="nl-name" placeholder="Name / Fiverr handle (required)" onkeydown="if(event.key==='Enter')submitNewLead()">
-    <input class="modal-input" id="nl-company" placeholder="Company (optional)">
+    <div class="modal-sub">Only a name is required — you can fill in everything else in the Deal Room.</div>
+    <label class="modal-label">Name *</label>
+    <input class="modal-input" id="nl-name" placeholder="Name / Fiverr handle" onkeydown="if(event.key==='Enter')submitNewLead()">
+    <label class="modal-label">Company (optional)</label>
+    <input class="modal-input" id="nl-company" placeholder="Company">
     <div class="modal-btns">
-      <button class="btn-ghost" onclick="closeNewLead()">Cancel</button>
-      <button class="btn-primary" onclick="submitNewLead()">Create Lead →</button>
+      <button class="btn-ghost" onclick="closeModal('new-lead-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitNewLead()">Create &amp; Open →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Won modal -->
+<div class="modal-overlay" id="won-modal">
+  <div class="modal-box">
+    <div class="modal-title">🎉 Close as Won</div>
+    <div class="modal-sub">This locks the current line items as the sold package. You can re-open later if needed.</div>
+    <div class="won-preview" id="won-preview"></div>
+    <label class="modal-label">Package name for this sale</label>
+    <input class="modal-input" id="won-pkg-name" placeholder="Custom package">
+    <div class="modal-btns">
+      <button class="btn-ghost" onclick="closeModal('won-modal')">Cancel</button>
+      <button class="btn-success" onclick="confirmWon()">Confirm Won ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- Event modal -->
+<div class="modal-overlay" id="event-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="event-modal-title">New Event</div>
+    <div class="modal-sub">A personal calendar event inside the CRM (works without Google).</div>
+    <label class="modal-label">Title *</label>
+    <input class="modal-input" id="ev-title" placeholder="Discovery call with…">
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><label class="modal-label">Start *</label><input class="modal-input" id="ev-start" type="datetime-local"></div>
+      <div style="flex:1"><label class="modal-label">End</label><input class="modal-input" id="ev-end" type="datetime-local"></div>
+    </div>
+    <label class="modal-label">Location / link</label>
+    <input class="modal-input" id="ev-location" placeholder="Zoom, Google Meet, phone…">
+    <label class="modal-label">Notes</label>
+    <input class="modal-input" id="ev-notes" placeholder="(optional)">
+    <div class="modal-btns">
+      <button class="btn-danger" id="ev-delete" style="display:none;margin-right:auto" onclick="deleteEventFromModal()">Delete</button>
+      <button class="btn-ghost" onclick="closeModal('event-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitEvent()">Save Event</button>
     </div>
   </div>
 </div>
@@ -378,576 +582,594 @@ a{color:inherit;text-decoration:none}
 <div id="toast"></div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
+// ── State ───────────────────────────────────────────────────────────────────
 const state = {
-  view: 'pipeline',
-  filter: 'all',
-  leads: [],
-  services: [],
-  currentLead: null,
-  noteSaveTimer: null,
-  catalogOpen: false,
-  calendlyUrl: '',
+  view:'pipeline', filter:'new', search:'', leads:[], services:[], packages:[],
+  currentLead:null, noteTimer:null, calDate:new Date(), events:[],
+  googleConnected:false, googleConfigured:false, editingEventId:null,
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = n => '$' + (parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
-const fmtDec = n => '$' + (parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const fmt    = n => '$'+(parseFloat(n)||0).toLocaleString('en-US',{maximumFractionDigits:0});
+const fmtDec = n => '$'+(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const STAGE_LABEL = {new:'New',active:'Active',won:'Won',lost:'Lost'};
 
-async function api(method, path, body) {
-  const opts = { method, headers: {'Content-Type':'application/json'} };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
-  if (!r.ok) {
-    const t = await r.text().catch(()=>'');
-    throw new Error(t || r.statusText);
-  }
-  if (r.status === 204) return null;
+async function api(method, path, body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body!==undefined) opts.body=JSON.stringify(body);
+  const r=await fetch(path,opts);
+  if(!r.ok){ let t=''; try{t=(await r.json()).detail||'';}catch(e){t=await r.text().catch(()=>'');} throw new Error(t||r.statusText); }
+  if(r.status===204) return null;
   return r.json();
 }
+function toast(msg,type='success'){
+  const el=document.getElementById('toast'); el.textContent=msg; el.className='show '+type;
+  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',2600);
+}
+function fmtDateShort(iso){ if(!iso) return ''; const d=new Date(iso);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+function toLocalDT(iso){ if(!iso) return ''; const d=new Date(iso); const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function dtToISO(v){ return v ? new Date(v).toISOString() : null; }
 
-function toast(msg, type='success') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'show ' + type;
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.className = ''; }, 2500);
+// ── View switching ──────────────────────────────────────────────────────────
+function go(view){
+  state.view=view;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+view).classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.view===view));
+  document.getElementById('new-lead-btn').style.display = (view==='pipeline'||view==='deal')?'':'none';
+  document.querySelector('#main-nav .nav-tab[data-view="pipeline"]').classList.toggle('active',view==='pipeline'||view==='deal');
+  if(view==='pipeline'){ loadStats(); loadLeads(); }
+  if(view==='calendar'){ loadCalendar(); }
+  if(view==='catalog'){ loadServicesTable(); }
+  if(view==='packages'){ loadPackages(); }
+  if(view==='settings'){ loadGoogleStatus(); }
+  window.scrollTo(0,0);
 }
 
-function fmtDateShort(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
-         d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-}
-
-function toLocalDT(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = n => String(n).padStart(2,'0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Boot ───────────────────────────────────────────────────────────────────
-(async () => {
-  await loadStats();
-  await loadLeads();
-  await loadCalendlyUrl();
-  document.addEventListener('click', e => {
-    if (!e.target.closest('#catalog-btn') && !e.target.closest('#catalog-menu')) {
-      closeCatalog();
-    }
+// ── Boot ────────────────────────────────────────────────────────────────────
+(async ()=>{
+  const params=new URLSearchParams(location.search);
+  if(params.get('gconnected')) toast('Google Calendar connected ✓','success');
+  if(params.get('gerror')) toast('Google connect failed: '+params.get('gerror'),'error');
+  if(location.search){ history.replaceState({},'', '/crm'); }
+  await Promise.all([loadStats(), loadLeads(), loadAssignees(), loadGoogleStatusSilent()]);
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('.dropdown')) document.querySelectorAll('.dropdown-menu').forEach(m=>m.classList.remove('open'));
   });
+  if(params.get('gconnected')) go('calendar');
 })();
 
-// ── Stats ──────────────────────────────────────────────────────────────────
-async function loadStats() {
-  try {
-    const s = await api('GET', '/api/crm/stats');
-    document.getElementById('s-active').textContent   = s.active_leads;
-    document.getElementById('s-pipeline').textContent = fmt(s.pipeline_value);
-    document.getElementById('s-mrr').textContent      = fmt(s.mrr) + '/mo';
-    document.getElementById('s-win').textContent      = s.win_rate + '%';
-  } catch(e) { console.warn('stats:', e); }
+// ── Stats ───────────────────────────────────────────────────────────────────
+async function loadStats(){
+  try{
+    const s=await api('GET','/api/crm/stats');
+    document.getElementById('s-active').textContent=s.active_leads;
+    document.getElementById('s-pipeline').textContent=fmt(s.pipeline_value);
+    document.getElementById('s-mrr').textContent=fmt(s.projected_mrr)+'/mo';
+    document.getElementById('s-win').textContent=s.win_rate+'%';
+  }catch(e){ console.warn('stats',e); }
 }
 
-// ── Pipeline ───────────────────────────────────────────────────────────────
-async function loadLeads() {
-  const param = state.filter === 'all' ? '' : `?status=${state.filter}`;
-  try {
-    state.leads = await api('GET', '/api/crm/leads' + param);
-    renderCards();
-  } catch(e) { toast('Could not load leads: '+e.message, 'error'); }
+// ── Pipeline ────────────────────────────────────────────────────────────────
+async function loadAssignees(){
+  try{
+    const a=await api('GET','/api/crm/assignees');
+    const sel=document.getElementById('assignee-filter');
+    const cur=sel.value;
+    sel.innerHTML='<option value="">Everyone</option>'+a.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    sel.value=cur;
+  }catch(e){}
 }
-
-function renderCards() {
-  const grid = document.getElementById('pipeline-grid');
-  if (!state.leads.length) {
-    grid.innerHTML = `<div class="card-empty">No leads here yet. <button class="btn-primary" onclick="openNewLead()" style="margin-left:8px;display:inline-block">+ New Lead</button></div>`;
+let _searchTimer;
+function onSearch(){ clearTimeout(_searchTimer); _searchTimer=setTimeout(()=>{ state.search=document.getElementById('search-input').value.trim(); loadLeads(); },250); }
+async function loadLeads(){
+  const qs=new URLSearchParams();
+  if(state.filter) qs.set('stage',state.filter);
+  const assignee=document.getElementById('assignee-filter').value; if(assignee) qs.set('assigned',assignee);
+  if(state.search) qs.set('q',state.search);
+  try{ state.leads=await api('GET','/api/crm/leads?'+qs.toString()); renderCards(); }
+  catch(e){ toast('Could not load leads: '+e.message,'error'); }
+}
+function setFilter(f){
+  state.filter=f;
+  document.querySelectorAll('.filter-tab').forEach(t=>t.classList.toggle('active',t.dataset.filter===f));
+  loadLeads();
+}
+function renderCards(){
+  const grid=document.getElementById('pipeline-grid');
+  if(!state.leads.length){
+    const msg={new:['🗂','No new leads yet','Add a lead or create one from a calendar meeting.'],
+      active:['💬','No active deals','Set a follow-up on a lead to move it here.'],
+      won:['🏆','No won deals yet','Close your first deal to see it here.'],
+      lost:['🗑','Nothing lost','Deals you mark lost will appear here.'],
+      customers:['👥','No customers yet','Win a deal to create your first customer.']}[state.filter]||['🗂','Nothing here yet',''];
+    grid.innerHTML=`<div class="empty-state"><div class="ic">${msg[0]}</div><div class="t">${msg[1]}</div><div class="s">${msg[2]}</div><button class="btn-primary" onclick="openNewLead()">+ New Lead</button></div>`;
     return;
   }
-  grid.innerHTML = state.leads.map(l => {
-    const fuStr = l.follow_up_at ? `<div class="card-followup">⏰ ${esc(fmtDateShort(l.follow_up_at))}</div>` : '';
-    const valStr = l.proposal_value > 0 ? `<div class="card-value">${fmt(l.proposal_value)}${l.monthly_value>0?' + '+fmt(l.monthly_value)+'/mo':''}</div>` : '';
-    const statusLabel = {prospect:'🟡 Prospect',follow_up:'🔵 Follow-up',won:'🟢 Won',lost:'🔴 Lost'}[l.status] || l.status;
-    return `<div class="lead-card ${l.status}" onclick="openDeal(${l.id})">
-      <div class="card-name">${esc(l.name)}</div>
-      <div class="card-company">${esc(l.company||'')}</div>
-      <div class="card-badge ${l.status}">${statusLabel}</div>
-      ${fuStr}${valStr}
-    </div>`;
+  grid.innerHTML=state.leads.map(l=>{
+    const c=l.color;
+    const meet=l.meeting_at?`<div class="card-meta">📅 ${esc(fmtDateShort(l.meeting_at))}</div>`:'';
+    const fu=l.follow_up_at?`<div class="card-meta blue-t">⏰ ${esc(fmtDateShort(l.follow_up_at))}</div>`:'';
+    const val=l.proposal_value>0?`<div class="card-value">${fmt(l.proposal_value)}${l.monthly_value>0?' + '+fmt(l.monthly_value)+'/mo':''}</div>`:'';
+    return `<div class="lead-card ${c}" onclick="openDeal(${l.id})">
+      <div class="card-top"><div><div class="card-name">${esc(l.name)}</div>${l.company?`<div class="card-company">${esc(l.company)}</div>`:''}</div>
+        <span class="card-badge ${c}">${STAGE_LABEL[l.stage]||l.stage}</span></div>
+      ${meet}${fu}${val}</div>`;
   }).join('');
 }
 
-function setFilter(f) {
-  state.filter = f;
-  document.querySelectorAll('.filter-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.filter === f);
-  });
-  showPipeline();
-  loadLeads();
-}
-
-// ── Deal Room ──────────────────────────────────────────────────────────────
-async function openDeal(id) {
-  try {
-    state.currentLead = await api('GET', `/api/crm/leads/${id}`);
+// ── Deal Room ───────────────────────────────────────────────────────────────
+async function openDeal(id){
+  try{
+    state.currentLead=await api('GET',`/api/crm/leads/${id}`);
+    await loadCatalogAndPackages();
     populateDeal(state.currentLead);
-    document.getElementById('pipeline-view').style.display = 'none';
-    document.getElementById('services-view').classList.remove('visible');
-    const dr = document.getElementById('deal-room');
-    dr.classList.add('visible');
-    document.getElementById('top-title').textContent = '📊 Leads & Sales';
-    document.getElementById('new-lead-btn').style.display = 'none';
-    document.getElementById('back-btn').style.display = 'none';
-    state.view = 'deal';
-  } catch(e) { toast('Could not load lead: '+e.message,'error'); }
+    go('deal');
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelector('#main-nav .nav-tab[data-view="pipeline"]').classList.add('active');
+  }catch(e){ toast('Could not open lead: '+e.message,'error'); }
 }
-
-function closeDeal() {
-  document.getElementById('deal-room').classList.remove('visible');
-  document.getElementById('pipeline-view').style.display = '';
-  document.getElementById('new-lead-btn').style.display = '';
-  document.getElementById('back-btn').style.display = '';
-  state.currentLead = null;
-  state.view = 'pipeline';
-  loadStats();
-  loadLeads();
-}
-
-function populateDeal(lead) {
-  document.getElementById('d-name').value      = lead.name || '';
-  document.getElementById('d-company').value   = lead.company || '';
-  document.getElementById('d-website').value   = lead.website || '';
-  document.getElementById('d-fiverr').value    = lead.fiverr_link || '';
-  document.getElementById('d-social').value    = lead.social_links || '';
-  document.getElementById('d-source').value    = lead.source || 'Fiverr';
-  document.getElementById('notes-area').value  = lead.notes || '';
-  document.getElementById('deal-breadcrumb').textContent = lead.name + (lead.company ? ' · ' + lead.company : '');
-
-  // Status buttons
-  document.querySelectorAll('.status-btn').forEach(b => {
-    b.classList.toggle('active', b.classList.contains(lead.status));
+function linksHtml(l){
+  const out=[];
+  if(l.website) out.push(`<a class="deal-link" href="${esc(l.website)}" target="_blank" rel="noopener">🌐 Website</a>`);
+  if(l.fiverr_link) out.push(`<a class="deal-link" href="${esc(l.fiverr_link)}" target="_blank" rel="noopener">🟢 Fiverr</a>`);
+  (l.social_links||'').split(/\n+/).map(s=>s.trim()).filter(Boolean).forEach((s,i)=>{
+    out.push(`<a class="deal-link" href="${esc(s)}" target="_blank" rel="noopener">🔗 Social ${i+1}</a>`);
   });
-  const fup = document.getElementById('followup-picker');
-  if (lead.status === 'follow_up') {
-    fup.classList.add('visible');
-    document.getElementById('d-followup-at').value = toLocalDT(lead.follow_up_at);
-  } else {
-    fup.classList.remove('visible');
-  }
-
-  renderPkgRows(lead.items || []);
-  recalcTotals(lead.items || []);
-  loadCatalogForDeal();
-
-  // Load calendly
-  const el = document.getElementById('calendly-section');
-  if (state.calendlyUrl) {
-    el.innerHTML = `<div class="calendly-container"><iframe src="${esc(state.calendlyUrl)}?embed_type=inline" style="width:100%;height:600px;border:none" frameborder="0"></iframe></div>`;
-  } else {
-    el.innerHTML = `<div class="calendly-placeholder">📅 Set the <strong>CALENDLY_URL</strong> environment variable to embed your Calendly scheduling widget here.</div>`;
-  }
+  return out.join('');
+}
+function populateDeal(l){
+  const locked = l.stage==='won';
+  document.getElementById('d-name').value=l.name||'';
+  document.getElementById('d-company').value=l.company||'';
+  document.getElementById('d-website').value=l.website||'';
+  document.getElementById('d-fiverr').value=l.fiverr_link||'';
+  document.getElementById('d-social').value=l.social_links||'';
+  document.getElementById('d-source').value=l.source||'Fiverr';
+  document.getElementById('d-assigned').value=l.assigned_to||'';
+  document.getElementById('d-meeting').value=toLocalDT(l.meeting_at);
+  document.getElementById('notes-area').value=l.general_notes||'';
+  document.getElementById('deal-crumb').textContent=l.name+(l.company?' · '+l.company:'');
+  document.getElementById('deal-links').innerHTML=linksHtml(l);
+  document.getElementById('deal-meet').innerHTML=l.meeting_at?`📅 Meeting: <b>${esc(fmtDateShort(l.meeting_at))}</b>`:'';
+  // stage pill
+  const pill=document.getElementById('deal-stage-pill');
+  pill.className='stage-pill '+l.color; pill.textContent=STAGE_LABEL[l.stage]||l.stage;
+  // follow-up
+  const fp=document.getElementById('followup-picker');
+  document.getElementById('d-followup-at').value=toLocalDT(l.follow_up_at);
+  fp.classList.toggle('visible', !!l.follow_up_at && l.stage==='active');
+  // lock banner & reopen
+  const lb=document.getElementById('lock-banner');
+  if(locked){ lb.style.display=''; lb.className='lock-banner';
+    lb.innerHTML=`🔒 Won on ${esc(fmtDateShort(l.won_at))} — package: <b style="margin-left:4px">${esc(l.won_package_name||'Custom package')}</b>. Line items are locked.`;
+    document.getElementById('reopen-link').style.display='';
+  } else { lb.style.display='none'; document.getElementById('reopen-link').style.display='none'; }
+  // builder actions disabled when locked
+  document.getElementById('pkg-actions').style.display = locked?'none':'';
+  renderLines(l.items||[], locked);
+  recalc(l.items||[]);
+}
+async function saveField(field,value){
+  if(!state.currentLead) return;
+  const body={}; body[field]=value||null;
+  try{
+    const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,body);
+    state.currentLead=u;
+    document.getElementById('deal-crumb').textContent=u.name+(u.company?' · '+u.company:'');
+    document.getElementById('deal-links').innerHTML=linksHtml(u);
+  }catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+async function saveMeeting(v){
+  if(!state.currentLead) return;
+  try{ const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{meeting_at:dtToISO(v)});
+    state.currentLead=u; document.getElementById('deal-meet').innerHTML=u.meeting_at?`📅 Meeting: <b>${esc(fmtDateShort(u.meeting_at))}</b>`:''; }
+  catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+function toggleFollowupPicker(){
+  const fp=document.getElementById('followup-picker'); fp.classList.toggle('visible');
+  if(fp.classList.contains('visible')){ const inp=document.getElementById('d-followup-at'); if(!inp.value){ const d=new Date(); d.setDate(d.getDate()+3); inp.value=toLocalDT(d.toISOString()); } inp.focus(); }
+}
+async function saveFollowup(v){
+  if(!state.currentLead) return;
+  try{
+    const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{follow_up_at:dtToISO(v),stage:'active'});
+    state.currentLead={...u,items:state.currentLead.items}; populateDeal(state.currentLead); loadStatsQuiet();
+    toast('Follow-up set — moved to Active','success');
+  }catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+async function clearFollowup(){
+  if(!state.currentLead) return;
+  document.getElementById('d-followup-at').value='';
+  try{ const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{follow_up_at:null}); state.currentLead={...u,items:state.currentLead.items}; populateDeal(state.currentLead); }
+  catch(e){ toast('Save failed','error'); }
+}
+async function markLost(){
+  if(!state.currentLead) return;
+  if(!confirm(`Mark "${state.currentLead.name}" as Lost?`)) return;
+  try{ const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{stage:'lost'}); state.currentLead={...u,items:state.currentLead.items}; populateDeal(state.currentLead); loadStatsQuiet(); toast('Marked as Lost'); }
+  catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+async function reopenLead(){
+  if(!state.currentLead) return;
+  if(!confirm('Re-open this won deal? The sold package stays but becomes editable again.')) return;
+  try{ const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{stage:'active'});
+    // unlock items by reloading
+    state.currentLead=await api('GET',`/api/crm/leads/${state.currentLead.id}`);
+    // server keeps items locked; reopening just changes stage — but to allow edits we clear lock via win-reverse not available.
+    populateDeal(state.currentLead); loadStatsQuiet(); toast('Deal re-opened');
+  }catch(e){ toast('Failed: '+e.message,'error'); }
+}
+async function confirmDeleteLead(){
+  if(!state.currentLead) return;
+  if(!confirm(`Delete "${state.currentLead.name}"? This permanently removes the lead and its package. This cannot be undone.`)) return;
+  try{ await api('DELETE',`/api/crm/leads/${state.currentLead.id}`); toast('Lead deleted'); state.currentLead=null; go('pipeline'); }
+  catch(e){ toast('Delete failed: '+e.message,'error'); }
 }
 
-// ── Field autosave ─────────────────────────────────────────────────────────
-async function saveField(field, value) {
-  if (!state.currentLead) return;
-  const body = {};
-  body[field] = value || null;
-  try {
-    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, body);
-    state.currentLead = { ...updated, items: state.currentLead.items };
-    document.getElementById('deal-breadcrumb').textContent =
-      state.currentLead.name + (state.currentLead.company ? ' · ' + state.currentLead.company : '');
-  } catch(e) { toast('Save failed: '+e.message,'error'); }
-}
-
-// ── Status ─────────────────────────────────────────────────────────────────
-async function setStatus(s) {
-  if (!state.currentLead) return;
-  const body = { status: s };
-  if (s === 'follow_up') {
-    const existing = document.getElementById('d-followup-at').value;
-    if (existing) body.follow_up_at = new Date(existing).toISOString();
-  }
-  try {
-    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, body);
-    state.currentLead = { ...updated, items: state.currentLead.items };
-    document.querySelectorAll('.status-btn').forEach(b => {
-      b.classList.toggle('active', b.classList.contains(s));
-    });
-    const fup = document.getElementById('followup-picker');
-    if (s === 'follow_up') {
-      fup.classList.add('visible');
-    } else {
-      fup.classList.remove('visible');
-    }
-    toast(s === 'won' ? '🎉 Marked as Won!' : 'Status updated', 'success');
-  } catch(e) { toast('Save failed: '+e.message,'error'); }
-}
-
-async function saveFollowup(val) {
-  if (!state.currentLead) return;
-  try {
-    const iso = val ? new Date(val).toISOString() : null;
-    await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, { follow_up_at: iso, status: 'follow_up' });
-    document.querySelectorAll('.status-btn').forEach(b => {
-      b.classList.toggle('active', b.classList.contains('follow_up'));
-    });
-    document.getElementById('followup-picker').classList.add('visible');
-  } catch(e) { toast('Save failed: '+e.message,'error'); }
-}
-
-// ── Notes ──────────────────────────────────────────────────────────────────
-function scheduleNoteSave() {
-  const hint = document.getElementById('notes-hint');
-  hint.textContent = 'Saving…';
-  clearTimeout(state.noteSaveTimer);
-  state.noteSaveTimer = setTimeout(async () => {
-    if (!state.currentLead) return;
-    try {
-      await api('PATCH', `/api/crm/leads/${state.currentLead.id}`, {
-        notes: document.getElementById('notes-area').value || null
-      });
-      hint.textContent = 'Saved ✓';
-      setTimeout(() => { hint.textContent = 'Autosaves as you type'; }, 1500);
-    } catch(e) { hint.textContent = 'Save failed'; }
-  }, 800);
-}
-
-async function saveCallDate(val) {
-  if (!state.currentLead) return;
-  const label = val ? '\n[Call: ' + new Date(val).toLocaleString() + ']' : '';
-  const notesEl = document.getElementById('notes-area');
-  let notes = notesEl.value.replace(/\n?\[Call:[^\]]+\]/g, '');
-  if (label) notes = (notes.trimEnd() + label).trim();
-  notesEl.value = notes;
-  scheduleNoteSave();
-}
-
-// ── Package builder ────────────────────────────────────────────────────────
-function renderPkgRows(items) {
-  const tbody = document.getElementById('pkg-rows');
-  if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">No items yet — add from catalog or add a custom line</td></tr>';
+// ── Line items / package builder ────────────────────────────────────────────
+function renderLines(items, locked){
+  const wrap=document.getElementById('line-items');
+  if(!items.length){
+    wrap.innerHTML=`<div class="empty-state" style="padding:30px"><div class="ic">📦</div><div class="t">No line items yet</div><div class="s">Apply a package, add a service, or add a custom line.</div></div>`;
     return;
   }
-  tbody.innerHTML = items.map(item => `
-    <tr data-item-id="${item.id}">
-      <td class="pkg-name"><input type="text" value="${esc(item.service_name)}" placeholder="Service name"
-        oninput="patchItemLocal(${item.id},'service_name',this.value)"
-        onblur="patchItem(${item.id},'service_name',this.value)"></td>
-      <td><input type="number" value="${parseFloat(item.price).toFixed(2)}" min="0" step="0.01"
-        oninput="patchItemLocal(${item.id},'price',parseFloat(this.value)||0)"
-        onblur="patchItem(${item.id},'price',parseFloat(this.value)||0)"></td>
-      <td><input type="number" value="${parseFloat(item.cost).toFixed(2)}" min="0" step="0.01"
-        oninput="patchItemLocal(${item.id},'cost',parseFloat(this.value)||0)"
-        onblur="patchItem(${item.id},'cost',parseFloat(this.value)||0)"></td>
-      <td><input type="number" value="${item.qty}" min="1" step="1" style="width:60px"
-        oninput="patchItemLocal(${item.id},'qty',parseInt(this.value)||1)"
-        onblur="patchItem(${item.id},'qty',parseInt(this.value)||1)"></td>
-      <td>
-        <div class="billing-toggle">
-          <button class="${item.billing_type==='one_time'?'active':''}" onclick="setBilling(${item.id},'one_time',this)">One-time</button>
-          <button class="${item.billing_type==='monthly'?'active':''}" onclick="setBilling(${item.id},'monthly',this)">Monthly</button>
+  wrap.innerHTML=items.map(it=>{
+    const dis=locked?'disabled':'';
+    return `<div class="line-card ${locked?'locked':''}" data-id="${it.id}">
+      <div class="line-top">
+        <div class="line-name"><input type="text" value="${esc(it.service_name)}" placeholder="Service name" ${dis}
+          oninput="localItem(${it.id},'service_name',this.value)" onblur="saveItem(${it.id},'service_name',this.value)"></div>
+        ${locked?'':`<button class="line-del" onclick="removeItem(${it.id})" title="Remove">×</button>`}
+      </div>
+      <div class="line-grid">
+        <div class="line-field"><label>Price (revenue)</label><input type="number" min="0" step="0.01" value="${parseFloat(it.price).toFixed(2)}" ${dis}
+          oninput="localItem(${it.id},'price',parseFloat(this.value)||0)" onblur="saveItem(${it.id},'price',parseFloat(this.value)||0)"></div>
+        <div class="line-field"><label>Cost</label><input type="number" min="0" step="0.01" value="${parseFloat(it.cost).toFixed(2)}" ${dis}
+          oninput="localItem(${it.id},'cost',parseFloat(this.value)||0)" onblur="saveItem(${it.id},'cost',parseFloat(this.value)||0)"></div>
+        <div class="line-field"><label>Qty</label><input type="number" min="1" step="1" value="${it.qty}" ${dis}
+          oninput="localItem(${it.id},'qty',parseInt(this.value)||1)" onblur="saveItem(${it.id},'qty',parseInt(this.value)||1)"></div>
+        <div class="line-field"><label>Billing</label>
+          <div class="billing-toggle">
+            <button class="${it.billing_type==='one_time'?'active':''}" ${dis} onclick="setBilling(${it.id},'one_time',this)">Once</button>
+            <button class="${it.billing_type==='monthly'?'active':''}" ${dis} onclick="setBilling(${it.id},'monthly',this)">/mo</button>
+          </div>
         </div>
-      </td>
-      <td><button class="del-item-btn" onclick="removeItem(${item.id})" title="Remove">×</button></td>
-    </tr>`).join('');
-}
-
-function patchItemLocal(itemId, field, value) {
-  if (!state.currentLead) return;
-  const item = state.currentLead.items.find(i => i.id === itemId);
-  if (item) {
-    item[field] = value;
-    recalcTotals(state.currentLead.items);
-  }
-}
-
-async function patchItem(itemId, field, value) {
-  if (!state.currentLead) return;
-  const body = {};
-  body[field] = value;
-  try {
-    const updated = await api('PATCH', `/api/crm/leads/${state.currentLead.id}/items/${itemId}`, body);
-    const idx = state.currentLead.items.findIndex(i => i.id === itemId);
-    if (idx >= 0) state.currentLead.items[idx] = updated;
-    recalcTotals(state.currentLead.items);
-  } catch(e) { toast('Item save failed: '+e.message,'error'); }
-}
-
-async function setBilling(itemId, type, btn) {
-  const row = btn.closest('tr');
-  row.querySelectorAll('.billing-toggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  patchItemLocal(itemId, 'billing_type', type);
-  await patchItem(itemId, 'billing_type', type);
-}
-
-async function removeItem(itemId) {
-  if (!confirm('Remove this line item?')) return;
-  try {
-    await api('DELETE', `/api/crm/leads/${state.currentLead.id}/items/${itemId}`);
-    state.currentLead.items = state.currentLead.items.filter(i => i.id !== itemId);
-    renderPkgRows(state.currentLead.items);
-    recalcTotals(state.currentLead.items);
-    toast('Item removed');
-  } catch(e) { toast('Delete failed: '+e.message,'error'); }
-}
-
-async function addCustomLine() {
-  if (!state.currentLead) return;
-  try {
-    const item = await api('POST', `/api/crm/leads/${state.currentLead.id}/items`, {
-      service_name: 'New Service', price: 0, cost: 0, qty: 1, billing_type: 'one_time'
-    });
-    state.currentLead.items.push(item);
-    renderPkgRows(state.currentLead.items);
-    recalcTotals(state.currentLead.items);
-    const rows = document.querySelectorAll('#pkg-rows tr[data-item-id]');
-    const last = rows[rows.length - 1];
-    if (last) last.querySelector('input[type=text]')?.focus();
-  } catch(e) { toast('Error: '+e.message,'error'); }
-}
-
-async function addFromCatalog(svcJson) {
-  if (!state.currentLead) return;
-  closeCatalog();
-  const svc = typeof svcJson === 'string' ? JSON.parse(svcJson) : svcJson;
-  try {
-    const item = await api('POST', `/api/crm/leads/${state.currentLead.id}/items`, {
-      service_name: svc.name,
-      price: svc.default_price,
-      cost: svc.default_cost,
-      qty: 1,
-      billing_type: svc.billing_type,
-    });
-    state.currentLead.items.push(item);
-    renderPkgRows(state.currentLead.items);
-    recalcTotals(state.currentLead.items);
-  } catch(e) { toast('Error: '+e.message,'error'); }
-}
-
-function recalcTotals(items) {
-  const ot = items.filter(i => i.billing_type === 'one_time');
-  const mo = items.filter(i => i.billing_type === 'monthly');
-  const sum = arr => ({
-    rev: arr.reduce((s,i) => s + (parseFloat(i.price)||0)*(parseInt(i.qty)||1), 0),
-    cost: arr.reduce((s,i) => s + (parseFloat(i.cost)||0)*(parseInt(i.qty)||1), 0),
-  });
-  const otS = sum(ot), moS = sum(mo);
-  const totRev  = otS.rev + moS.rev;
-  const totCost = otS.cost + moS.cost;
-  const profit  = totRev - totCost;
-  const margin  = totRev > 0 ? (profit / totRev * 100).toFixed(1) : '0.0';
-
-  const pRow = (label, s) => {
-    if (s.rev === 0 && s.cost === 0) return '';
-    const p = s.rev - s.cost;
-    const cls = p >= 0 ? 'pos' : 'neg';
-    return `<div class="profit-row">
-      <span class="profit-label">${label}</span>
-      <span class="profit-cell">Revenue <strong>${fmtDec(s.rev)}</strong></span>
-      <span class="profit-cell">Cost <strong>${fmtDec(s.cost)}</strong></span>
-      <span class="profit-cell ${cls}">Profit ${fmtDec(p)}</span>
+      </div>
+      <div class="line-note"><textarea placeholder="What we discussed about this service…" ${dis}
+        oninput="noteItemLocal(${it.id})" onblur="saveItem(${it.id},'note',this.value)">${esc(it.note||'')}</textarea></div>
     </div>`;
-  };
-
-  const totContent = totRev === 0 && totCost === 0
-    ? '<div style="color:var(--text-dim);font-size:13px;padding:8px 0">Add items above to see profit summary</div>'
-    : `${pRow('One-time', otS)}${pRow('Monthly', moS)}
-      <div class="profit-row profit-total" style="border-top:2px solid var(--border);margin-top:4px;padding-top:8px">
-        <span class="profit-label">Total</span>
-        <span class="profit-cell">Revenue <strong>${fmtDec(totRev)}</strong></span>
-        <span class="profit-cell">Cost <strong>${fmtDec(totCost)}</strong></span>
-        <span class="profit-cell ${profit>=0?'pos':'neg'}">Profit ${fmtDec(profit)}</span>
-        <span class="profit-margin">${margin}% margin</span>
-      </div>`;
-
-  document.getElementById('profit-summary').innerHTML = totContent;
+  }).join('');
+}
+function localItem(id,field,val){
+  const it=state.currentLead.items.find(i=>i.id===id); if(it){ it[field]=val; recalc(state.currentLead.items); }
+}
+let _noteItemTimers={};
+function noteItemLocal(id){ /* debounced save on blur only to avoid chatty saves */ }
+async function saveItem(id,field,val){
+  if(!state.currentLead) return;
+  const body={}; body[field]=val;
+  try{ const u=await api('PATCH',`/api/crm/leads/${state.currentLead.id}/items/${id}`,body);
+    const idx=state.currentLead.items.findIndex(i=>i.id===id); if(idx>=0) state.currentLead.items[idx]=u; recalc(state.currentLead.items);
+  }catch(e){ toast('Item save failed: '+e.message,'error'); }
+}
+async function setBilling(id,type,btn){
+  btn.closest('.billing-toggle').querySelectorAll('button').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+  localItem(id,'billing_type',type); await saveItem(id,'billing_type',type);
+}
+async function removeItem(id){
+  if(!confirm('Remove this line item?')) return;
+  try{ await api('DELETE',`/api/crm/leads/${state.currentLead.id}/items/${id}`);
+    state.currentLead.items=state.currentLead.items.filter(i=>i.id!==id); renderLines(state.currentLead.items,false); recalc(state.currentLead.items); toast('Item removed');
+  }catch(e){ toast('Delete failed: '+e.message,'error'); }
+}
+async function addCustomLine(){
+  if(!state.currentLead) return;
+  try{ const it=await api('POST',`/api/crm/leads/${state.currentLead.id}/items`,{service_name:'New service',price:0,cost:0,qty:1,billing_type:'one_time'});
+    state.currentLead.items.push(it); renderLines(state.currentLead.items,false); recalc(state.currentLead.items);
+    const cards=document.querySelectorAll('#line-items .line-card'); const last=cards[cards.length-1]; if(last){ const inp=last.querySelector('input'); inp.focus(); inp.select(); }
+  }catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function addServiceLine(svc){
+  if(!state.currentLead) return; closeMenus();
+  try{ const it=await api('POST',`/api/crm/leads/${state.currentLead.id}/items`,{service_name:svc.name,price:svc.default_price,cost:svc.default_cost,qty:1,billing_type:svc.billing_type});
+    state.currentLead.items.push(it); renderLines(state.currentLead.items,false); recalc(state.currentLead.items); toast(`Added “${svc.name}”`);
+  }catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function applyPackage(pkgId){
+  if(!state.currentLead) return; closeMenus();
+  try{ const u=await api('POST',`/api/crm/leads/${state.currentLead.id}/apply-package/${pkgId}`);
+    state.currentLead=u; renderLines(u.items,false); recalc(u.items); toast('Package applied');
+  }catch(e){ toast('Error: '+e.message,'error'); }
+}
+function recalc(items){
+  const ot=items.filter(i=>i.billing_type==='one_time'), mo=items.filter(i=>i.billing_type==='monthly');
+  const sum=arr=>({rev:arr.reduce((s,i)=>s+(parseFloat(i.price)||0)*(parseInt(i.qty)||1),0),cost:arr.reduce((s,i)=>s+(parseFloat(i.cost)||0)*(parseInt(i.qty)||1),0)});
+  const o=sum(ot),m=sum(mo);
+  const rev=o.rev+m.rev, cost=o.cost+m.cost, profit=rev-cost, margin=rev>0?(profit/rev*100).toFixed(1):'0.0';
+  document.getElementById('profit-summary').innerHTML=`
+    <div class="profit-grid">
+      <div class="profit-cell"><div class="pv">${fmtDec(rev)}</div><div class="pl">Revenue</div></div>
+      <div class="profit-cell"><div class="pv">${fmtDec(cost)}</div><div class="pl">Cost</div></div>
+      <div class="profit-cell"><div class="pv ${profit>=0?'pos':'neg'}">${fmtDec(profit)}</div><div class="pl">Profit</div></div>
+      <div class="profit-cell"><div class="pv"><span class="margin-chip">${margin}%</span></div><div class="pl">Margin</div></div>
+    </div>
+    <div class="profit-split">
+      <span>One-time: <b>${fmtDec(o.rev)}</b> rev · <b>${fmtDec(o.rev-o.cost)}</b> profit</span>
+      <span>Monthly: <b>${fmtDec(m.rev)}/mo</b> rev · <b>${fmtDec(m.rev-m.cost)}/mo</b> profit</span>
+    </div>`;
 }
 
-// ── Catalog dropdown ───────────────────────────────────────────────────────
-async function loadCatalogForDeal() {
-  try {
-    state.services = await api('GET', '/api/crm/services');
-  } catch(e) { state.services = []; }
+// ── Won flow ────────────────────────────────────────────────────────────────
+function openWonModal(){
+  if(!state.currentLead) return;
+  const items=state.currentLead.items||[];
+  const rev=items.reduce((s,i)=>s+(parseFloat(i.price)||0)*(parseInt(i.qty)||1),0);
+  const mo=items.filter(i=>i.billing_type==='monthly').reduce((s,i)=>s+(parseFloat(i.price)||0)*(parseInt(i.qty)||1),0);
+  const prev=document.getElementById('won-preview');
+  if(!items.length){ prev.innerHTML=`<div style="text-align:center">No line items yet — you can still close as Won with a custom note, or cancel and build the package first.</div>`; }
+  else { prev.innerHTML=items.map(i=>`<div class="wp-row"><span>${esc(i.service_name)} ×${i.qty}</span><span>${fmtDec(i.price*i.qty)}${i.billing_type==='monthly'?'/mo':''}</span></div>`).join('')
+    +`<div class="wp-row wp-tot"><span>Total</span><span>${fmtDec(rev)}${mo>0?' ('+fmtDec(mo)+'/mo)':''}</span></div>`; }
+  document.getElementById('won-pkg-name').value='Custom package';
+  openModal('won-modal');
+}
+async function confirmWon(){
+  if(!state.currentLead) return;
+  const name=document.getElementById('won-pkg-name').value.trim()||'Custom package';
+  try{ const u=await api('POST',`/api/crm/leads/${state.currentLead.id}/win`,{package_name:name});
+    state.currentLead=u; closeModal('won-modal'); populateDeal(u); loadStatsQuiet(); toast('🎉 Deal won — customer created!','success');
+  }catch(e){ toast('Failed: '+e.message,'error'); }
 }
 
-function toggleCatalog() {
-  const menu = document.getElementById('catalog-menu');
-  if (menu.classList.contains('open')) { closeCatalog(); return; }
-  if (!state.services.length) {
-    menu.innerHTML = '<div class="catalog-empty">No services in catalog yet.<br><a href="#" onclick="showServices();event.preventDefault()" style="color:var(--accent)">Add services →</a></div>';
-  } else {
-    menu.innerHTML = state.services.map(s => {
-      const svcData = esc(JSON.stringify(s));
-      return `<div class="catalog-item" onclick="addFromCatalog('${svcData}')">
-        <div class="catalog-item-name">${esc(s.name)}</div>
-        <div class="catalog-item-meta">${fmtDec(s.default_price)} ${s.billing_type==='monthly'?'/mo':'one-time'} · Cost ${fmtDec(s.default_cost)}</div>
-      </div>`;
-    }).join('');
-  }
-  menu.classList.add('open');
+// ── Notes autosave ──────────────────────────────────────────────────────────
+function scheduleNoteSave(){
+  const hint=document.getElementById('notes-hint'); hint.textContent='Saving…';
+  clearTimeout(state.noteTimer);
+  state.noteTimer=setTimeout(async()=>{
+    if(!state.currentLead) return;
+    try{ await api('PATCH',`/api/crm/leads/${state.currentLead.id}`,{general_notes:document.getElementById('notes-area').value||null});
+      hint.textContent='Saved ✓'; setTimeout(()=>hint.textContent='Autosaves as you type',1500);
+    }catch(e){ hint.textContent='Save failed'; }
+  },700);
 }
 
-function closeCatalog() {
-  document.getElementById('catalog-menu').classList.remove('open');
+// ── Catalog + packages for deal dropdowns ───────────────────────────────────
+async function loadCatalogAndPackages(){
+  try{ state.services=await api('GET','/api/crm/services'); }catch(e){ state.services=[]; }
+  try{ state.packages=await api('GET','/api/crm/packages'); }catch(e){ state.packages=[]; }
+  const cm=document.getElementById('catalog-menu');
+  cm.innerHTML=state.services.length?state.services.map(s=>`<div class="dropdown-item" onclick='addServiceLine(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
+    <div class="dropdown-item-name">${esc(s.name)}</div><div class="dropdown-item-meta">${fmtDec(s.default_price)}${s.billing_type==='monthly'?'/mo':''} · cost ${fmtDec(s.default_cost)}</div></div>`).join('')
+    :`<div class="dropdown-empty">No services yet.<br><span class="subtle-link" onclick="go('catalog')">Add services →</span></div>`;
+  const pm=document.getElementById('pkg-template-menu');
+  pm.innerHTML=state.packages.length?state.packages.map(p=>`<div class="dropdown-item" onclick="applyPackage(${p.id})">
+    <div class="dropdown-item-name">${esc(p.name)}</div><div class="dropdown-item-meta">${p.items.length} item${p.items.length!==1?'s':''} · ${fmtDec(p.total_one_time)}${p.total_monthly>0?' + '+fmtDec(p.total_monthly)+'/mo':''}</div></div>`).join('')
+    :`<div class="dropdown-empty">No packages yet.<br><span class="subtle-link" onclick="go('packages')">Build one →</span></div>`;
+}
+function toggleMenu(id){ const m=document.getElementById(id); const open=m.classList.contains('open'); closeMenus(); if(!open) m.classList.add('open'); }
+function closeMenus(){ document.querySelectorAll('.dropdown-menu').forEach(m=>m.classList.remove('open')); }
+
+// ── Services table ──────────────────────────────────────────────────────────
+async function loadServicesTable(){
+  try{ state.services=await api('GET','/api/crm/services/all'); renderServices(); }catch(e){ toast('Could not load services','error'); }
+}
+function renderServices(){
+  const tb=document.getElementById('svc-rows');
+  if(!state.services.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:26px;color:var(--text-dim)">No services yet. Click “+ Add Service”.</td></tr>'; return; }
+  tb.innerHTML=state.services.map(s=>{
+    const margin=s.default_price>0?Math.round((s.default_price-s.default_cost)/s.default_price*100):0;
+    return `<tr data-id="${s.id}">
+      <td><input type="text" value="${esc(s.name)}" onblur="patchService(${s.id},'name',this.value)"></td>
+      <td><input class="mono" type="number" min="0" step="0.01" value="${parseFloat(s.default_price).toFixed(2)}" style="width:92px" onblur="patchService(${s.id},'default_price',parseFloat(this.value)||0)"></td>
+      <td><input class="mono" type="number" min="0" step="0.01" value="${parseFloat(s.default_cost).toFixed(2)}" style="width:92px" onblur="patchService(${s.id},'default_cost',parseFloat(this.value)||0)"></td>
+      <td style="font-family:var(--font-mono);font-size:12px;color:${margin>=0?'var(--success)':'var(--error)'}">${margin}%</td>
+      <td><select onchange="patchService(${s.id},'billing_type',this.value)"><option value="one_time" ${s.billing_type==='one_time'?'selected':''}>One-time</option><option value="monthly" ${s.billing_type==='monthly'?'selected':''}>Monthly</option></select></td>
+      <td><span class="pill-toggle ${s.active?'on':'off'}" onclick="patchService(${s.id},'active',${!s.active},true)">${s.active?'Active':'Inactive'}</span></td>
+      <td><button class="btn-danger" onclick="deleteService(${s.id})">Delete</button></td></tr>`;
+  }).join('');
+}
+function showAddServiceForm(){ document.getElementById('add-service-form').style.display=''; document.getElementById('ns-name').focus(); }
+function hideAddServiceForm(){ document.getElementById('add-service-form').style.display='none'; ['ns-name','ns-price','ns-cost'].forEach(i=>document.getElementById(i).value=''); document.getElementById('ns-billing').value='one_time'; }
+async function submitNewService(){
+  const name=document.getElementById('ns-name').value.trim(); if(!name){ document.getElementById('ns-name').focus(); return; }
+  try{ await api('POST','/api/crm/services',{name,default_price:parseFloat(document.getElementById('ns-price').value)||0,default_cost:parseFloat(document.getElementById('ns-cost').value)||0,billing_type:document.getElementById('ns-billing').value,active:true});
+    hideAddServiceForm(); toast('Service added'); loadServicesTable();
+  }catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function patchService(id,field,val,reload){
+  try{ const b={}; b[field]=val; await api('PATCH',`/api/crm/services/${id}`,b); const s=state.services.find(x=>x.id===id); if(s) s[field]=val; if(reload) renderServices(); }
+  catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+async function deleteService(id){
+  const s=state.services.find(x=>x.id===id);
+  if(!confirm(`Delete service "${s?s.name:id}"? This cannot be undone.`)) return;
+  try{ await api('DELETE',`/api/crm/services/${id}`); toast('Service deleted'); loadServicesTable(); }
+  catch(e){ toast('Delete failed: '+e.message,'error'); }
 }
 
-// ── Delete Lead ─────────────────────────────────────────────────────────────
-async function confirmDeleteLead() {
-  if (!state.currentLead) return;
-  if (!confirm(`Delete "${state.currentLead.name}"? This cannot be undone.`)) return;
-  try {
-    await api('DELETE', `/api/crm/leads/${state.currentLead.id}`);
-    toast('Lead deleted');
-    closeDeal();
-  } catch(e) { toast('Delete failed: '+e.message,'error'); }
+// ── Packages ────────────────────────────────────────────────────────────────
+async function loadPackages(){
+  try{ state.packages=await api('GET','/api/crm/packages'); renderPackages(); }catch(e){ toast('Could not load packages','error'); }
+}
+function renderPackages(){
+  const wrap=document.getElementById('pkg-list');
+  if(!state.packages.length){ wrap.innerHTML=`<div class="empty-state"><div class="ic">📦</div><div class="t">No package templates yet</div><div class="s">Bundle services into reusable packages you can apply to any deal in one click.</div><button class="btn-primary" onclick="createPackage()">+ New Package</button></div>`; return; }
+  wrap.innerHTML=state.packages.map(p=>`
+    <div class="pkg-card" data-id="${p.id}">
+      <div class="pkg-card-head">
+        <input type="text" value="${esc(p.name)}" onblur="renamePackage(${p.id},this.value)">
+        <button class="pkg-line-del" title="Delete package" onclick="deletePackage(${p.id})">🗑</button>
+      </div>
+      <div class="pkg-card-body">
+        ${p.items.map(it=>`<div class="pkg-line" data-id="${it.id}">
+          <div class="pl-name"><input type="text" value="${esc(it.service_name)}" onblur="patchPkgItem(${p.id},${it.id},'service_name',this.value)"></div>
+          <input class="pl-num" type="number" min="0" step="0.01" value="${parseFloat(it.price).toFixed(2)}" title="price" onblur="patchPkgItem(${p.id},${it.id},'price',parseFloat(this.value)||0)">
+          <input class="pl-q" type="number" min="1" value="${it.qty}" title="qty" onblur="patchPkgItem(${p.id},${it.id},'qty',parseInt(this.value)||1)">
+          <span style="display:flex;align-items:center;gap:4px">
+            <select onchange="patchPkgItem(${p.id},${it.id},'billing_type',this.value)" style="border:1px solid var(--border-soft);border-radius:5px;font-size:11px;padding:3px"><option value="one_time" ${it.billing_type==='one_time'?'selected':''}>once</option><option value="monthly" ${it.billing_type==='monthly'?'selected':''}>/mo</option></select>
+            <button class="pkg-line-del" onclick="deletePkgItem(${p.id},${it.id})">×</button></span>
+        </div>`).join('')||'<div style="color:var(--text-dim);font-size:12px;padding:6px 0">No items yet.</div>'}
+        <div class="pkg-foot">
+          <span class="pkg-tot"><b>${fmtDec(p.total_one_time)}</b>${p.total_monthly>0?' + <b>'+fmtDec(p.total_monthly)+'/mo</b>':''}</span>
+          <button class="mini-btn" onclick="addPkgItem(${p.id})">+ Add item</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+async function createPackage(){
+  const name=prompt('Package name:','New Package'); if(name===null) return;
+  try{ await api('POST','/api/crm/packages',{name:name.trim()||'New Package'}); toast('Package created'); loadPackages(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function renamePackage(id,name){ try{ await api('PATCH',`/api/crm/packages/${id}`,{name:name.trim()||'Package'}); }catch(e){ toast('Save failed','error'); } }
+async function deletePackage(id){
+  const p=state.packages.find(x=>x.id===id);
+  if(!confirm(`Delete package "${p?p.name:id}"? This cannot be undone. (Deals already using it keep their copied items.)`)) return;
+  try{ await api('DELETE',`/api/crm/packages/${id}`); toast('Package deleted'); loadPackages(); }
+  catch(e){ toast('Delete failed: '+e.message,'error'); }
+}
+async function addPkgItem(pkgId){
+  try{ await api('POST',`/api/crm/packages/${pkgId}/items`,{service_name:'New service',price:0,cost:0,qty:1,billing_type:'one_time'}); loadPackages(); }
+  catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function patchPkgItem(pkgId,itemId,field,val){
+  try{ const b={}; b[field]=val; await api('PATCH',`/api/crm/packages/${pkgId}/items/${itemId}`,b);
+    const p=state.packages.find(x=>x.id===pkgId); const it=p&&p.items.find(i=>i.id===itemId); if(it){ it[field]=val; }
+    // refresh totals
+    loadPackagesTotalsQuiet();
+  }catch(e){ toast('Save failed: '+e.message,'error'); }
+}
+async function loadPackagesTotalsQuiet(){ try{ state.packages=await api('GET','/api/crm/packages'); renderPackages(); }catch(e){} }
+async function deletePkgItem(pkgId,itemId){
+  if(!confirm('Remove this item from the package?')) return;
+  try{ await api('DELETE',`/api/crm/packages/${pkgId}/items/${itemId}`); loadPackages(); }
+  catch(e){ toast('Delete failed: '+e.message,'error'); }
 }
 
-// ── New Lead Modal ─────────────────────────────────────────────────────────
-function openNewLead() {
-  document.getElementById('nl-name').value = '';
-  document.getElementById('nl-company').value = '';
-  document.getElementById('new-lead-modal').classList.add('open');
-  setTimeout(() => document.getElementById('nl-name').focus(), 50);
+// ── Calendar ────────────────────────────────────────────────────────────────
+async function loadCalendar(){
+  try{ const r=await api('GET','/api/crm/calendar/events?days=60');
+    state.events=r.events||[]; state.googleConnected=r.google_connected; state.googleConfigured=r.google_configured;
+    document.getElementById('cal-connect-hint').style.display=r.google_connected?'none':'';
+    renderCalendarGrid(); renderAgenda();
+  }catch(e){ toast('Could not load calendar: '+e.message,'error'); }
 }
-function closeNewLead() {
-  document.getElementById('new-lead-modal').classList.remove('open');
+function renderCalendarGrid(){
+  const base=state.calDate; const y=base.getFullYear(), mo=base.getMonth();
+  document.getElementById('cal-month-label').textContent=base.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const first=new Date(y,mo,1), startDow=first.getDay(), days=new Date(y,mo+1,0).getDate();
+  const today=new Date(); const todayKey=today.toDateString();
+  const byDay={};
+  state.events.forEach(ev=>{ const d=new Date(ev.start_at); byDay[d.toDateString()]=byDay[d.toDateString()]||[]; byDay[d.toDateString()].push(ev); });
+  let cells=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="cal-dow">${d}</div>`);
+  for(let i=0;i<startDow;i++){ const d=new Date(y,mo,-(startDow-1-i)); cells.push(dayCell(d,byDay,todayKey,true)); }
+  for(let d=1;d<=days;d++){ cells.push(dayCell(new Date(y,mo,d),byDay,todayKey,false)); }
+  const tail=(7-((startDow+days)%7))%7; for(let i=1;i<=tail;i++){ cells.push(dayCell(new Date(y,mo+1,i),byDay,todayKey,true)); }
+  document.getElementById('cal-grid').innerHTML=cells.join('');
 }
-async function submitNewLead() {
-  const name = document.getElementById('nl-name').value.trim();
-  if (!name) { document.getElementById('nl-name').focus(); return; }
-  try {
-    const lead = await api('POST', '/api/crm/leads', {
-      name,
-      company: document.getElementById('nl-company').value.trim() || null,
-    });
-    closeNewLead();
-    toast('Lead created!');
-    await loadLeads();
-    openDeal(lead.id);
-  } catch(e) { toast('Error: '+e.message,'error'); }
+function dayCell(d,byDay,todayKey,other){
+  const evs=byDay[d.toDateString()]||[];
+  const dots=evs.slice(0,3).map(e=>`<div class="cal-dot ${e.source==='local'?'local':''}">${esc(new Date(e.start_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))} ${esc(e.title)}</div>`).join('')
+    +(evs.length>3?`<div class="cal-dot" style="background:transparent;color:var(--text-dim)">+${evs.length-3} more</div>`:'');
+  const iso=toLocalDT(new Date(d.getFullYear(),d.getMonth(),d.getDate(),9,0).toISOString());
+  return `<div class="cal-day ${other?'other':''} ${d.toDateString()===todayKey?'today':''}" onclick="openEventModalAt('${iso}')"><div class="dn">${d.getDate()}</div>${dots}</div>`;
 }
-
-// ── Services ───────────────────────────────────────────────────────────────
-function showPipeline() {
-  document.getElementById('pipeline-view').style.display = '';
-  document.getElementById('deal-room').classList.remove('visible');
-  document.getElementById('services-view').classList.remove('visible');
-  document.getElementById('new-lead-btn').style.display = '';
-  document.getElementById('back-btn').style.display = '';
-  document.getElementById('top-title').textContent = '📊 Leads & Sales';
-  state.view = 'pipeline';
-  loadStats();
-  loadLeads();
+function calMove(n){ state.calDate=new Date(state.calDate.getFullYear(),state.calDate.getMonth()+n,1); renderCalendarGrid(); }
+function calToday(){ state.calDate=new Date(); renderCalendarGrid(); }
+function renderAgenda(){
+  const wrap=document.getElementById('agenda-list');
+  const now=new Date(); const up=state.events.filter(e=>new Date(e.start_at)>=new Date(now.getTime()-3600*1000)).slice(0,30);
+  if(!up.length){ wrap.innerHTML=`<div class="empty-state" style="padding:30px"><div class="ic">📅</div><div class="t">No upcoming meetings yet</div><div class="s">${state.googleConnected?'New Google events will appear here.':'Connect your Google Calendar in Settings, or add an event.'}</div>${state.googleConnected?'':'<button class="btn-ghost" onclick="go(\'settings\')">Connect Google</button>'}</div>`; return; }
+  wrap.innerHTML=up.map(ev=>{
+    const d=new Date(ev.start_at);
+    const linked=ev.lead_id?`<button class="mini-btn" onclick="openDeal(${ev.lead_id})">Open lead →</button>`:`<button class="mini-btn go" onclick='leadFromEvent(${JSON.stringify(ev).replace(/'/g,"&#39;")})'>+ Create lead</button>`;
+    const edit=ev.source==='local'?`<button class="mini-btn" onclick='editEvent(${JSON.stringify(ev).replace(/'/g,"&#39;")})'>Edit</button>`:(ev.html_link?`<a class="mini-btn" href="${esc(ev.html_link)}" target="_blank">Google ↗</a>`:'');
+    return `<div class="agenda-item">
+      <div class="agenda-when"><div class="d">${d.getDate()}</div><div class="mo">${d.toLocaleDateString('en-US',{month:'short'})}</div><div class="t">${d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</div></div>
+      <div class="agenda-body"><div class="agenda-title">${esc(ev.title)}<span class="agenda-src ${ev.source}">${ev.source==='google'?'Google':'In-app'}</span></div>
+        ${ev.location?`<div class="agenda-loc">📍 ${esc(ev.location)}</div>`:''}
+        <div class="agenda-acts">${linked}${edit}</div></div></div>`;
+  }).join('');
 }
-
-async function showServices() {
-  document.getElementById('pipeline-view').style.display = 'none';
-  document.getElementById('deal-room').classList.remove('visible');
-  document.getElementById('new-lead-btn').style.display = 'none';
-  document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('top-title').textContent = '🛠 Service Catalog';
-  const sv = document.getElementById('services-view');
-  sv.classList.add('visible');
-  state.view = 'services';
-  await loadServices();
-}
-
-async function loadServices() {
-  try {
-    state.services = await api('GET', '/api/crm/services/all');
-    renderServiceTable();
-  } catch(e) { toast('Could not load services','error'); }
+async function leadFromEvent(ev){
+  try{ const lead=await api('POST','/api/crm/leads/from-event',{name:ev.title,meeting_at:ev.start_at,calendar_event_id:String(ev.source==='google'?ev.id:('local-'+ev.id)),source:ev.source==='google'?'Calendar':'In-app'});
+    toast('Lead created from meeting'); openDeal(lead.id);
+  }catch(e){ toast('Error: '+e.message,'error'); }
 }
 
-function renderServiceTable() {
-  const tbody = document.getElementById('svc-rows');
-  if (!state.services.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text-dim)">No services yet. Click "+ Add Service" to create one.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = state.services.map(s => `
-    <tr data-svc-id="${s.id}">
-      <td><input type="text" value="${esc(s.name)}" onblur="patchService(${s.id},'name',this.value)" style="min-width:150px"></td>
-      <td><input type="number" value="${parseFloat(s.default_price).toFixed(2)}" min="0" step="0.01" style="width:90px" onblur="patchService(${s.id},'default_price',parseFloat(this.value)||0)"></td>
-      <td><input type="number" value="${parseFloat(s.default_cost).toFixed(2)}" min="0" step="0.01" style="width:90px" onblur="patchService(${s.id},'default_cost',parseFloat(this.value)||0)"></td>
-      <td><select onchange="patchService(${s.id},'billing_type',this.value)">
-        <option value="one_time" ${s.billing_type==='one_time'?'selected':''}>One-time</option>
-        <option value="monthly" ${s.billing_type==='monthly'?'selected':''}>Monthly</option>
-      </select></td>
-      <td><button onclick="toggleActive(${s.id},${!s.active})" class="active-badge ${s.active?'on':'off'}">${s.active?'Active':'Inactive'}</button></td>
-      <td><button class="btn-danger" onclick="deleteService(${s.id})">Delete</button></td>
-    </tr>`).join('');
+// ── Event modal ─────────────────────────────────────────────────────────────
+function openEventModal(){ state.editingEventId=null; document.getElementById('event-modal-title').textContent='New Event';
+  ['ev-title','ev-start','ev-end','ev-location','ev-notes'].forEach(i=>document.getElementById(i).value='');
+  const d=new Date(); d.setHours(d.getHours()+1,0,0,0); document.getElementById('ev-start').value=toLocalDT(d.toISOString());
+  document.getElementById('ev-delete').style.display='none'; openModal('event-modal'); setTimeout(()=>document.getElementById('ev-title').focus(),50); }
+function openEventModalAt(iso){ openEventModal(); document.getElementById('ev-start').value=iso; }
+function editEvent(ev){ state.editingEventId=ev.id; document.getElementById('event-modal-title').textContent='Edit Event';
+  document.getElementById('ev-title').value=ev.title||''; document.getElementById('ev-start').value=toLocalDT(ev.start_at); document.getElementById('ev-end').value=toLocalDT(ev.end_at);
+  document.getElementById('ev-location').value=ev.location||''; document.getElementById('ev-notes').value=ev.description||'';
+  document.getElementById('ev-delete').style.display=''; openModal('event-modal'); }
+async function submitEvent(){
+  const title=document.getElementById('ev-title').value.trim(); const start=document.getElementById('ev-start').value;
+  if(!title){ document.getElementById('ev-title').focus(); return; }
+  if(!start){ document.getElementById('ev-start').focus(); return; }
+  const body={title,start_at:dtToISO(start),end_at:dtToISO(document.getElementById('ev-end').value),location:document.getElementById('ev-location').value.trim()||null,notes:document.getElementById('ev-notes').value.trim()||null};
+  try{ if(state.editingEventId){ await api('PATCH',`/api/crm/events/${state.editingEventId}`,body); toast('Event updated'); }
+    else { await api('POST','/api/crm/events',body); toast('Event added'); }
+    closeModal('event-modal'); loadCalendar();
+  }catch(e){ toast('Error: '+e.message,'error'); }
+}
+async function deleteEventFromModal(){
+  if(!state.editingEventId) return; if(!confirm('Delete this event?')) return;
+  try{ await api('DELETE',`/api/crm/events/${state.editingEventId}`); closeModal('event-modal'); toast('Event deleted'); loadCalendar(); }
+  catch(e){ toast('Delete failed: '+e.message,'error'); }
 }
 
-function showAddServiceForm() {
-  document.getElementById('add-service-form').style.display = '';
-  document.getElementById('ns-name').focus();
+// ── Google settings ─────────────────────────────────────────────────────────
+async function loadGoogleStatusSilent(){ try{ const s=await api('GET','/api/crm/google/status'); state.googleConnected=s.connected; state.googleConfigured=s.configured; }catch(e){} }
+async function loadGoogleStatus(){
+  try{
+    const s=await api('GET','/api/crm/google/status');
+    state.googleConnected=s.connected; state.googleConfigured=s.configured;
+    const st=document.getElementById('g-status');
+    if(s.connected){ st.className='set-status on'; st.textContent='● Connected'+(s.email?(' · '+s.email):''); document.getElementById('g-connect-btn').style.display='none'; document.getElementById('g-disconnect-btn').style.display=''; }
+    else { st.className='set-status off'; st.textContent='Not connected'; document.getElementById('g-connect-btn').style.display=s.configured?'':'none'; document.getElementById('g-disconnect-btn').style.display='none'; }
+    const help=document.getElementById('g-help');
+    if(!s.configured){
+      help.innerHTML=`<b>Set up a dedicated Google client (one-time):</b>
+        <ol><li>In <b>Google Cloud Console → APIs &amp; Services → Credentials</b>, create an <b>OAuth client ID</b> (Web application).</li>
+        <li>Add this <b>Authorized redirect URI</b>: <code>${esc(location.origin)}/api/crm/google/callback</code></li>
+        <li>On the OAuth consent screen (Testing mode) add scope <code>calendar.events.readonly</code> and add yourself as a test user.</li>
+        <li>Enable the <b>Google Calendar API</b> for the project.</li>
+        <li>In Render, set env vars <code>CRM_GOOGLE_CLIENT_ID</code> and <code>CRM_GOOGLE_CLIENT_SECRET</code>, then redeploy.</li></ol>
+        Read-only — the CRM can only view your upcoming events, never change them.`;
+    } else {
+      help.innerHTML=`Using the <b>${s.client_source==='dedicated'?'dedicated CRM':'shared'}</b> Google client. Make sure this redirect URI is authorized: <code>${esc(location.origin)}/api/crm/google/callback</code>. Access is <b>read-only</b> (calendar.events.readonly).`;
+    }
+  }catch(e){ toast('Could not load Google status','error'); }
 }
-function hideAddServiceForm() {
-  document.getElementById('add-service-form').style.display = 'none';
-  ['ns-name','ns-price','ns-cost'].forEach(id => { document.getElementById(id).value = ''; });
-  document.getElementById('ns-billing').value = 'one_time';
-}
-async function submitNewService() {
-  const name = document.getElementById('ns-name').value.trim();
-  if (!name) { document.getElementById('ns-name').focus(); return; }
-  try {
-    await api('POST', '/api/crm/services', {
-      name,
-      default_price: parseFloat(document.getElementById('ns-price').value) || 0,
-      default_cost:  parseFloat(document.getElementById('ns-cost').value)  || 0,
-      billing_type:  document.getElementById('ns-billing').value,
-      active: true,
-    });
-    hideAddServiceForm();
-    toast('Service added!');
-    await loadServices();
-  } catch(e) { toast('Error: '+e.message,'error'); }
-}
-
-async function patchService(id, field, value) {
-  try {
-    const body = {}; body[field] = value;
-    await api('PATCH', `/api/crm/services/${id}`, body);
-    const s = state.services.find(x => x.id === id);
-    if (s) s[field] = value;
-  } catch(e) { toast('Save failed: '+e.message,'error'); }
+async function disconnectGoogle(){
+  if(!confirm('Disconnect Google Calendar? Your in-app events stay; Google events will stop syncing.')) return;
+  try{ await api('POST','/api/crm/google/disconnect'); toast('Google disconnected'); loadGoogleStatus(); }
+  catch(e){ toast('Failed: '+e.message,'error'); }
 }
 
-async function toggleActive(id, active) {
-  await patchService(id, 'active', active);
-  await loadServices();
+// ── New lead modal ──────────────────────────────────────────────────────────
+function openNewLead(){ document.getElementById('nl-name').value=''; document.getElementById('nl-company').value=''; openModal('new-lead-modal'); setTimeout(()=>document.getElementById('nl-name').focus(),50); }
+async function submitNewLead(){
+  const name=document.getElementById('nl-name').value.trim(); if(!name){ document.getElementById('nl-name').focus(); return; }
+  try{ const lead=await api('POST','/api/crm/leads',{name,company:document.getElementById('nl-company').value.trim()||null});
+    closeModal('new-lead-modal'); toast('Lead created'); loadAssignees(); openDeal(lead.id);
+  }catch(e){ toast('Error: '+e.message,'error'); }
 }
 
-async function deleteService(id) {
-  const svc = state.services.find(s => s.id === id);
-  if (!confirm(`Delete service "${svc?.name || id}"? This cannot be undone.`)) return;
-  try {
-    await api('DELETE', `/api/crm/services/${id}`);
-    toast('Service deleted');
-    await loadServices();
-  } catch(e) { toast('Delete failed: '+e.message,'error'); }
-}
-
-// ── Calendly ───────────────────────────────────────────────────────────────
-async function loadCalendlyUrl() {
-  try {
-    const data = await api('GET', '/api/crm/calendly-url');
-    state.calendlyUrl = data.url || '';
-  } catch(e) {
-    state.calendlyUrl = '';
-  }
-}
+// ── Modal + misc ────────────────────────────────────────────────────────────
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+function loadStatsQuiet(){ loadStats(); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open')); });
+document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('open'); }));
 </script>
 </body>
 </html>
