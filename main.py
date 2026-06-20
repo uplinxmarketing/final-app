@@ -41,7 +41,7 @@ from database import (
     MetaApp,
     Client, ClientAdAccount, ClientInstagramAccount, ClientPostingProfile,
     Conversation, Message, ActiveContext,
-    Skill, QuickCommand, ScheduledPost, ImageCache,
+    Skill, QuickCommand, ScheduledPost, ScheduledMediaBlob, ImageCache,
     User, UserPageAssignment, UserClientAssignment,
     PublishJob, BusinessPortfolio,
     UserApiUsage, bump_user_usage,
@@ -582,6 +582,10 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
     try:
         posting_token = await _posting_token_for_uid(job.get("posting_user_id"), db)
         google_uid = job.get("google_user_id")
+        # Re-hydrate any on-disk media cache that an ephemeral-disk wipe (e.g. a
+        # redeploy) removed, pulling the bytes back from Postgres. After this the
+        # disk-backup checks below succeed and the post publishes without Drive.
+        await _restore_cached_media_from_db(job, db)
         # Validate (and refresh) the Google token now so the media proxy can
         # resolve it when Meta fetches — but only when some media item must
         # stream live from Drive. Items with a local upload or a schedule-time
@@ -615,6 +619,7 @@ async def _execute_scheduled_job(post: ScheduledPost, db: AsyncSession) -> None:
             # Publish confirmed by Meta — the disk backups of this post's
             # Drive media are no longer needed.
             _purge_drive_cache(job)
+            await _delete_media_blobs_for_job(job, db)
             await log_posting_event(db, "publish_ok", f"Scheduled post #{post.id} published successfully",
                 level="info", platform=post.platform or "instagram",
                 page_id=job.get("page_id",""), post_id=post.id,
@@ -4398,6 +4403,11 @@ async def media_proxy(token: str, request: Request, db: AsyncSession = Depends(g
         if path is None:
             path = _UPLOAD_DIR / local_id
         if not path.exists():
+            # Disk copy gone (e.g. wiped by a redeploy) — try restoring it from
+            # the durable Postgres blob so the fetch still succeeds without Drive.
+            if await _restore_blob_to_disk(local_id, db):
+                path = _UPLOAD_DIR / local_id
+        if not path.exists():
             await log_posting_event(db, "media_fetch", f"Media proxy: local file {local_id} not found (404)",
                 level="error", platform="system", detail=f"ua={_ua}")
             raise HTTPException(404, "Local media file not found")
@@ -5154,6 +5164,138 @@ _DRIVE_CACHE_MAX_BYTES = 300 * 1024 * 1024
 _DRIVE_CACHE_TOTAL_MAX_BYTES = 600 * 1024 * 1024
 
 
+# Media up to this size is also mirrored into Postgres (ScheduledMediaBlob) so
+# the disk cache can be re-hydrated after an ephemeral-disk wipe (e.g. a Render
+# redeploy). Covers all images and short videos; larger files keep the disk +
+# live-Drive fallback only, to avoid bloating the database.
+_DB_MEDIA_BLOB_MAX_BYTES = 30 * 1024 * 1024
+
+
+async def _store_media_blob(file_id: str, data: bytes, mime: str, filename: str,
+                            db: AsyncSession) -> None:
+    """Persist a cached media file's bytes to Postgres (best-effort, additive).
+
+    Lets a scheduled post survive an ephemeral-disk wipe: the worker re-hydrates
+    the disk copy from here when the on-disk cache is missing at publish time.
+    """
+    if not file_id or not data or len(data) > _DB_MEDIA_BLOB_MAX_BYTES:
+        return
+    try:
+        existing = (await db.execute(
+            select(ScheduledMediaBlob).where(ScheduledMediaBlob.file_id == file_id)
+        )).scalar_one_or_none()
+        if existing:
+            existing.data = data
+            existing.mime_type = mime or existing.mime_type
+            existing.filename = filename or existing.filename
+            existing.byte_size = len(data)
+        else:
+            db.add(ScheduledMediaBlob(
+                file_id=file_id, data=data, mime_type=mime or "",
+                filename=filename or "", byte_size=len(data),
+            ))
+        await db.commit()
+    except Exception as exc:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        logger.warning("Could not persist media blob %s to DB: %s", file_id, exc)
+
+
+async def _restore_blob_to_disk(file_id: str, db: AsyncSession) -> bool:
+    """Write a DB-stored media blob back to the uploads dir. Returns True if restored."""
+    if not file_id:
+        return False
+    dest = _UPLOAD_DIR / file_id
+    if dest.exists():
+        return True
+    try:
+        blob = (await db.execute(
+            select(ScheduledMediaBlob).where(ScheduledMediaBlob.file_id == file_id)
+        )).scalar_one_or_none()
+        if not blob or not blob.data:
+            return False
+        _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _UPLOAD_DIR / (file_id + ".restore")
+        async with aiofiles.open(tmp, "wb") as fh:
+            await fh.write(blob.data)
+        tmp.rename(dest)
+        logger.info("Restored media blob %s from DB (%d bytes)", file_id, blob.byte_size)
+        return True
+    except Exception as exc:
+        logger.warning("Could not restore media blob %s from DB: %s", file_id, exc)
+        return False
+
+
+async def _restore_cached_media_from_db(job: dict, db: AsyncSession) -> None:
+    """Re-hydrate any missing on-disk cache files for a scheduled post from Postgres.
+
+    Called before a scheduled post is published so that a redeploy (which wipes
+    the ephemeral uploads dir) doesn't force the publish path back onto Google
+    Drive. Best-effort: if a blob isn't in the DB, live-Drive fallback applies.
+    """
+    for m in (job or {}).get("media", []):
+        cid = m.get("cache_file_id")
+        if cid and not (_UPLOAD_DIR / cid).exists():
+            await _restore_blob_to_disk(cid, db)
+
+
+async def _delete_media_blobs_for_job(job: dict, db: AsyncSession) -> None:
+    """Delete a published post's durable media blobs from Postgres.
+
+    Issues the delete on the current session WITHOUT committing/rolling back, so
+    it is persisted atomically by the caller's own commit and never disturbs the
+    post's just-set 'published' status. Best-effort: orphans are swept later.
+    """
+    ids = [m.get("cache_file_id") for m in (job or {}).get("media", [])
+           if m.get("cache_file_id")]
+    if not ids:
+        return
+    try:
+        await db.execute(
+            delete(ScheduledMediaBlob).where(ScheduledMediaBlob.file_id.in_(ids))
+        )
+    except Exception as exc:
+        logger.warning("Could not delete media blobs for published post: %s", exc)
+
+
+async def _cleanup_orphan_media_blobs(db: AsyncSession) -> None:
+    """Delete durable media blobs no longer referenced by a live scheduled post.
+
+    A post that is cancelled/deleted (or a rare failed cleanup) can leave its
+    blob behind. This sweeps any blob whose file_id isn't referenced by a post
+    still awaiting publication (pending/processing), keeping the table bounded.
+    """
+    try:
+        rows = (await db.execute(
+            select(ScheduledPost.job_data).where(
+                ScheduledPost.status.in_(["pending", "processing"]),
+                ScheduledPost.job_data.isnot(None),
+            )
+        )).scalars().all()
+        live_ids: set[str] = set()
+        for jd in rows:
+            for m in (jd or {}).get("media", []):
+                cid = m.get("cache_file_id")
+                if cid:
+                    live_ids.add(cid)
+        if live_ids:
+            await db.execute(
+                delete(ScheduledMediaBlob).where(
+                    ScheduledMediaBlob.file_id.notin_(live_ids))
+            )
+        else:
+            await db.execute(delete(ScheduledMediaBlob))
+        await db.commit()
+    except Exception as exc:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        logger.warning("Orphan media-blob cleanup failed: %s", exc)
+
+
 async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSession) -> None:
     """Download Drive media of a scheduled post to the uploads dir (best-effort).
 
@@ -5192,6 +5334,18 @@ async def _cache_drive_media_to_disk(job: dict, google_uid: str, db: AsyncSessio
             tmp.rename(dest)
             m["cache_file_id"] = cache_id
             logger.info("Cached Drive media %s → %s (%d bytes)", m["drive_file_id"], cache_id, written)
+            # Also mirror to Postgres so the disk copy can be restored after an
+            # ephemeral-disk wipe (redeploy) — the post then publishes without
+            # ever touching Google Drive again.
+            if written <= _DB_MEDIA_BLOB_MAX_BYTES:
+                try:
+                    async with aiofiles.open(dest, "rb") as rfh:
+                        blob_bytes = await rfh.read()
+                    await _store_media_blob(
+                        cache_id, blob_bytes, m.get("mime_type", ""),
+                        m.get("filename", ""), db)
+                except Exception as _blob_exc:
+                    logger.warning("Media blob mirror failed for %s: %s", cache_id, _blob_exc)
         except Exception as exc:
             logger.warning("Drive cache failed for %s: %s", m.get("filename") or m.get("drive_file_id"), exc)
             try:
@@ -5289,6 +5443,7 @@ async def _drive_precache_loop() -> None:
         try:
             async for db in get_db():
                 await _precache_drive_posts(db)
+                await _cleanup_orphan_media_blobs(db)
                 break
         except Exception as exc:
             logger.warning("Drive precache loop error: %s", exc)
@@ -5329,6 +5484,21 @@ async def _schedule_ig_job(
     )
     db.add(row)
     await db.flush()
+    # Cache the media right now, while Drive is connected, so the post is
+    # self-contained and will still publish later even if Google Drive is
+    # disconnected/revoked or a redeploy wipes the disk. Best-effort: the
+    # precache loop retries if this fails, and live-Drive streaming remains the
+    # final fallback. (Bulk scheduling already commits per item, so the commit
+    # inside the cache helper doesn't disturb batch semantics.)
+    if google_uid and any(m.drive_file_id and not m.local_file_id for m in item.media):
+        try:
+            await _cache_drive_media_to_disk(job, google_uid, db)
+            row.job_data = dict(job)
+            flag_modified(row, "job_data")
+            await db.flush()
+        except Exception as exc:
+            logger.warning("Schedule-time media cache failed for post %s "
+                           "(will retry via precache): %s", row.id, exc)
     # Checkpoint immediately so the new post is durable before the next loop tick.
     await _save_checkpoint(db)
     return row.id
