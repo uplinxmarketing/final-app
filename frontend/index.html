@@ -700,6 +700,10 @@ a{color:inherit;text-decoration:none}
       <div id="token-health-banner" style="display:none;margin:8px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.45;flex-shrink:0"></div>
       <!-- System health banner (filled by _systemHealthLoad) -->
       <div id="system-health-banner" style="display:none;margin:4px 10px 0;padding:8px 10px;border-radius:8px;font-size:11px;line-height:1.5;flex-shrink:0"></div>
+      <!-- CRM app shortcut — sits above posting tools as its own app button -->
+      <div style="padding:8px 10px 0;flex-shrink:0">
+        <a href="/crm" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 12px;border-radius:9px;border:2px solid #7c3aed;background:rgba(124,58,237,.08);color:#7c3aed;font-size:13px;font-weight:600;cursor:pointer;text-align:left;text-decoration:none;box-sizing:border-box;transition:var(--transition)" onmouseover="this.style.background='rgba(124,58,237,.18)'" onmouseout="this.style.background='rgba(124,58,237,.08)'">📊 <span>Leads &amp; Sales CRM</span></a>
+      </div>
       <!-- Posts navigation (moved from workspace toolbar) -->
       <div id="posts-nav-buttons" style="padding:10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;flex-shrink:0">
         <button id="ptab-btn-bulk" class="ptab-nav-btn" onclick="startFreshUploadWizard()" onmouseout="if(_postTab!=='chat'){this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'}">📤 <span>Upload/Schedule Posts</span></button>
@@ -750,7 +754,6 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
     <div class="sidebar-bottom">
-      <a href="/crm" class="sidebar-nav-item" style="text-decoration:none;color:var(--text-secondary)">📊 Leads &amp; Sales</a>
       <div class="sidebar-nav-item" onclick="toggleSidebarMenu()" id="sidebar-menu-toggle" style="font-weight:600">⚙️ Menu <span id="sidebar-menu-caret" style="margin-left:auto;color:var(--text-dim);font-size:11px;transition:transform .15s">▸</span></div>
       <div class="sidebar-nav" id="sidebar-nav-list" style="display:none">
         <div class="sidebar-nav-item" onclick="openModal('connections-modal')">🔗 Connections</div>
