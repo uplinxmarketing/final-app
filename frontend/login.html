@@ -185,7 +185,9 @@ async function doLogin(e) {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Incorrect password');
-    window.location.href = '/';
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next');
+    window.location.href = (next && next.startsWith('/') && !next.startsWith('//')) ? next : '/';
   } catch(ex) {
     err.textContent = ex.message;
     err.style.display = 'block';
