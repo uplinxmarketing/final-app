@@ -22,6 +22,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -916,6 +917,38 @@ class ScheduledPost(Base):
             f"<ScheduledPost id={self.id} platform={self.platform!r} "
             f"status={self.status!r}>"
         )
+
+
+class ScheduledMediaBlob(Base):
+    """Durable copy of a scheduled post's media, keyed by its cache_file_id.
+
+    The posting worker caches Drive media to the uploads dir so a post can
+    publish even when Google Drive is disconnected. On hosts with an ephemeral
+    disk (e.g. Render free tier) that disk copy is wiped on every redeploy,
+    after which a revoked Google token can no longer re-fetch the media and the
+    scheduled post fails. Storing the same bytes here (in the persistent
+    Postgres database) lets the worker re-hydrate the disk cache after a
+    redeploy, so scheduled posts publish regardless of Drive connectivity.
+
+    Rows are deleted once the post publishes successfully. Additive table —
+    creating it never touches existing posting-app data.
+    """
+
+    __tablename__ = "scheduled_media_blobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Matches the cache_file_id stored in ScheduledPost.job_data media entries.
+    file_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    mime_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<ScheduledMediaBlob file_id={self.file_id!r} bytes={self.byte_size}>"
 
 
 class PublishJob(Base):
