@@ -1226,6 +1226,18 @@ async def login_guard(request: Request, call_next):
             or path.startswith("/media/")       # public media proxy (Meta fetches IG media)
             or path.startswith("/static/")):
         return await call_next(request)
+    # CRM paths: also accept the admin_session cookie so admin-dashboard users can
+    # access /crm without needing a second login (admin SSO may not always set
+    # uplinx_session when the linked Meta user account is inactive/missing).
+    if path.startswith("/crm") or path.startswith("/api/crm"):
+        admin_token = request.cookies.get("admin_session")
+        if admin_token:
+            try:
+                from admin_router import _decode_admin_token
+                if _decode_admin_token(admin_token):
+                    return await call_next(request)
+            except Exception:
+                pass
     # Accept either the legacy login cookie (master password) OR a valid per-user
     # session cookie (set by admin SSO login). This means users who log in via the
     # admin panel don't also need to enter the master password.
@@ -1236,7 +1248,9 @@ async def login_guard(request: Request, call_next):
     if not has_login_cookie and not has_session:
         if path.startswith("/api/"):
             return JSONResponse({"error": "Login required"}, status_code=403)
-        return RedirectResponse("/login")
+        # Preserve the originally-requested URL so login can redirect back to it
+        safe_next = path if path.startswith("/") and not path.startswith("//") else "/"
+        return RedirectResponse(f"/login?next={safe_next}")
     return await call_next(request)
 
 
