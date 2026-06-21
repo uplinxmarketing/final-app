@@ -2,14 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps needed by pymupdf / pdfplumber
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmupdf-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies first (layer cache)
+# pymupdf>=1.24 ships a self-contained wheel (libmupdf bundled); no system dep needed.
+# Install Python dependencies first for layer caching.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn uvicorn[standard]
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
 COPY . .
